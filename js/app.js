@@ -327,7 +327,8 @@ class SkydivingLogbook {
             const lineset = this.linesets.find(l => l.id === combination.linesetId);
             
             if (rig && canopy && lineset) {
-                equipmentName = `${rig.name} + ${canopy.name} + ${lineset.name}`;
+                const hybridSuffix = /-Hybrid$/i.test(combination.name || '') ? ' (Hybrid)' : '';
+                equipmentName = `${rig.name} + ${canopy.name} + ${lineset.name}${hybridSuffix}`;
             } else {
                 equipmentName = combination.name;
             }
@@ -542,7 +543,8 @@ class SkydivingLogbook {
                 const canopy = this.canopies.find(c => c.id === eq.canopyId);
                 const lineset = this.linesets.find(l => l.id === eq.linesetId);
                 if (rig && canopy && lineset) {
-                    const autoName = `${rig.name}-${canopy.name}-${lineset.name}`;
+                    const hybridSuffix = /-Hybrid$/i.test(eq.name || '') ? '-Hybrid' : '';
+                    const autoName = `${rig.name}-${canopy.name}-${lineset.name}${hybridSuffix}`;
                     if (eq.name !== autoName) {
                         eq.name = autoName;
                         needsSave = true;
@@ -753,6 +755,7 @@ class SkydivingLogbook {
             document.getElementById('equipmentRig').value = equipment.rigId || '';
             document.getElementById('equipmentCanopy').value = equipment.canopyId || '';
             document.getElementById('equipmentLineset').value = equipment.linesetId || '';
+            document.getElementById('equipmentHybridCheck').checked = /-Hybrid$/i.test(equipment.name || '');
             
             document.getElementById('equipmentModal').style.display = 'block';
         }
@@ -774,7 +777,9 @@ class SkydivingLogbook {
         const rig = this.rigs.find(r => r.id === rigId);
         const canopy = this.canopies.find(c => c.id === canopyId);
         const lineset = this.linesets.find(l => l.id === linesetId);
-        const name = `${rig.name}-${canopy.name}-${lineset.name}`;
+        const isHybrid = document.getElementById('equipmentHybridCheck').checked;
+        let name = `${rig.name}-${canopy.name}-${lineset.name}`;
+        if (isHybrid) name += '-Hybrid';
         
         if (id) {
             // Edit existing
@@ -846,7 +851,7 @@ class SkydivingLogbook {
 
     /**
      * Instantly create a new lineset with an auto-incremented name
-     * (Lineset#1, Lineset#2, …) — no modal needed.
+     * (Lineset#1, Lineset#2, …).
      */
     addLinesetQuick() {
         // Determine the next number by looking at existing lineset names
@@ -859,12 +864,13 @@ class SkydivingLogbook {
         }
         const nextNum = maxNum + 1;
         const newId = 'lineset_' + Date.now();
-        this.linesets.push({ id: newId, name: `Lineset#${nextNum}` });
+        const name = `Lineset#${nextNum}`;
+        this.linesets.push({ id: newId, name });
 
         this.saveComponentsToLocalStorage();
         this.renderEquipmentView();
         if (navigator.onLine && window.SheetsAPI) window.SheetsAPI.syncEquipmentToSheet();
-        this.showMessage(`Lineset#${nextNum} added!`, 'success');
+        this.showMessage(`${name} added!`, 'success');
     }
     
     saveComponent() {
@@ -1004,7 +1010,8 @@ class SkydivingLogbook {
             const canopy = this.canopies.find(c => c.id === eq.canopyId);
             const lineset = this.linesets.find(l => l.id === eq.linesetId);
             if (rig && canopy && lineset) {
-                name = `${rig.name} + ${canopy.name} + ${lineset.name}`;
+                const hybridSuffix = /-Hybrid$/i.test(eq.name || '') ? ' (Hybrid)' : '';
+                name = `${rig.name} + ${canopy.name} + ${lineset.name}${hybridSuffix}`;
             }
             return { name, count: totalCount, logged: loggedJumpsCount, preApp: eq.previousJumps || 0, archived: eq.archived };
         });
