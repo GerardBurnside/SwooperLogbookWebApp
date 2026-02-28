@@ -313,6 +313,7 @@ textarea {
     font-weight: 600;
     color: #333;
     padding: 0;
+    appearance: textfield;
     -moz-appearance: textfield;
 }
 
