@@ -179,14 +179,31 @@ class SheetsAPI {
         this.updateSyncStatus('Syncing...');
         
         try {
-            // --- Push local equipment to sheet FIRST so local edits are never lost ---
-            console.log('[Sync] Pushing local equipment to sheet...');
-            await this.syncEquipmentToSheet();
+            // Detect whether any critical local equipment list is empty.
+            // If so, pull from the sheet FIRST to avoid overwriting good data
+            // with an empty local list.
+            const logbook = window.logbook;
+            const localRigsEmpty = !logbook || !logbook.equipmentRigs || logbook.equipmentRigs.length === 0;
 
-            // --- Then pull equipment back (picks up our push + ensures consistency) ---
-            console.log('[Sync] Pulling equipment from sheet...');
-            const equipmentSynced = await this.syncEquipmentFromSheet();
-            console.log('[Sync] Equipment pull result:', equipmentSynced);
+            if (localRigsEmpty) {
+                // --- Pull equipment FIRST to recover missing data ---
+                console.log('[Sync] Local rigs empty – pulling equipment from sheet first...');
+                const equipmentSynced = await this.syncEquipmentFromSheet();
+                console.log('[Sync] Equipment pull result:', equipmentSynced);
+
+                // Now push (will include the recovered data)
+                console.log('[Sync] Pushing local equipment to sheet...');
+                await this.syncEquipmentToSheet();
+            } else {
+                // --- Normal flow: push local equipment first so edits are never lost ---
+                console.log('[Sync] Pushing local equipment to sheet...');
+                await this.syncEquipmentToSheet();
+
+                // --- Then pull back (picks up our push + ensures consistency) ---
+                console.log('[Sync] Pulling equipment from sheet...');
+                const equipmentSynced = await this.syncEquipmentFromSheet();
+                console.log('[Sync] Equipment pull result:', equipmentSynced);
+            }
 
             // Get local jumps
             const localJumps = JSON.parse(localStorage.getItem('skydiving-jumps')) || [];
@@ -246,14 +263,20 @@ class SheetsAPI {
         const logbook = window.logbook;
         if (!logbook) return;
 
+        // Safety: never push an empty rigs array – it would erase the sheet.
+        // Omit the key so the Apps Script side leaves the existing data intact.
+        const rigsToSend = (logbook.equipmentRigs && logbook.equipmentRigs.length > 0)
+            ? logbook.equipmentRigs
+            : undefined;
+
         const payload = {
-            harnesses:         logbook.harnesses,
+            harnesses:    logbook.harnesses,
             canopies:     logbook.canopies,
             linesets:     logbook.linesets,
-            rigs: logbook.equipmentRigs,
             settings:     logbook.settings,
             locations:    logbook.locations
         };
+        if (rigsToSend) payload.rigs = rigsToSend;
 
         try {
             const response = await fetch(this.webAppUrl, {
