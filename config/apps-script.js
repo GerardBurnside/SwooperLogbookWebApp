@@ -64,7 +64,7 @@ function getJumps() {
 function addJump(jumpData) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Jumps');
   
-  // Add the jump data as a new row (col 7 = equipmentId preserves the combination ID)
+  // Add the jump data as a new row (col 7 = equipmentId preserves the rig ID)
   sheet.appendRow([
     jumpData.jumpNumber,
     jumpData.date,
@@ -108,11 +108,11 @@ function uploadJumps(jumpsData) {
 }
 
 // ─── Equipment tab ────────────────────────────────────────────────────────────
-// The "Equipment" sheet stores all component / combination data as named rows:
-//   Row 1:  key="rigs"          value=<JSON array>
+// The "Equipment" sheet stores all component / rig data as named rows:
+//   Row 1:  key="harnesses"          value=<JSON array>
 //   Row 2:  key="canopies"      value=<JSON array>
 //   Row 3:  key="linesets"      value=<JSON array>
-//   Row 4:  key="combinations"  value=<JSON array>
+//   Row 4:  key="rigs"  value=<JSON array>
 //   Row 5:  key="settings"      value=<JSON object>
 
 function getOrCreateEquipmentSheet() {
@@ -120,10 +120,10 @@ function getOrCreateEquipmentSheet() {
   let sheet = ss.getSheetByName('Equipment');
   if (!sheet) {
     sheet = ss.insertSheet('Equipment');
-    sheet.getRange('A1').setValue('rigs');
+    sheet.getRange('A1').setValue('harnesses');
     sheet.getRange('A2').setValue('canopies');
     sheet.getRange('A3').setValue('linesets');
-    sheet.getRange('A4').setValue('combinations');
+    sheet.getRange('A4').setValue('rigs');
     sheet.getRange('A5').setValue('settings');
     sheet.getRange('A6').setValue('locations');
   }
@@ -156,7 +156,7 @@ function getEquipment() {
 function saveEquipment(equipmentData) {
   const sheet = getOrCreateEquipmentSheet();
   
-  const keyOrder = ['rigs', 'canopies', 'linesets', 'combinations', 'settings', 'locations'];
+  const keyOrder = ['harnesses', 'canopies', 'linesets', 'rigs', 'settings', 'locations'];
   keyOrder.forEach((key, index) => {
     sheet.getRange(index + 1, 1).setValue(key);
     if (equipmentData[key] !== undefined) {

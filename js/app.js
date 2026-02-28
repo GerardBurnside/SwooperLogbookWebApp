@@ -7,7 +7,7 @@ class SkydivingLogbook {
         };
         
         // Component-based equipment system
-        this.rigs = JSON.parse(localStorage.getItem('skydiving-rigs')) || [
+        this.harnesses = JSON.parse(localStorage.getItem('skydiving-harnesses')) || [
             { id: 'javelin', name: 'Javelin' },
             { id: 'mutant', name: 'Mutant' }
         ];
@@ -19,7 +19,7 @@ class SkydivingLogbook {
             { id: 'set1', name: 'Lineset #1' },
             { id: 'set2', name: 'Lineset #2' }
         ];
-        this.equipmentCombinations = JSON.parse(localStorage.getItem('skydiving-equipment-combinations')) || [];
+        this.equipmentRigs = JSON.parse(localStorage.getItem('skydiving-equipment-rigs')) || [];
         this.locations = JSON.parse(localStorage.getItem('skydiving-locations')) || [
             { id: 'loc_lfoz',    name: 'LFOZ Epcol' },
             { id: 'loc_klatovy', name: 'Klatovy' },
@@ -31,11 +31,11 @@ class SkydivingLogbook {
         // Migrate old equipment data if needed
         this.migrateOldEquipmentData();
         
-        // Initialize jump counts for equipment combinations
+        // Initialize jump counts for equipment rigs
         this.initializeEquipmentJumpCounts();
         
         this.currentView = 'jumps'; // 'jumps', 'equipment', 'stats'
-        this.equipmentSubView = 'combinations'; // 'combinations', 'rigs', 'canopies', 'linesets', 'locations'
+        this.equipmentSubView = 'rigs'; // 'rigs', 'harnesses', 'canopies', 'linesets', 'locations'
         this.showArchivedStats = false;
         
         this.init();
@@ -71,8 +71,8 @@ class SkydivingLogbook {
         if (!window.SheetsAPI.initialized) return;
 
         // Push local equipment first so any pending changes aren't lost
-        const hasLocalEquipment = this.rigs.length || this.canopies.length ||
-                                  this.linesets.length || this.equipmentCombinations.length ||
+        const hasLocalEquipment = this.harnesses.length || this.canopies.length ||
+                                  this.linesets.length || this.equipmentRigs.length ||
                                   this.locations.length;
         if (hasLocalEquipment) {
             console.log('[AutoSync] Pushing local equipment to sheet first');
@@ -168,8 +168,8 @@ class SkydivingLogbook {
         });
         
         // Component management
-        document.getElementById('addRigBtn').addEventListener('click', () => {
-            this.addComponent('rig');
+        document.getElementById('addHarnessBtn').addEventListener('click', () => {
+            this.addComponent('harness');
         });
         
         document.getElementById('addCanopyBtn').addEventListener('click', () => {
@@ -242,8 +242,8 @@ class SkydivingLogbook {
         // Pre-fill equipment
         const equipmentSelect = document.getElementById('equipment');
         if (lastJump.equipment && equipmentSelect) {
-            // Check if the equipment combination still exists and is not archived
-            const equipment = this.equipmentCombinations.find(eq => eq.id === lastJump.equipment && !eq.archived);
+            // Check if the equipment rig still exists and is not archived
+            const equipment = this.equipmentRigs.find(eq => eq.id === lastJump.equipment && !eq.archived);
             if (equipment) {
                 equipmentSelect.value = lastJump.equipment;
             }
@@ -298,7 +298,7 @@ class SkydivingLogbook {
 
         // Update equipment jump count if equipment is selected
         if (jump.equipment) {
-            const equipment = this.equipmentCombinations.find(eq => eq.id === jump.equipment);
+            const equipment = this.equipmentRigs.find(eq => eq.id === jump.equipment);
             if (equipment) {
                 equipment.jumpCount = (equipment.jumpCount || 0) + 1;
                 this.saveComponentsToLocalStorage();
@@ -374,18 +374,18 @@ class SkydivingLogbook {
         const date = new Date(jump.date).toLocaleDateString();
         let equipmentName = jump.equipment;
         
-        // Try to find the equipment combination for better display
-        const combination = this.equipmentCombinations.find(eq => eq.id === jump.equipment);
-        if (combination) {
-            const rig = this.rigs.find(r => r.id === combination.rigId);
-            const canopy = this.canopies.find(c => c.id === combination.canopyId);
-            const lineset = this.linesets.find(l => l.id === combination.linesetId);
+        // Try to find the equipment rig for better display
+        const rig = this.equipmentRigs.find(eq => eq.id === jump.equipment);
+        if (rig) {
+            const harness = this.harnesses.find(r => r.id === rig.harnessId);
+            const canopy = this.canopies.find(c => c.id === rig.canopyId);
+            const lineset = this.linesets.find(l => l.id === rig.linesetId);
             
-            if (rig && canopy && lineset) {
-                const hybridSuffix = /-Hybrid$/i.test(combination.name || '') ? ' (Hybrid)' : '';
-                equipmentName = `${rig.name} + ${canopy.name} + ${lineset.name}${hybridSuffix}`;
+            if (harness && canopy && lineset) {
+                const hybridSuffix = /-Hybrid$/i.test(rig.name || '') ? ' (Hybrid)' : '';
+                equipmentName = `${harness.name} + ${canopy.name} + ${lineset.name}${hybridSuffix}`;
             } else {
-                equipmentName = combination.name;
+                equipmentName = rig.name;
             }
         }
 
@@ -421,7 +421,7 @@ class SkydivingLogbook {
         
         // Update equipment jump count if equipment was selected
         if (deletedJump.equipment) {
-            const equipment = this.equipmentCombinations.find(eq => eq.id === deletedJump.equipment);
+            const equipment = this.equipmentRigs.find(eq => eq.id === deletedJump.equipment);
             if (equipment && equipment.jumpCount > 0) {
                 equipment.jumpCount = equipment.jumpCount - 1;
                 this.saveComponentsToLocalStorage();
@@ -533,10 +533,10 @@ class SkydivingLogbook {
     }
 
     saveComponentsToLocalStorage() {
-        localStorage.setItem('skydiving-rigs', JSON.stringify(this.rigs));
+        localStorage.setItem('skydiving-harnesses', JSON.stringify(this.harnesses));
         localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
         localStorage.setItem('skydiving-linesets', JSON.stringify(this.linesets));
-        localStorage.setItem('skydiving-equipment-combinations', JSON.stringify(this.equipmentCombinations));
+        localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
         localStorage.setItem('skydiving-locations', JSON.stringify(this.locations));
         
         // Push to Google Sheets if online
@@ -547,13 +547,13 @@ class SkydivingLogbook {
     
     migrateOldEquipmentData() {
         const oldEquipment = JSON.parse(localStorage.getItem('skydiving-equipment'));
-        if (oldEquipment && oldEquipment.length > 0 && this.equipmentCombinations.length === 0) {
-            // Migrate old simple equipment to new combination format
+        if (oldEquipment && oldEquipment.length > 0 && this.equipmentRigs.length === 0) {
+            // Migrate old simple equipment to new rig format
             oldEquipment.forEach(eq => {
-                this.equipmentCombinations.push({
+                this.equipmentRigs.push({
                     id: eq.id,
                     name: eq.name,
-                    rigId: 'legacy',
+                    harnessId: 'legacy',
                     canopyId: 'legacy',
                     linesetId: 'legacy',
                     previousJumps: 0,
@@ -563,8 +563,8 @@ class SkydivingLogbook {
             });
             
             // Add legacy components
-            if (!this.rigs.find(r => r.id === 'legacy')) {
-                this.rigs.push({ id: 'legacy', name: 'Legacy Rig' });
+            if (!this.harnesses.find(r => r.id === 'legacy')) {
+                this.harnesses.push({ id: 'legacy', name: 'Legacy Harness' });
             }
             if (!this.canopies.find(c => c.id === 'legacy')) {
                 this.canopies.push({ id: 'legacy', name: 'Legacy Canopy' });
@@ -577,9 +577,9 @@ class SkydivingLogbook {
             localStorage.removeItem('skydiving-equipment'); // Remove old data
         }
         
-        // Migrate existing equipment combinations to new format
+        // Migrate existing equipment rigs to new format
         let needsSave = false;
-        this.equipmentCombinations.forEach(eq => {
+        this.equipmentRigs.forEach(eq => {
             // Migrate old startingJumpNumber → previousJumps (plain count of pre-app jumps)
             if (eq.previousJumps === undefined) {
                 // startingJumpNumber was stored as the first jump number tracked, so
@@ -594,13 +594,13 @@ class SkydivingLogbook {
                 needsSave = true;
             }
             // Update names to auto-generated format if components exist
-            if (eq.rigId && eq.canopyId && eq.linesetId) {
-                const rig = this.rigs.find(r => r.id === eq.rigId);
+            if (eq.harnessId && eq.canopyId && eq.linesetId) {
+                const harness = this.harnesses.find(r => r.id === eq.harnessId);
                 const canopy = this.canopies.find(c => c.id === eq.canopyId);
                 const lineset = this.linesets.find(l => l.id === eq.linesetId);
-                if (rig && canopy && lineset) {
+                if (harness && canopy && lineset) {
                     const hybridSuffix = /-Hybrid$/i.test(eq.name || '') ? '-Hybrid' : '';
-                    const autoName = `${rig.name}-${canopy.name}-${lineset.name}${hybridSuffix}`;
+                    const autoName = `${harness.name}-${canopy.name}-${lineset.name}${hybridSuffix}`;
                     if (eq.name !== autoName) {
                         eq.name = autoName;
                         needsSave = true;
@@ -615,10 +615,10 @@ class SkydivingLogbook {
     }
     
     initializeEquipmentJumpCounts() {
-        // Count all logged jumps for each equipment combination (no jump-number filter;
+        // Count all logged jumps for each equipment rig (no jump-number filter;
         // pre-app jumps are accounted for separately via eq.previousJumps).
         let needsSave = false;
-        this.equipmentCombinations.forEach(eq => {
+        this.equipmentRigs.forEach(eq => {
             const actualJumpCount = this.jumps.filter(jump => jump.equipment === eq.id).length;
             
             if (eq.jumpCount !== actualJumpCount) {
@@ -668,8 +668,8 @@ class SkydivingLogbook {
         
         // Update section title and buttons
         const titleMap = {
-            'combinations': 'Equipment Combinations',
-            'rigs':         'Rigs',
+            'rigs': 'Equipment Rigs',
+            'harnesses':         'Harnesses',
             'canopies':     'Canopies',
             'linesets':     'Linesets',
             'locations':    'Drop Zones / Locations'
@@ -678,8 +678,8 @@ class SkydivingLogbook {
         document.getElementById('equipmentSectionTitle').textContent = titleMap[subView];
         
         // Show/hide appropriate buttons
-        document.getElementById('addEquipmentBtn').style.display  = subView === 'combinations' ? 'block' : 'none';
-        document.getElementById('addRigBtn').style.display        = subView === 'rigs'         ? 'block' : 'none';
+        document.getElementById('addEquipmentBtn').style.display  = subView === 'rigs' ? 'block' : 'none';
+        document.getElementById('addHarnessBtn').style.display        = subView === 'harnesses'         ? 'block' : 'none';
         document.getElementById('addCanopyBtn').style.display     = subView === 'canopies'     ? 'block' : 'none';
         document.getElementById('addLinesetBtn').style.display    = subView === 'linesets'     ? 'block' : 'none';
         document.getElementById('addLocationBtn').style.display   = subView === 'locations'    ? 'block' : 'none';
@@ -689,8 +689,8 @@ class SkydivingLogbook {
     
     renderEquipmentView() {
         switch(this.equipmentSubView) {
-            case 'combinations': this.renderEquipmentCombinations(); break;
-            case 'rigs':         this.renderComponents('rigs');      break;
+            case 'rigs': this.renderEquipmentRigs(); break;
+            case 'harnesses':         this.renderComponents('harnesses');      break;
             case 'canopies':     this.renderComponents('canopies');  break;
             case 'linesets':     this.renderComponents('linesets');  break;
             case 'locations':    this.renderComponents('locations'); break;
@@ -701,10 +701,10 @@ class SkydivingLogbook {
         const select = document.getElementById('equipment');
         select.innerHTML = '<option value="">Select Equipment</option>';
         
-        // Only show non-archived combinations
-        const activeCombinations = this.equipmentCombinations.filter(eq => !eq.archived);
+        // Only show non-archived rigs
+        const activeRigs = this.equipmentRigs.filter(eq => !eq.archived);
         
-        activeCombinations.forEach(eq => {
+        activeRigs.forEach(eq => {
             const option = document.createElement('option');
             option.value = eq.id;
             option.textContent = eq.name; // Use the auto-generated name
@@ -712,28 +712,28 @@ class SkydivingLogbook {
         });
     }
 
-    renderEquipmentCombinations() {
+    renderEquipmentRigs() {
         const container = document.getElementById('equipmentList');
         
-        if (this.equipmentCombinations.length === 0) {
-            container.innerHTML = '<p class="no-items">No equipment combinations created yet.</p>';
+        if (this.equipmentRigs.length === 0) {
+            container.innerHTML = '<p class="no-items">No equipment rigs created yet.</p>';
             return;
         }
         
-        const sorted = [...this.equipmentCombinations].sort((a, b) => !!a.archived - !!b.archived);
+        const sorted = [...this.equipmentRigs].sort((a, b) => !!a.archived - !!b.archived);
 
         container.innerHTML = sorted.map(eq => {
-            const rig = this.rigs.find(r => r.id === eq.rigId);
+            const harness = this.harnesses.find(r => r.id === eq.harnessId);
             const canopy = this.canopies.find(c => c.id === eq.canopyId);
             const lineset = this.linesets.find(l => l.id === eq.linesetId);
             
             let displayName = eq.name;
             let components = '';
             let jumpInfo = '';
-            if (rig && canopy && lineset) {
+            if (harness && canopy && lineset) {
                 // Use the stored name (auto-generated)
                 displayName = eq.name;
-                components = `<div class="equipment-components">${rig.name} | ${canopy.name} | ${lineset.name}</div>`;
+                components = `<div class="equipment-components">${harness.name} | ${canopy.name} | ${lineset.name}</div>`;
                 const logged = eq.jumpCount || 0;
                 const preApp = eq.previousJumps || 0;
                 const total = logged + preApp;
@@ -769,14 +769,14 @@ class SkydivingLogbook {
     }
     
     populateComponentSelects() {
-        // Populate rig select
-        const rigSelect = document.getElementById('equipmentRig');
-        rigSelect.innerHTML = '<option value="">Select Rig</option>';
-        this.rigs.forEach(rig => {
+        // Populate harness select
+        const harnessSelect = document.getElementById('equipmentHarness');
+        harnessSelect.innerHTML = '<option value="">Select Harness</option>';
+        this.harnesses.forEach(harness => {
             const option = document.createElement('option');
-            option.value = rig.id;
-            option.textContent = rig.name;
-            rigSelect.appendChild(option);
+            option.value = harness.id;
+            option.textContent = harness.name;
+            harnessSelect.appendChild(option);
         });
         
         // Populate canopy select
@@ -801,14 +801,14 @@ class SkydivingLogbook {
     }
 
     editEquipment(id) {
-        const equipment = this.equipmentCombinations.find(eq => eq.id === id);
+        const equipment = this.equipmentRigs.find(eq => eq.id === id);
         if (equipment) {
             document.getElementById('equipmentId').value = equipment.id;
             document.getElementById('equipmentStartingJumpNumber').value = equipment.previousJumps || 0;
             this.populateComponentSelects();
             
             // Set selected values
-            document.getElementById('equipmentRig').value = equipment.rigId || '';
+            document.getElementById('equipmentHarness').value = equipment.harnessId || '';
             document.getElementById('equipmentCanopy').value = equipment.canopyId || '';
             document.getElementById('equipmentLineset').value = equipment.linesetId || '';
             document.getElementById('equipmentHybridCheck').checked = /-Hybrid$/i.test(equipment.name || '');
@@ -819,30 +819,30 @@ class SkydivingLogbook {
 
     saveEquipment() {
         const id = document.getElementById('equipmentId').value;
-        const rigId = document.getElementById('equipmentRig').value;
+        const harnessId = document.getElementById('equipmentHarness').value;
         const canopyId = document.getElementById('equipmentCanopy').value;
         const linesetId = document.getElementById('equipmentLineset').value;
         const previousJumps = Math.max(0, parseInt(document.getElementById('equipmentStartingJumpNumber').value) || 0);
         
-        if (!rigId || !canopyId || !linesetId) {
-            this.showMessage('Please select rig, canopy, and lineset', 'error');
+        if (!harnessId || !canopyId || !linesetId) {
+            this.showMessage('Please select harness, canopy, and lineset', 'error');
             return;
         }
         
         // Auto-generate name from components
-        const rig = this.rigs.find(r => r.id === rigId);
+        const harness = this.harnesses.find(r => r.id === harnessId);
         const canopy = this.canopies.find(c => c.id === canopyId);
         const lineset = this.linesets.find(l => l.id === linesetId);
         const isHybrid = document.getElementById('equipmentHybridCheck').checked;
-        let name = `${rig.name}-${canopy.name}-${lineset.name}`;
+        let name = `${harness.name}-${canopy.name}-${lineset.name}`;
         if (isHybrid) name += '-Hybrid';
         
         if (id) {
             // Edit existing
-            const equipment = this.equipmentCombinations.find(eq => eq.id === id);
+            const equipment = this.equipmentRigs.find(eq => eq.id === id);
             if (equipment) {
                 equipment.name = name;
-                equipment.rigId = rigId;
+                equipment.harnessId = harnessId;
                 equipment.canopyId = canopyId;
                 equipment.linesetId = linesetId;
                 equipment.previousJumps = previousJumps;
@@ -850,10 +850,10 @@ class SkydivingLogbook {
         } else {
             // Add new
             const newId = 'eq_' + Date.now();
-            this.equipmentCombinations.push({
+            this.equipmentRigs.push({
                 id: newId,
                 name: name,
-                rigId: rigId,
+                harnessId: harnessId,
                 canopyId: canopyId,
                 linesetId: linesetId,
                 previousJumps: previousJumps,
@@ -870,7 +870,7 @@ class SkydivingLogbook {
     }
 
     deleteEquipment(id) {
-        if (confirm('Are you sure you want to delete this equipment combination?')) {
+        if (confirm('Are you sure you want to delete this equipment rig?')) {
             // Check if equipment is used in any jumps
             const usedInJumps = this.jumps.some(jump => jump.equipment === id);
             if (usedInJumps) {
@@ -878,7 +878,7 @@ class SkydivingLogbook {
                 return;
             }
             
-            this.equipmentCombinations = this.equipmentCombinations.filter(eq => eq.id !== id);
+            this.equipmentRigs = this.equipmentRigs.filter(eq => eq.id !== id);
             this.saveComponentsToLocalStorage();
             this.updateEquipmentOptions();
             this.renderEquipmentView();
@@ -887,7 +887,7 @@ class SkydivingLogbook {
     }
     
     toggleArchiveEquipment(id) {
-        const equipment = this.equipmentCombinations.find(eq => eq.id === id);
+        const equipment = this.equipmentRigs.find(eq => eq.id === id);
         if (equipment) {
             equipment.archived = !equipment.archived;
             this.saveComponentsToLocalStorage();
@@ -895,6 +895,11 @@ class SkydivingLogbook {
             this.renderEquipmentView();
             this.showMessage(`Equipment ${equipment.archived ? 'archived' : 'unarchived'} successfully!`, 'success');
         }
+    }
+
+    _singularize(plural) {
+        const map = { harnesses: 'harness', canopies: 'canopy', linesets: 'lineset', locations: 'location' };
+        return map[plural] || plural.slice(0, -1);
     }
 
     addComponent(type) {
@@ -942,7 +947,7 @@ class SkydivingLogbook {
         // Get the correct collection name for each type
         let collectionName;
         switch(type) {
-            case 'rig':      collectionName = 'rigs';      break;
+            case 'harness':      collectionName = 'harnesses';      break;
             case 'canopy':   collectionName = 'canopies';  break;
             case 'lineset':  collectionName = 'linesets';  break;
             case 'location': collectionName = 'locations'; break;
@@ -1083,23 +1088,24 @@ class SkydivingLogbook {
         const collection = this[type];
         const component = collection.find(c => c.id === id);
         if (component) {
+            const singular = this._singularize(type);
             document.getElementById('componentId').value = component.id;
             document.getElementById('componentName').value = component.name;
-            document.getElementById('componentType').value = type.slice(0, -1); // Remove 's' from end
-            document.getElementById('componentModalTitle').textContent = `Edit ${type.slice(0, -1).charAt(0).toUpperCase() + type.slice(1, -1)}`;
+            document.getElementById('componentType').value = singular;
+            document.getElementById('componentModalTitle').textContent = `Edit ${singular.charAt(0).toUpperCase() + singular.slice(1)}`;
             document.getElementById('componentModal').style.display = 'block';
         }
     }
     
     deleteComponent(id, type) {
-        const typeSingular = type.slice(0, -1);
+        const typeSingular = this._singularize(type);
         if (confirm(`Are you sure you want to delete this ${typeSingular}?`)) {
-            // Check if component is used in any equipment combinations
-            const usedInEquipment = this.equipmentCombinations.some(eq => 
-                eq.rigId === id || eq.canopyId === id || eq.linesetId === id
+            // Check if component is used in any equipment rigs
+            const usedInEquipment = this.equipmentRigs.some(eq => 
+                eq.harnessId === id || eq.canopyId === id || eq.linesetId === id
             );
             if (usedInEquipment) {
-                this.showMessage(`Cannot delete ${typeSingular} that is used in equipment combinations`, 'error');
+                this.showMessage(`Cannot delete ${typeSingular} that is used in equipment rigs`, 'error');
                 return;
             }
             
@@ -1132,17 +1138,17 @@ class SkydivingLogbook {
             return;
         }
         
-        // Calculate equipment combination statistics
-        const equipmentStats = this.equipmentCombinations.map(eq => {
+        // Calculate equipment rig statistics
+        const equipmentStats = this.equipmentRigs.map(eq => {
             const loggedJumpsCount = this.jumps.filter(jump => jump.equipment === eq.id).length;
             const totalCount = loggedJumpsCount + (eq.previousJumps || 0);
             let name = eq.name;
-            const rig = this.rigs.find(r => r.id === eq.rigId);
+            const harness = this.harnesses.find(r => r.id === eq.harnessId);
             const canopy = this.canopies.find(c => c.id === eq.canopyId);
             const lineset = this.linesets.find(l => l.id === eq.linesetId);
-            if (rig && canopy && lineset) {
+            if (harness && canopy && lineset) {
                 const hybridSuffix = /-Hybrid$/i.test(eq.name || '') ? ' (Hybrid)' : '';
-                name = `${rig.name} + ${canopy.name} + ${lineset.name}${hybridSuffix}`;
+                name = `${harness.name} + ${canopy.name} + ${lineset.name}${hybridSuffix}`;
             }
             return { name, count: totalCount, logged: loggedJumpsCount, preApp: eq.previousJumps || 0, archived: eq.archived, hybrid: /-Hybrid$/i.test(eq.name || '') };
         });
@@ -1162,27 +1168,27 @@ class SkydivingLogbook {
             : activeStats;
         
         // Calculate component-level statistics
-        const rigStats = {};
+        const harnessStats = {};
         const canopyStats = {};
         
         // Count logged jumps for each component
         this.jumps.forEach(jump => {
-            const combination = this.equipmentCombinations.find(eq => eq.id === jump.equipment);
-            if (combination) {
-                const rig = this.rigs.find(r => r.id === combination.rigId);
-                if (rig) rigStats[rig.name] = (rigStats[rig.name] || 0) + 1;
+            const rig = this.equipmentRigs.find(eq => eq.id === jump.equipment);
+            if (rig) {
+                const harness = this.harnesses.find(r => r.id === rig.harnessId);
+                if (harness) harnessStats[harness.name] = (harnessStats[harness.name] || 0) + 1;
                 
-                const canopy = this.canopies.find(c => c.id === combination.canopyId);
+                const canopy = this.canopies.find(c => c.id === rig.canopyId);
                 if (canopy) canopyStats[canopy.name] = (canopyStats[canopy.name] || 0) + 1;
             }
         });
         
-        // Add pre-app jump counts for each equipment combination
-        this.equipmentCombinations.forEach(eq => {
+        // Add pre-app jump counts for each equipment rig
+        this.equipmentRigs.forEach(eq => {
             const preApp = eq.previousJumps || 0;
             if (preApp > 0) {
-                const rig = this.rigs.find(r => r.id === eq.rigId);
-                if (rig) rigStats[rig.name] = (rigStats[rig.name] || 0) + preApp;
+                const harness = this.harnesses.find(r => r.id === eq.harnessId);
+                if (harness) harnessStats[harness.name] = (harnessStats[harness.name] || 0) + preApp;
                 
                 const canopy = this.canopies.find(c => c.id === eq.canopyId);
                 if (canopy) canopyStats[canopy.name] = (canopyStats[canopy.name] || 0) + preApp;
@@ -1198,7 +1204,7 @@ class SkydivingLogbook {
         let html = `
             <div class="stats-section">
                 <div class="stats-section-header">
-                    <h3>Equipment Combinations</h3>
+                    <h3>Equipment Rigs</h3>
                     ${archivedToggleBtn}
                 </div>
                 <div class="stats-list">
@@ -1239,8 +1245,8 @@ class SkydivingLogbook {
         // Add canopy statistics
         html += this.renderComponentStats('Canopies', canopyStats);
         
-        // Add rig statistics
-        html += this.renderComponentStats('Rigs', rigStats);
+        // Add harness statistics
+        html += this.renderComponentStats('Harnesses', harnessStats);
         
         container.innerHTML = html;
     }
@@ -1293,16 +1299,16 @@ class SkydivingLogbook {
 
         const csvHeader = 'Jump Number,Date,Location,Equipment,Notes,Timestamp\n';
         const csvData = this.jumps.map(jump => {
-            // Resolve combination ID to a readable name for the export
+            // Resolve rig ID to a readable name for the export
             let equipmentDisplay = jump.equipment;
-            const combination = this.equipmentCombinations.find(eq => eq.id === jump.equipment);
-            if (combination) {
-                const rig = this.rigs.find(r => r.id === combination.rigId);
-                const canopy = this.canopies.find(c => c.id === combination.canopyId);
-                const lineset = this.linesets.find(l => l.id === combination.linesetId);
+            const rig = this.equipmentRigs.find(eq => eq.id === jump.equipment);
+            if (rig) {
+                const harness = this.harnesses.find(r => r.id === rig.harnessId);
+                const canopy = this.canopies.find(c => c.id === rig.canopyId);
+                const lineset = this.linesets.find(l => l.id === rig.linesetId);
                 equipmentDisplay = (rig && canopy && lineset)
-                    ? `${rig.name} + ${canopy.name} + ${lineset.name}`
-                    : combination.name;
+                    ? `${harness.name} + ${canopy.name} + ${lineset.name}`
+                    : rig.name;
             }
             return `${jump.jumpNumber},"${jump.date}","${jump.location}","${equipmentDisplay}","${jump.notes}","${jump.timestamp}"`;
         }).join('\n');

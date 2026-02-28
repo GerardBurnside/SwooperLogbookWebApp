@@ -91,18 +91,18 @@
                     
                     <!-- Equipment Sub-Navigation -->
                     <nav class="equipment-nav">
-                        <button class="equipment-nav-btn active" data-view="combinations">Combinations</button>
-                        <button class="equipment-nav-btn" data-view="rigs">Rigs</button>
+                        <button class="equipment-nav-btn active" data-view="rigs">Rigs</button>
+                        <button class="equipment-nav-btn" data-view="harnesses">Harnesses</button>
                         <button class="equipment-nav-btn" data-view="canopies">Canopies</button>
                         <button class="equipment-nav-btn" data-view="linesets">Linesets</button>
                         <button class="equipment-nav-btn" data-view="locations">Locations</button>
                     </nav>
                     
                     <div class="section-header">
-                        <h3 id="equipmentSectionTitle">Equipment Combinations</h3>
+                        <h3 id="equipmentSectionTitle">Equipment Rigs</h3>
                         <div class="header-buttons">
-                            <button id="addEquipmentBtn" class="btn-primary">Add Combination</button>
-                            <button id="addRigBtn" class="btn-secondary" style="display:none;">Add Rig</button>
+                            <button id="addEquipmentBtn" class="btn-primary">Add Rig</button>
+                            <button id="addHarnessBtn" class="btn-secondary" style="display:none;">Add Harness</button>
                             <button id="addCanopyBtn" class="btn-secondary" style="display:none;">Add Canopy</button>
                             <button id="addLinesetBtn" class="btn-secondary" style="display:none;">Add Lineset</button>
                             <button id="addLocationBtn" class="btn-secondary" style="display:none;">Add Location</button>
@@ -130,7 +130,7 @@
         <div id="equipmentModal" class="modal">
             <div class="modal-content">
                 <span class="close" onclick="window.logbook.closeEquipmentModal()">&times;</span>
-                <h2>Equipment Combination</h2>
+                <h2>Equipment Rig</h2>
                 <form id="equipmentForm">
                     <input type="hidden" id="equipmentId">
                     <div class="form-group">
@@ -138,9 +138,9 @@
                         <input type="number" id="equipmentStartingJumpNumber" min="0" value="0" required placeholder="e.g. 500 jumps on this gear before logging">
                     </div>
                     <div class="form-group">
-                        <label for="equipmentRig">Rig</label>
-                        <select id="equipmentRig" required>
-                            <option value="">Select Rig</option>
+                        <label for="equipmentHarness">Harness</label>
+                        <select id="equipmentHarness" required>
+                            <option value="">Select Harness</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -160,7 +160,7 @@
                             <input type="checkbox" id="equipmentHybridCheck"> Hybrid lineset
                         </label>
                     </div>
-                    <button type="submit" class="btn-primary">Save Combination</button>
+                    <button type="submit" class="btn-primary">Save Rig</button>
                 </form>
             </div>
         </div>

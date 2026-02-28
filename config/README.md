@@ -7,7 +7,7 @@ The app uses **two sheets** inside the same spreadsheet:
 | Sheet name  | Purpose |
 |-------------|---------|
 | **Jumps**   | One row per jump log entry (jump #, date, location, equipment, notes, …) |
-| **Equipment** | Auto-created by the Apps Script. Stores all equipment components (rigs, canopies, linesets, combinations) and settings as JSON. This is what enables multi-device sync. |
+| **Equipment** | Auto-created by the Apps Script. Stores all equipment components (harnesses, canopies, linesets, rigs) and settings as JSON. This is what enables multi-device sync. |
 
 The **Equipment** sheet is read and written by the app automatically — you should not edit it by hand.
 

@@ -75,12 +75,12 @@ class SheetsAPI {
         this.updateSyncStatus('Syncing...');
         
         try {
-            // Get equipment name from combination
+            // Get equipment name from rig
             let equipmentName = jump.equipment;
             if (window.logbook) {
-                const combination = window.logbook.equipmentCombinations.find(eq => eq.id === jump.equipment);
-                if (combination) {
-                    equipmentName = combination.name;
+                const rig = window.logbook.equipmentRigs.find(eq => eq.id === jump.equipment);
+                if (rig) {
+                    equipmentName = rig.name;
                 }
             }
             
@@ -89,7 +89,7 @@ class SheetsAPI {
                 date: jump.date,
                 location: jump.location,
                 equipment: equipmentName,
-                equipmentId: jump.equipment,  // preserve combination ID for round-trip
+                equipmentId: jump.equipment,  // preserve rig ID for round-trip
                 notes: jump.notes,
                 timestamp: jump.timestamp
             };
@@ -155,7 +155,7 @@ class SheetsAPI {
             // a unique value derived from index so id is never undefined.
             const parsedTime = new Date(timestamp).getTime();
             const id = Number.isFinite(parsedTime) ? parsedTime : Date.now() + index;
-            // col 7 (row[6]) holds the combination ID written by the updated script;
+            // col 7 (row[6]) holds the rig ID written by the updated script;
             // fall back to row[3] (name string) for legacy rows without the ID column.
             const equipment = (row[6] && row[6] !== '') ? row[6] : row[3] || '';
             return {
@@ -247,10 +247,10 @@ class SheetsAPI {
         if (!logbook) return;
 
         const payload = {
-            rigs:         logbook.rigs,
+            harnesses:         logbook.harnesses,
             canopies:     logbook.canopies,
             linesets:     logbook.linesets,
-            combinations: logbook.equipmentCombinations,
+            rigs: logbook.equipmentRigs,
             settings:     logbook.settings,
             locations:    logbook.locations
         };
@@ -295,23 +295,23 @@ class SheetsAPI {
             const d = result.data || {};
 
             // Only apply if the sheet actually contains data
-            const hasData = d.rigs || d.canopies || d.linesets || d.combinations;
+            const hasData = d.harnesses || d.canopies || d.linesets || d.rigs;
             if (!hasData) return false;
 
-            if (d.rigs)         localStorage.setItem('skydiving-rigs',                   JSON.stringify(d.rigs));
+            if (d.harnesses)         localStorage.setItem('skydiving-harnesses',                   JSON.stringify(d.harnesses));
             if (d.canopies)     localStorage.setItem('skydiving-canopies',               JSON.stringify(d.canopies));
             if (d.linesets)     localStorage.setItem('skydiving-linesets',               JSON.stringify(d.linesets));
-            if (d.combinations) localStorage.setItem('skydiving-equipment-combinations', JSON.stringify(d.combinations));
+            if (d.rigs) localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(d.rigs));
             if (d.settings)     localStorage.setItem('skydiving-settings',               JSON.stringify(d.settings));
             if (d.locations)    localStorage.setItem('skydiving-locations',              JSON.stringify(d.locations));
 
             // Apply to live logbook instance
             const logbook = window.logbook;
             if (logbook) {
-                if (d.rigs)         logbook.rigs                  = d.rigs;
+                if (d.harnesses)         logbook.harnesses                  = d.harnesses;
                 if (d.canopies)     logbook.canopies              = d.canopies;
                 if (d.linesets)     logbook.linesets              = d.linesets;
-                if (d.combinations) logbook.equipmentCombinations = d.combinations;
+                if (d.rigs) logbook.equipmentRigs = d.rigs;
                 if (d.settings)     logbook.settings              = d.settings;
                 if (d.locations)    logbook.locations             = d.locations;
 
@@ -360,12 +360,12 @@ class SheetsAPI {
         
         // Prepare the data for upload
         const jumpData = jumps.map(jump => {
-            // Get equipment name from combination
+            // Get equipment name from rig
             let equipmentName = jump.equipment;
             if (window.logbook) {
-                const combination = window.logbook.equipmentCombinations.find(eq => eq.id === jump.equipment);
-                if (combination) {
-                    equipmentName = combination.name;
+                const rig = window.logbook.equipmentRigs.find(eq => eq.id === jump.equipment);
+                if (rig) {
+                    equipmentName = rig.name;
                 }
             }
             
@@ -374,7 +374,7 @@ class SheetsAPI {
                 date: jump.date,
                 location: jump.location,
                 equipment: equipmentName,
-                equipmentId: jump.equipment,  // preserve combination ID for round-trip
+                equipmentId: jump.equipment,  // preserve rig ID for round-trip
                 notes: jump.notes,
                 timestamp: jump.timestamp
             };
