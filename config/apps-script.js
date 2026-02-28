@@ -10,6 +10,8 @@ function doGet(e) {
       response = getJumps();
     } else if (action === 'getEquipment') {
       response = getEquipment();
+    } else if (action === 'getBackupEquipment') {
+      response = getBackupEquipment();
     } else {
       response = ContentService
         .createTextOutput(JSON.stringify({ error: 'Invalid action' }))
@@ -148,6 +150,36 @@ function getEquipment() {
     }
   });
   
+  return ContentService
+    .createTextOutput(JSON.stringify({ success: true, data: result }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function getBackupEquipment() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('backupRigs');
+  if (!sheet) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ success: true, data: {} }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // Same layout as the Equipment sheet: col A = key, col B = JSON value
+  const lastRow = Math.max(sheet.getLastRow(), 1);
+  const rows = sheet.getRange(1, 1, lastRow, 2).getValues();
+  const result = {};
+  rows.forEach(row => {
+    const key   = row[0];
+    const value = row[1];
+    if (key && value !== '') {
+      try {
+        result[key] = JSON.parse(value);
+      } catch (e) {
+        result[key] = null;
+      }
+    }
+  });
+
   return ContentService
     .createTextOutput(JSON.stringify({ success: true, data: result }))
     .setMimeType(ContentService.MimeType.JSON);

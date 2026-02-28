@@ -353,6 +353,58 @@ class SheetsAPI {
         }
     }
     
+    /**
+     * Restore all equipment from the "backupRigs" sheet tab.
+     * Overwrites local equipment and pushes restored data to the main Equipment sheet.
+     */
+    async restoreEquipmentFromBackup() {
+        if (!this.initialized) throw new Error('API not initialized');
+
+        const response = await fetch(this.webAppUrl + '?action=getBackupEquipment', {
+            method: 'GET',
+            redirect: 'follow'
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const result = await response.json();
+        if (result.error) throw new Error(result.error);
+
+        const d = result.data || {};
+        const hasData = d.harnesses || d.canopies || d.linesets || d.rigs;
+        if (!hasData) return false;
+
+        // Overwrite localStorage
+        if (d.harnesses)  localStorage.setItem('skydiving-harnesses',       JSON.stringify(d.harnesses));
+        if (d.canopies)   localStorage.setItem('skydiving-canopies',        JSON.stringify(d.canopies));
+        if (d.linesets)   localStorage.setItem('skydiving-linesets',        JSON.stringify(d.linesets));
+        if (d.rigs)       localStorage.setItem('skydiving-equipment-rigs',  JSON.stringify(d.rigs));
+        if (d.settings)   localStorage.setItem('skydiving-settings',        JSON.stringify(d.settings));
+        if (d.locations)  localStorage.setItem('skydiving-locations',       JSON.stringify(d.locations));
+
+        // Apply to live logbook instance
+        const logbook = window.logbook;
+        if (logbook) {
+            if (d.harnesses)  logbook.harnesses     = d.harnesses;
+            if (d.canopies)   logbook.canopies      = d.canopies;
+            if (d.linesets)   logbook.linesets       = d.linesets;
+            if (d.rigs)       logbook.equipmentRigs  = d.rigs;
+            if (d.settings)   logbook.settings       = d.settings;
+            if (d.locations)  logbook.locations       = d.locations;
+
+            logbook.updateEquipmentOptions();
+            logbook.updateLocationDatalist();
+            if (logbook.currentView === 'equipment') logbook.renderEquipmentView();
+            logbook.preFillFormWithLastJump();
+        }
+
+        // Push the restored data to the main Equipment sheet so it stays in sync
+        await this.syncEquipmentToSheet();
+
+        console.log('Equipment restored from backupRigs sheet');
+        return true;
+    }
+
     // Called after a local jump delete + renumber.  Because all jump numbers
     // shift, we re-upload the full current array as the source of truth.
     async syncAfterDelete(jumps) {

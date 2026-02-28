@@ -134,6 +134,10 @@ class SkydivingLogbook {
             this.saveSettings();
         });
 
+        document.getElementById('restoreFromBackupBtn').addEventListener('click', () => {
+            this.restoreEquipmentFromBackup();
+        });
+
         // Modal close
         document.querySelector('.close').addEventListener('click', () => {
             this.closeModal();
@@ -526,6 +530,32 @@ class SkydivingLogbook {
         
         this.closeModal();
         this.showMessage('Settings saved successfully!', 'success');
+    }
+
+    async restoreEquipmentFromBackup() {
+        if (!confirm('This will overwrite ALL local equipment data (harnesses, canopies, linesets, rigs, locations) with the data from the backupRigs sheet. Continue?')) {
+            return;
+        }
+
+        if (!window.SheetsAPI || !window.SheetsAPI.initialized) {
+            this.showMessage('Google Sheets is not connected. Configure it first.', 'error');
+            return;
+        }
+
+        this.showMessage('Restoring equipment from backup...', 'success');
+
+        try {
+            const success = await window.SheetsAPI.restoreEquipmentFromBackup();
+            if (success) {
+                this.showMessage('Equipment restored from backup successfully!', 'success');
+                this.closeModal();
+            } else {
+                this.showMessage('No data found in backupRigs sheet.', 'error');
+            }
+        } catch (err) {
+            console.error('Restore from backup failed:', err);
+            this.showMessage('Restore failed: ' + err.message, 'error');
+        }
     }
 
     saveToLocalStorage() {
