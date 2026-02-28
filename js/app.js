@@ -56,23 +56,35 @@ class SkydivingLogbook {
         window.addEventListener('offline', () => this.updateOnlineStatus());
         
         // Auto-sync equipment from Google Sheets on startup
-        // Use a delay to allow SheetsAPI to finish its async init first
-        setTimeout(() => this.autoSyncEquipmentOnStartup(), 2500);
+        // Wait for SheetsAPI.ready (promise) instead of a fragile timeout
+        this.autoSyncEquipmentOnStartup();
     }
 
     async autoSyncEquipmentOnStartup() {
-        if (!navigator.onLine || !window.SheetsAPI?.initialized) return;
-        
+        if (!navigator.onLine) return;
+        if (!window.SheetsAPI) return;
+
+        // Wait until the API has finished loading its config
+        await window.SheetsAPI.ready;
+
+        if (!window.SheetsAPI.initialized) return;
+
+        console.log('[AutoSync] Pulling equipment from Google Sheets...');
         const pulled = await window.SheetsAPI.syncEquipmentFromSheet();
+        console.log('[AutoSync] Equipment pull result:', pulled);
         
         if (!pulled) {
             // Sheet has no equipment data yet — push our local data up
             const hasLocalEquipment = this.rigs.length || this.canopies.length ||
                                       this.linesets.length || this.equipmentCombinations.length;
             if (hasLocalEquipment) {
-                window.SheetsAPI.syncEquipmentToSheet();
+                console.log('[AutoSync] Pushing local equipment to sheet');
+                await window.SheetsAPI.syncEquipmentToSheet();
             }
         }
+
+        // Also do a full jump sync so everything is up-to-date
+        await window.SheetsAPI.syncWithSheet();
     }
 
     setupEventListeners() {
@@ -134,7 +146,7 @@ class SkydivingLogbook {
         });
         
         document.getElementById('addLinesetBtn').addEventListener('click', () => {
-            this.addComponent('lineset');
+            this.addLinesetQuick();
         });
         
         document.getElementById('addLocationBtn').addEventListener('click', () => {
@@ -830,6 +842,29 @@ class SkydivingLogbook {
         document.getElementById('componentType').value = type;
         document.getElementById('componentModalTitle').textContent = `Add ${type.charAt(0).toUpperCase() + type.slice(1)}`;
         document.getElementById('componentModal').style.display = 'block';
+    }
+
+    /**
+     * Instantly create a new lineset with an auto-incremented name
+     * (Lineset#1, Lineset#2, …) — no modal needed.
+     */
+    addLinesetQuick() {
+        // Determine the next number by looking at existing lineset names
+        let maxNum = 0;
+        for (const ls of this.linesets) {
+            const match = ls.name.match(/Lineset#(\d+)/i);
+            if (match) {
+                maxNum = Math.max(maxNum, parseInt(match[1], 10));
+            }
+        }
+        const nextNum = maxNum + 1;
+        const newId = 'lineset_' + Date.now();
+        this.linesets.push({ id: newId, name: `Lineset#${nextNum}` });
+
+        this.saveComponentsToLocalStorage();
+        this.renderEquipmentView();
+        if (navigator.onLine && window.SheetsAPI) window.SheetsAPI.syncEquipmentToSheet();
+        this.showMessage(`Lineset#${nextNum} added!`, 'success');
     }
     
     saveComponent() {

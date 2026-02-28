@@ -28,9 +28,69 @@ header {
     text-align: center;
 }
 
+.header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
 header h1 {
     margin-bottom: 0.5rem;
     font-size: 1.5rem;
+}
+
+.header-sync {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.header-sync .sync-status {
+    font-size: 0.75rem;
+    opacity: 0.9;
+    color: white;
+}
+
+.header-sync .sync-status.syncing {
+    color: #bbdefb;
+}
+
+.header-sync .sync-status.error {
+    color: #ffcdd2;
+}
+
+.header-sync .sync-status.success {
+    color: #c8e6c9;
+}
+
+.sync-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    font-size: 1.2rem;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.sync-btn:hover,
+.sync-btn:active {
+    background: rgba(255, 255, 255, 0.35);
+}
+
+.sync-btn.syncing {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 
 .stats {
@@ -498,23 +558,6 @@ footer {
     justify-content: space-between;
     align-items: center;
     gap: 1rem;
-}
-
-.sync-status {
-    font-size: 0.9rem;
-    color: #666;
-}
-
-.sync-status.syncing {
-    color: #2196F3;
-}
-
-.sync-status.error {
-    color: #f44336;
-}
-
-.sync-status.success {
-    color: #4CAF50;
 }
 
 /* Mobile Responsive */

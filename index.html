@@ -16,7 +16,13 @@
 <body>
     <div class="container">
         <header>
-            <h1>🪂 Skydiving Logbook</h1>
+            <div class="header-top">
+                <h1>🪂 Skydiving Logbook</h1>
+                <div class="header-sync">
+                    <span class="sync-status" id="syncStatus">Ready</span>
+                    <button id="syncBtn" class="sync-btn" title="Sync with Google Sheets">🔄</button>
+                </div>
+            </div>
             <div class="stats">
                 <span id="totalJumps">Latest Jump: #0</span>
             </div>
@@ -194,7 +200,6 @@
         <footer>
             <button id="settingsBtn" class="btn-secondary">Settings</button>
             <button id="exportBtn" class="btn-secondary">Export Data</button>
-            <span class="sync-status" id="syncStatus">Ready</span>
         </footer>
     </div>
 

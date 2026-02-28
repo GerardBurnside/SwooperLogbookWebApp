@@ -5,7 +5,8 @@ class SheetsAPI {
         this.spreadsheetId = ''; // Will be loaded from config
         this.initialized = false;
         
-        this.setupAPI();
+        // Expose a promise that resolves when setup is complete
+        this.ready = this.setupAPI();
     }
 
     async setupAPI() {
@@ -179,7 +180,20 @@ class SheetsAPI {
         
         try {
             // --- Sync equipment first so jump display names resolve correctly ---
+            console.log('[Sync] Pulling equipment from sheet...');
             const equipmentSynced = await this.syncEquipmentFromSheet();
+            console.log('[Sync] Equipment pull result:', equipmentSynced);
+
+            // If sheet had no equipment but we have local data, push it up
+            if (!equipmentSynced && window.logbook) {
+                const lb = window.logbook;
+                const hasLocal = lb.rigs.length || lb.canopies.length ||
+                                 lb.linesets.length || lb.equipmentCombinations.length;
+                if (hasLocal) {
+                    console.log('[Sync] Sheet has no equipment — pushing local data up');
+                    await this.syncEquipmentToSheet();
+                }
+            }
 
             // Get local jumps
             const localJumps = JSON.parse(localStorage.getItem('skydiving-jumps')) || [];
@@ -210,6 +224,8 @@ class SheetsAPI {
                     window.logbook.initializeEquipmentJumpCounts();
                     window.logbook.updateStats();
                     window.logbook.renderJumpsList();
+                    // Re-fill form with the (possibly updated) last jump
+                    window.logbook.preFillFormWithLastJump();
                 }
             }
             // If both are empty, nothing to sync
@@ -306,6 +322,8 @@ class SheetsAPI {
                 logbook.updateEquipmentOptions();
                 logbook.updateLocationDatalist();
                 if (logbook.currentView === 'equipment') logbook.renderEquipmentView();
+                // Re-fill the form since the dropdown was rebuilt
+                logbook.preFillFormWithLastJump();
             }
 
             console.log('Equipment loaded from sheet');
@@ -391,17 +409,26 @@ class SheetsAPI {
 
     updateSyncStatus(status) {
         const syncElement = document.getElementById('syncStatus');
+        const syncBtn = document.getElementById('syncBtn');
         if (syncElement) {
             syncElement.textContent = status;
             
             // Update classes based on status
             syncElement.className = 'sync-status';
-            if (status === 'Syncing...') {
+            if (status === 'Syncing...' || status === 'Uploading jumps...') {
                 syncElement.classList.add('syncing');
-            } else if (status === 'Synced' || status === 'Online') {
+            } else if (status === 'Synced' || status === 'Online' || status === 'Ready') {
                 syncElement.classList.add('success');
             } else if (status.includes('failed') || status.includes('error')) {
                 syncElement.classList.add('error');
+            }
+        }
+        // Spin the sync button while syncing
+        if (syncBtn) {
+            if (status === 'Syncing...' || status === 'Uploading jumps...') {
+                syncBtn.classList.add('syncing');
+            } else {
+                syncBtn.classList.remove('syncing');
             }
         }
     }
@@ -432,16 +459,10 @@ For detailed instructions, see config/README.md
 // Initialize Sheets API
 window.SheetsAPI = new SheetsAPI();
 
-// Add manual sync button functionality
+// Wire up the sync button in the header
 document.addEventListener('DOMContentLoaded', () => {
-    // Add sync button to footer if not exists
-    if (!document.getElementById('syncBtn')) {
-        const footer = document.querySelector('footer');
-        const syncBtn = document.createElement('button');
-        syncBtn.id = 'syncBtn';
-        syncBtn.className = 'btn-secondary';
-        syncBtn.textContent = 'Sync';
+    const syncBtn = document.getElementById('syncBtn');
+    if (syncBtn) {
         syncBtn.onclick = () => window.SheetsAPI.syncWithSheet();
-        footer.insertBefore(syncBtn, footer.firstChild);
     }
 });
