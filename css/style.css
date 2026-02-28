@@ -275,6 +275,78 @@ textarea {
 }
 
 /* Buttons */
+.jump-submit-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: stretch;
+}
+
+.jump-submit-row .btn-primary {
+    flex: 1;
+}
+
+.multiplier-widget {
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 0 0.25rem;
+    min-width: 90px;
+    justify-content: center;
+}
+
+.multiplier-widget label {
+    font-weight: 600;
+    font-size: 1rem;
+    color: #555;
+    margin-right: 0.1rem;
+}
+
+.multiplier-widget input {
+    width: 2rem;
+    text-align: center;
+    border: none;
+    background: transparent;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #333;
+    padding: 0;
+    -moz-appearance: textfield;
+}
+
+.multiplier-widget input::-webkit-outer-spin-button,
+.multiplier-widget input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.multiplier-btn {
+    width: 1.6rem;
+    height: 1.6rem;
+    border: none;
+    background: #2196F3;
+    color: white;
+    border-radius: 50%;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background-color 0.2s;
+}
+
+.multiplier-btn:hover {
+    background: #1976D2;
+}
+
+.multiplier-btn:active {
+    background: #1565C0;
+}
+
 .btn-primary {
     width: 100%;
     padding: 0.75rem;

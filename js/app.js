@@ -91,7 +91,38 @@ class SkydivingLogbook {
         // Jump form submission
         document.getElementById('jumpForm').addEventListener('submit', (e) => {
             e.preventDefault();
-            this.addJump();
+            const multiplier = parseInt(document.getElementById('jumpMultiplier').value) || 1;
+            const form = document.getElementById('jumpForm');
+            const jumpData = {
+                date: form.elements['date'].value,
+                location: form.elements['location'].value,
+                equipment: form.elements['equipment'].value,
+                notes: form.elements['notes'].value || ''
+            };
+            for (let i = 0; i < multiplier; i++) {
+                this.addJump(jumpData, multiplier > 1);
+            }
+            // Reset multiplier back to 1
+            document.getElementById('jumpMultiplier').value = 1;
+            // Reset form after all jumps logged
+            form.reset();
+            this.setCurrentDate();
+            this.preFillFormWithLastJump();
+            if (multiplier > 1) {
+                this.showMessage(`${multiplier} jumps logged successfully!`, 'success');
+            }
+        });
+
+        // Multiplier widget buttons
+        document.getElementById('multiplierUp').addEventListener('click', () => {
+            const input = document.getElementById('jumpMultiplier');
+            const val = parseInt(input.value) || 1;
+            if (val < 99) input.value = val + 1;
+        });
+        document.getElementById('multiplierDown').addEventListener('click', () => {
+            const input = document.getElementById('jumpMultiplier');
+            const val = parseInt(input.value) || 1;
+            if (val > 1) input.value = val - 1;
         });
 
         // Settings modal
@@ -226,9 +257,16 @@ class SkydivingLogbook {
         return Math.max(...this.jumps.map(j => j.jumpNumber)) + 1;
     }
 
-    addJump() {
+    addJump(jumpData = null, silent = false) {
         const form = document.getElementById('jumpForm');
-        const formData = new FormData(form);
+        
+        // Use passed data or read from form
+        const data = jumpData || {
+            date: form.elements['date'].value,
+            location: form.elements['location'].value,
+            equipment: form.elements['equipment'].value,
+            notes: form.elements['notes'].value || ''
+        };
         
         // Remember the highest jump number before insertion to detect a past-date entry
         const maxBefore = this.jumps.length > 0
@@ -236,12 +274,12 @@ class SkydivingLogbook {
             : this.settings.startingJumpNumber - 1;
 
         const jump = {
-            id: Date.now(),
+            id: Date.now() + Math.random(),
             jumpNumber: 0,          // assigned below by renumberJumps()
-            date: formData.get('date'),
-            location: formData.get('location'),
-            equipment: formData.get('equipment'),
-            notes: formData.get('notes') || '',
+            date: data.date,
+            location: data.location,
+            equipment: data.equipment,
+            notes: data.notes,
             timestamp: new Date().toISOString()
         };
 
@@ -283,19 +321,23 @@ class SkydivingLogbook {
             this.renderEquipmentView();
         }
         
-        // Reset form
-        form.reset();
-        this.setCurrentDate();
-        this.preFillFormWithLastJump();
+        // Reset form only for single jumps (multiplier handles its own reset)
+        if (!silent) {
+            form.reset();
+            this.setCurrentDate();
+            this.preFillFormWithLastJump();
+        }
         
         // Inform user; note if past-date renumbering happened
         const isPastJump = jump.jumpNumber <= maxBefore;
-        this.showMessage(
-            isPastJump
-                ? `Jump #${jump.jumpNumber} logged — subsequent jumps renumbered`
-                : 'Jump logged successfully!',
-            'success'
-        );
+        if (!silent) {
+            this.showMessage(
+                isPastJump
+                    ? `Jump #${jump.jumpNumber} logged — subsequent jumps renumbered`
+                    : 'Jump logged successfully!',
+                'success'
+            );
+        }
         
         // Sync to Google Sheets
         if (navigator.onLine && window.SheetsAPI) {
