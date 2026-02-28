@@ -369,9 +369,71 @@ class SkydivingLogbook {
 
         // Show most recent jumps first
         const sortedJumps = [...this.jumps].sort((a, b) => b.jumpNumber - a.jumpNumber);
-        const recentJumps = sortedJumps.slice(0, 10); // Show last 10 jumps
 
-        jumpsList.innerHTML = recentJumps.map(jump => this.createJumpHTML(jump)).join('');
+        // Cutoff: 3 days ago at midnight
+        const cutoff = new Date();
+        cutoff.setHours(0, 0, 0, 0);
+        cutoff.setDate(cutoff.getDate() - 3);
+
+        const recentJumps = [];
+        const olderJumps = [];
+
+        sortedJumps.forEach(jump => {
+            const jumpDate = new Date(jump.date);
+            if (jumpDate >= cutoff) {
+                recentJumps.push(jump);
+            } else {
+                olderJumps.push(jump);
+            }
+        });
+
+        let html = '';
+
+        // Render recent jumps individually
+        if (recentJumps.length > 0) {
+            html += recentJumps.map(jump => this.createJumpHTML(jump)).join('');
+        }
+
+        // Group older jumps by month
+        if (olderJumps.length > 0) {
+            const monthGroups = new Map();
+            olderJumps.forEach(jump => {
+                const d = new Date(jump.date);
+                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                if (!monthGroups.has(key)) {
+                    monthGroups.set(key, { label: d.toLocaleDateString(undefined, { year: 'numeric', month: 'long' }), jumps: [] });
+                }
+                monthGroups.get(key).jumps.push(jump);
+            });
+
+            // Keys are already in descending order (sorted input)
+            for (const [key, group] of monthGroups) {
+                const jumpCount = group.jumps.length;
+                html += `
+                    <div class="month-group" data-month="${key}">
+                        <div class="month-group-header" onclick="logbook.toggleMonthGroup('${key}')">
+                            <span class="month-group-arrow" id="arrow-${key}">&#9654;</span>
+                            <span class="month-group-label">${group.label}</span>
+                            <span class="month-group-count">${jumpCount} jump${jumpCount !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div class="month-group-body" id="month-${key}" style="display:none;">
+                            ${group.jumps.map(jump => this.createJumpHTML(jump)).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        jumpsList.innerHTML = html;
+    }
+
+    toggleMonthGroup(key) {
+        const body = document.getElementById('month-' + key);
+        const arrow = document.getElementById('arrow-' + key);
+        if (!body) return;
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : 'block';
+        if (arrow) arrow.innerHTML = open ? '&#9654;' : '&#9660;';
     }
 
     createJumpHTML(jump) {
