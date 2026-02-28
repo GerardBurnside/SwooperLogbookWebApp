@@ -246,6 +246,19 @@ class SkydivingLogbook {
             timestamp: new Date().toISOString()
         };
 
+        // Auto-add new location if it doesn't exist yet
+        if (jump.location) {
+            const locationExists = this.locations.some(
+                loc => loc.name.toLowerCase() === jump.location.toLowerCase()
+            );
+            if (!locationExists) {
+                const newId = 'loc_' + Date.now();
+                this.locations.push({ id: newId, name: jump.location });
+                this.saveComponentsToLocalStorage();
+                this.updateLocationDatalist();
+            }
+        }
+
         // Update equipment jump count if equipment is selected
         if (jump.equipment) {
             const equipment = this.equipmentCombinations.find(eq => eq.id === jump.equipment);
@@ -483,6 +496,7 @@ class SkydivingLogbook {
         localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
         localStorage.setItem('skydiving-linesets', JSON.stringify(this.linesets));
         localStorage.setItem('skydiving-equipment-combinations', JSON.stringify(this.equipmentCombinations));
+        localStorage.setItem('skydiving-locations', JSON.stringify(this.locations));
         
         // Push to Google Sheets if online
         if (navigator.onLine && window.SheetsAPI?.initialized) {
