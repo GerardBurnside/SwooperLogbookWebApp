@@ -70,19 +70,18 @@ class SkydivingLogbook {
 
         if (!window.SheetsAPI.initialized) return;
 
+        // Push local equipment first so any pending changes aren't lost
+        const hasLocalEquipment = this.rigs.length || this.canopies.length ||
+                                  this.linesets.length || this.equipmentCombinations.length ||
+                                  this.locations.length;
+        if (hasLocalEquipment) {
+            console.log('[AutoSync] Pushing local equipment to sheet first');
+            await window.SheetsAPI.syncEquipmentToSheet();
+        }
+
         console.log('[AutoSync] Pulling equipment from Google Sheets...');
         const pulled = await window.SheetsAPI.syncEquipmentFromSheet();
         console.log('[AutoSync] Equipment pull result:', pulled);
-        
-        if (!pulled) {
-            // Sheet has no equipment data yet — push our local data up
-            const hasLocalEquipment = this.rigs.length || this.canopies.length ||
-                                      this.linesets.length || this.equipmentCombinations.length;
-            if (hasLocalEquipment) {
-                console.log('[AutoSync] Pushing local equipment to sheet');
-                await window.SheetsAPI.syncEquipmentToSheet();
-            }
-        }
 
         // Also do a full jump sync so everything is up-to-date
         await window.SheetsAPI.syncWithSheet();

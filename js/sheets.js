@@ -179,21 +179,14 @@ class SheetsAPI {
         this.updateSyncStatus('Syncing...');
         
         try {
-            // --- Sync equipment first so jump display names resolve correctly ---
+            // --- Push local equipment to sheet FIRST so local edits are never lost ---
+            console.log('[Sync] Pushing local equipment to sheet...');
+            await this.syncEquipmentToSheet();
+
+            // --- Then pull equipment back (picks up our push + ensures consistency) ---
             console.log('[Sync] Pulling equipment from sheet...');
             const equipmentSynced = await this.syncEquipmentFromSheet();
             console.log('[Sync] Equipment pull result:', equipmentSynced);
-
-            // If sheet had no equipment but we have local data, push it up
-            if (!equipmentSynced && window.logbook) {
-                const lb = window.logbook;
-                const hasLocal = lb.rigs.length || lb.canopies.length ||
-                                 lb.linesets.length || lb.equipmentCombinations.length;
-                if (hasLocal) {
-                    console.log('[Sync] Sheet has no equipment — pushing local data up');
-                    await this.syncEquipmentToSheet();
-                }
-            }
 
             // Get local jumps
             const localJumps = JSON.parse(localStorage.getItem('skydiving-jumps')) || [];
@@ -229,6 +222,9 @@ class SheetsAPI {
                 }
             }
             // If both are empty, nothing to sync
+
+            // --- Push equipment once more to capture any jump-count changes ---
+            await this.syncEquipmentToSheet();
             
             this.updateSyncStatus('Synced');
             setTimeout(() => this.updateSyncStatus('Online'), 2000);
