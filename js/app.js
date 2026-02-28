@@ -1,0 +1,1161 @@
+// Skydiving Logbook App - Main Application Logic
+class SkydivingLogbook {
+    constructor() {
+        this.jumps = JSON.parse(localStorage.getItem('skydiving-jumps')) || [];
+        this.settings = JSON.parse(localStorage.getItem('skydiving-settings')) || {
+            startingJumpNumber: 1
+        };
+        
+        // Component-based equipment system
+        this.rigs = JSON.parse(localStorage.getItem('skydiving-rigs')) || [
+            { id: 'javelin', name: 'Javelin' },
+            { id: 'mutant', name: 'Mutant' }
+        ];
+        this.canopies = JSON.parse(localStorage.getItem('skydiving-canopies')) || [
+            { id: 'petra64', name: 'Petra64' },
+            { id: 'petra68', name: 'Petra68' }
+        ];
+        this.linesets = JSON.parse(localStorage.getItem('skydiving-linesets')) || [
+            { id: 'set1', name: 'Lineset #1' },
+            { id: 'set2', name: 'Lineset #2' }
+        ];
+        this.equipmentCombinations = JSON.parse(localStorage.getItem('skydiving-equipment-combinations')) || [];
+        this.locations = JSON.parse(localStorage.getItem('skydiving-locations')) || [
+            { id: 'loc_lfoz',    name: 'LFOZ Epcol' },
+            { id: 'loc_klatovy', name: 'Klatovy' },
+            { id: 'loc_ravenna', name: 'Ravenna' },
+            { id: 'loc_palm',    name: 'The Palm Skydive Dubai' },
+            { id: 'loc_desert',  name: 'Desert Skydive Dubai' }
+        ];
+        
+        // Migrate old equipment data if needed
+        this.migrateOldEquipmentData();
+        
+        // Initialize jump counts for equipment combinations
+        this.initializeEquipmentJumpCounts();
+        
+        this.currentView = 'jumps'; // 'jumps', 'equipment', 'stats'
+        this.equipmentSubView = 'combinations'; // 'combinations', 'rigs', 'canopies', 'linesets', 'locations'
+        
+        this.init();
+    }
+
+    init() {
+        this.setupEventListeners();
+        this.updateStats();
+        this.renderJumpsList();
+        this.setCurrentDate();
+        this.updateEquipmentOptions();
+        this.updateLocationDatalist();
+        this.preFillFormWithLastJump();
+        this.showView('jumps');
+        
+        // Check if we're online/offline
+        this.updateOnlineStatus();
+        window.addEventListener('online', () => this.updateOnlineStatus());
+        window.addEventListener('offline', () => this.updateOnlineStatus());
+        
+        // Auto-sync equipment from Google Sheets on startup
+        // Use a delay to allow SheetsAPI to finish its async init first
+        setTimeout(() => this.autoSyncEquipmentOnStartup(), 2500);
+    }
+
+    async autoSyncEquipmentOnStartup() {
+        if (!navigator.onLine || !window.SheetsAPI?.initialized) return;
+        
+        const pulled = await window.SheetsAPI.syncEquipmentFromSheet();
+        
+        if (!pulled) {
+            // Sheet has no equipment data yet — push our local data up
+            const hasLocalEquipment = this.rigs.length || this.canopies.length ||
+                                      this.linesets.length || this.equipmentCombinations.length;
+            if (hasLocalEquipment) {
+                window.SheetsAPI.syncEquipmentToSheet();
+            }
+        }
+    }
+
+    setupEventListeners() {
+        // Jump form submission
+        document.getElementById('jumpForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.addJump();
+        });
+
+        // Settings modal
+        document.getElementById('settingsBtn').addEventListener('click', () => {
+            this.openSettingsModal();
+        });
+
+        document.getElementById('saveSettings').addEventListener('click', () => {
+            this.saveSettings();
+        });
+
+        // Modal close
+        document.querySelector('.close').addEventListener('click', () => {
+            this.closeModal();
+        });
+
+        // Export data
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            this.exportData();
+        });
+
+        // Navigation buttons
+        document.getElementById('jumpsViewBtn').addEventListener('click', () => {
+            this.showView('jumps');
+        });
+
+        document.getElementById('equipmentViewBtn').addEventListener('click', () => {
+            this.showView('equipment');
+        });
+
+        document.getElementById('statsViewBtn').addEventListener('click', () => {
+            this.showView('stats');
+        });
+
+        // Equipment management
+        document.getElementById('addEquipmentBtn').addEventListener('click', () => {
+            this.addEquipment();
+        });
+
+        document.getElementById('equipmentForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.saveEquipment();
+        });
+        
+        // Component management
+        document.getElementById('addRigBtn').addEventListener('click', () => {
+            this.addComponent('rig');
+        });
+        
+        document.getElementById('addCanopyBtn').addEventListener('click', () => {
+            this.addComponent('canopy');
+        });
+        
+        document.getElementById('addLinesetBtn').addEventListener('click', () => {
+            this.addComponent('lineset');
+        });
+        
+        document.getElementById('addLocationBtn').addEventListener('click', () => {
+            this.addComponent('location');
+        });
+        
+        document.getElementById('componentForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.saveComponent();
+        });
+        
+        // Equipment sub-navigation
+        document.querySelectorAll('.equipment-nav-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this.showEquipmentSubView(e.target.dataset.view);
+            });
+        });
+
+        // Close modal when clicking outside
+        window.addEventListener('click', (e) => {
+            const settingsModal = document.getElementById('settingsModal');
+            const equipmentModal = document.getElementById('equipmentModal');
+            const componentModal = document.getElementById('componentModal');
+            if (e.target === settingsModal) {
+                this.closeModal();
+            }
+            if (e.target === equipmentModal) {
+                this.closeEquipmentModal();
+            }
+            if (e.target === componentModal) {
+                this.closeComponentModal();
+            }
+        });
+    }
+
+    setCurrentDate() {
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('date').value = today;
+    }
+
+    getLastJumpData() {
+        if (this.jumps.length === 0) {
+            return null;
+        }
+        
+        // Get the most recent jump (last in sorted array)
+        return this.jumps[this.jumps.length - 1];
+    }
+
+    preFillFormWithLastJump() {
+        const lastJump = this.getLastJumpData();
+        if (!lastJump) {
+            return;
+        }
+        
+        // Pre-fill location
+        const locationInput = document.getElementById('location');
+        if (lastJump.location && locationInput) {
+            locationInput.value = lastJump.location;
+        }
+        
+        // Pre-fill equipment
+        const equipmentSelect = document.getElementById('equipment');
+        if (lastJump.equipment && equipmentSelect) {
+            // Check if the equipment combination still exists and is not archived
+            const equipment = this.equipmentCombinations.find(eq => eq.id === lastJump.equipment && !eq.archived);
+            if (equipment) {
+                equipmentSelect.value = lastJump.equipment;
+            }
+        }
+    }
+
+    updateNextJumpNumber() { /* field removed — kept as no-op for safety */ }
+
+    getNextJumpNumber() {
+        if (this.jumps.length === 0) return this.settings.startingJumpNumber;
+        return Math.max(...this.jumps.map(j => j.jumpNumber)) + 1;
+    }
+
+    addJump() {
+        const form = document.getElementById('jumpForm');
+        const formData = new FormData(form);
+        
+        // Remember the highest jump number before insertion to detect a past-date entry
+        const maxBefore = this.jumps.length > 0
+            ? Math.max(...this.jumps.map(j => j.jumpNumber))
+            : this.settings.startingJumpNumber - 1;
+
+        const jump = {
+            id: Date.now(),
+            jumpNumber: 0,          // assigned below by renumberJumps()
+            date: formData.get('date'),
+            location: formData.get('location'),
+            equipment: formData.get('equipment'),
+            notes: formData.get('notes') || '',
+            timestamp: new Date().toISOString()
+        };
+
+        // Update equipment jump count if equipment is selected
+        if (jump.equipment) {
+            const equipment = this.equipmentCombinations.find(eq => eq.id === jump.equipment);
+            if (equipment) {
+                equipment.jumpCount = (equipment.jumpCount || 0) + 1;
+                this.saveComponentsToLocalStorage();
+            }
+        }
+        
+        // Insert then renumber everything chronologically by date
+        this.jumps.push(jump);
+        this.renumberJumps(); // sorts by date, assigns numbers from startingJumpNumber
+        
+        // Save to localStorage
+        this.saveToLocalStorage();
+        
+        // Update UI
+        this.updateStats();
+        this.renderJumpsList();
+        
+        // Re-render equipment view if currently displayed
+        if (this.currentView === 'equipment') {
+            this.renderEquipmentView();
+        }
+        
+        // Reset form
+        form.reset();
+        this.setCurrentDate();
+        this.preFillFormWithLastJump();
+        
+        // Inform user; note if past-date renumbering happened
+        const isPastJump = jump.jumpNumber <= maxBefore;
+        this.showMessage(
+            isPastJump
+                ? `Jump #${jump.jumpNumber} logged — subsequent jumps renumbered`
+                : 'Jump logged successfully!',
+            'success'
+        );
+        
+        // Sync to Google Sheets
+        if (navigator.onLine && window.SheetsAPI) {
+            if (isPastJump) {
+                // Existing jumps were renumbered — overwrite the whole sheet
+                window.SheetsAPI.syncAfterDelete(this.jumps);
+            } else {
+                window.SheetsAPI.syncJump(jump);
+            }
+        }
+    }
+
+    updateStats() {
+        const latestJumpNumber = this.jumps.length > 0 ? Math.max(...this.jumps.map(jump => jump.jumpNumber)) : 0;
+        document.getElementById('totalJumps').textContent = `Latest Jump: #${latestJumpNumber}`;
+    }
+
+    renderJumpsList() {
+        const jumpsList = document.getElementById('jumpsList');
+        
+        if (this.jumps.length === 0) {
+            jumpsList.innerHTML = '<p class="no-jumps">No jumps logged yet. Add your first jump above!</p>';
+            return;
+        }
+
+        // Show most recent jumps first
+        const sortedJumps = [...this.jumps].sort((a, b) => b.jumpNumber - a.jumpNumber);
+        const recentJumps = sortedJumps.slice(0, 10); // Show last 10 jumps
+
+        jumpsList.innerHTML = recentJumps.map(jump => this.createJumpHTML(jump)).join('');
+    }
+
+    createJumpHTML(jump) {
+        const date = new Date(jump.date).toLocaleDateString();
+        let equipmentName = jump.equipment;
+        
+        // Try to find the equipment combination for better display
+        const combination = this.equipmentCombinations.find(eq => eq.id === jump.equipment);
+        if (combination) {
+            const rig = this.rigs.find(r => r.id === combination.rigId);
+            const canopy = this.canopies.find(c => c.id === combination.canopyId);
+            const lineset = this.linesets.find(l => l.id === combination.linesetId);
+            
+            if (rig && canopy && lineset) {
+                equipmentName = `${rig.name} + ${canopy.name} + ${lineset.name}`;
+            } else {
+                equipmentName = combination.name;
+            }
+        }
+
+        return `
+            <div class="jump-item">
+                <div class="jump-header">
+                    <span class="jump-number">#${jump.jumpNumber}</span>
+                    <span class="jump-date">${date}</span>
+                    <button class="delete-jump-btn" onclick="logbook.deleteJump('${jump.id}')" title="Delete jump">❌</button>
+                </div>
+                <div class="jump-details">
+                    <div class="jump-location">📍 ${jump.location}</div>
+                    <div class="jump-equipment">🎒 ${equipmentName}</div>
+                    ${jump.notes ? `<div class="jump-notes">💭 ${jump.notes}</div>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    deleteJump(jumpId) {
+        if (!confirm('Are you sure you want to delete this jump? This action cannot be undone.')) {
+            return;
+        }
+        
+        // Find the jump to delete
+        const jumpIndex = this.jumps.findIndex(jump => jump.id.toString() === jumpId.toString());
+        if (jumpIndex === -1) {
+            this.showMessage('Jump not found', 'error');
+            return;
+        }
+        
+        const deletedJump = this.jumps[jumpIndex];
+        
+        // Update equipment jump count if equipment was selected
+        if (deletedJump.equipment) {
+            const equipment = this.equipmentCombinations.find(eq => eq.id === deletedJump.equipment);
+            if (equipment && equipment.jumpCount > 0) {
+                equipment.jumpCount = equipment.jumpCount - 1;
+                this.saveComponentsToLocalStorage();
+            }
+        }
+        
+        // Remove the jump
+        this.jumps.splice(jumpIndex, 1);
+        
+        // Renumber all jumps
+        this.renumberJumps();
+        
+        // Save to localStorage
+        this.saveToLocalStorage();
+        
+        // Update UI
+        this.updateStats();
+        this.renderJumpsList();
+        
+        // Re-render equipment view if currently displayed
+        if (this.currentView === 'equipment') {
+            this.renderEquipmentView();
+        }
+        
+        this.showMessage('Jump deleted successfully', 'success');
+        
+        // Sync the updated (renumbered) jump list to Google Sheets
+        if (navigator.onLine && window.SheetsAPI) {
+            window.SheetsAPI.syncAfterDelete(this.jumps);
+        }
+    }
+    
+    renumberJumps() {
+        // Sort jumps by date to maintain chronological order when renumbering
+        this.jumps.sort((a, b) => new Date(a.date) - new Date(b.date));
+        
+        // Renumber jumps starting from the configured starting number
+        this.jumps.forEach((jump, index) => {
+            jump.jumpNumber = this.settings.startingJumpNumber + index;
+        });
+    }
+
+    openSettingsModal() {
+        document.getElementById('startingJumpNumber').value = this.settings.startingJumpNumber;
+        document.getElementById('settingsModal').style.display = 'block';
+    }
+
+    closeModal() {
+        document.getElementById('settingsModal').style.display = 'none';
+    }
+
+    saveSettings() {
+        const startingJumpNumber = parseInt(document.getElementById('startingJumpNumber').value);
+        
+        if (!startingJumpNumber || startingJumpNumber < 1) {
+            this.showMessage('Please enter a valid starting jump number (1 or higher)', 'error');
+            return;
+        }
+
+        this.settings.startingJumpNumber = startingJumpNumber;
+        localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
+        
+        // Push settings to Google Sheets if online
+        if (navigator.onLine && window.SheetsAPI?.initialized) {
+            window.SheetsAPI.syncEquipmentToSheet();
+        }
+        
+        this.closeModal();
+        this.showMessage('Settings saved successfully!', 'success');
+    }
+
+    saveToLocalStorage() {
+        localStorage.setItem('skydiving-jumps', JSON.stringify(this.jumps));
+    }
+
+    saveComponentsToLocalStorage() {
+        localStorage.setItem('skydiving-rigs', JSON.stringify(this.rigs));
+        localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
+        localStorage.setItem('skydiving-linesets', JSON.stringify(this.linesets));
+        localStorage.setItem('skydiving-equipment-combinations', JSON.stringify(this.equipmentCombinations));
+        
+        // Push to Google Sheets if online
+        if (navigator.onLine && window.SheetsAPI?.initialized) {
+            window.SheetsAPI.syncEquipmentToSheet();
+        }
+    }
+    
+    migrateOldEquipmentData() {
+        const oldEquipment = JSON.parse(localStorage.getItem('skydiving-equipment'));
+        if (oldEquipment && oldEquipment.length > 0 && this.equipmentCombinations.length === 0) {
+            // Migrate old simple equipment to new combination format
+            oldEquipment.forEach(eq => {
+                this.equipmentCombinations.push({
+                    id: eq.id,
+                    name: eq.name,
+                    rigId: 'legacy',
+                    canopyId: 'legacy',
+                    linesetId: 'legacy',
+                    previousJumps: 0,
+                    jumpCount: 0,
+                    archived: false
+                });
+            });
+            
+            // Add legacy components
+            if (!this.rigs.find(r => r.id === 'legacy')) {
+                this.rigs.push({ id: 'legacy', name: 'Legacy Rig' });
+            }
+            if (!this.canopies.find(c => c.id === 'legacy')) {
+                this.canopies.push({ id: 'legacy', name: 'Legacy Canopy' });
+            }
+            if (!this.linesets.find(l => l.id === 'legacy')) {
+                this.linesets.push({ id: 'legacy', name: 'Legacy Lineset' });
+            }
+            
+            this.saveComponentsToLocalStorage();
+            localStorage.removeItem('skydiving-equipment'); // Remove old data
+        }
+        
+        // Migrate existing equipment combinations to new format
+        let needsSave = false;
+        this.equipmentCombinations.forEach(eq => {
+            // Migrate old startingJumpNumber → previousJumps (plain count of pre-app jumps)
+            if (eq.previousJumps === undefined) {
+                // startingJumpNumber was stored as the first jump number tracked, so
+                // pre-app count = startingJumpNumber - 1.  Default was 1 → 0 pre-app jumps.
+                const old = eq.startingJumpNumber;
+                eq.previousJumps = (old && old > 1) ? old - 1 : 0;
+                delete eq.startingJumpNumber;
+                needsSave = true;
+            }
+            if (eq.jumpCount === undefined) {
+                eq.jumpCount = 0;
+                needsSave = true;
+            }
+            // Update names to auto-generated format if components exist
+            if (eq.rigId && eq.canopyId && eq.linesetId) {
+                const rig = this.rigs.find(r => r.id === eq.rigId);
+                const canopy = this.canopies.find(c => c.id === eq.canopyId);
+                const lineset = this.linesets.find(l => l.id === eq.linesetId);
+                if (rig && canopy && lineset) {
+                    const autoName = `${rig.name}-${canopy.name}-${lineset.name}`;
+                    if (eq.name !== autoName) {
+                        eq.name = autoName;
+                        needsSave = true;
+                    }
+                }
+            }
+        });
+        
+        if (needsSave) {
+            this.saveComponentsToLocalStorage();
+        }
+    }
+    
+    initializeEquipmentJumpCounts() {
+        // Count all logged jumps for each equipment combination (no jump-number filter;
+        // pre-app jumps are accounted for separately via eq.previousJumps).
+        let needsSave = false;
+        this.equipmentCombinations.forEach(eq => {
+            const actualJumpCount = this.jumps.filter(jump => jump.equipment === eq.id).length;
+            
+            if (eq.jumpCount !== actualJumpCount) {
+                eq.jumpCount = actualJumpCount;
+                needsSave = true;
+            }
+        });
+        
+        if (needsSave) {
+            this.saveComponentsToLocalStorage();
+        }
+    }
+
+    showView(viewName) {
+        this.currentView = viewName;
+        
+        // Hide all views
+        document.querySelectorAll('.view').forEach(view => {
+            view.style.display = 'none';
+        });
+        
+        // Show selected view
+        document.getElementById(`${viewName}View`).style.display = 'block';
+        
+        // Update navigation buttons
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        document.getElementById(`${viewName}ViewBtn`).classList.add('active');
+        
+        // Load view-specific content
+        if (viewName === 'equipment') {
+            this.renderEquipmentView();
+        } else if (viewName === 'stats') {
+            this.renderStats();
+        }
+    }
+    
+    showEquipmentSubView(subView) {
+        this.equipmentSubView = subView;
+        
+        // Update navigation buttons
+        document.querySelectorAll('.equipment-nav-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        document.querySelector(`[data-view="${subView}"]`).classList.add('active');
+        
+        // Update section title and buttons
+        const titleMap = {
+            'combinations': 'Equipment Combinations',
+            'rigs':         'Rigs',
+            'canopies':     'Canopies',
+            'linesets':     'Linesets',
+            'locations':    'Drop Zones / Locations'
+        };
+        
+        document.getElementById('equipmentSectionTitle').textContent = titleMap[subView];
+        
+        // Show/hide appropriate buttons
+        document.getElementById('addEquipmentBtn').style.display  = subView === 'combinations' ? 'block' : 'none';
+        document.getElementById('addRigBtn').style.display        = subView === 'rigs'         ? 'block' : 'none';
+        document.getElementById('addCanopyBtn').style.display     = subView === 'canopies'     ? 'block' : 'none';
+        document.getElementById('addLinesetBtn').style.display    = subView === 'linesets'     ? 'block' : 'none';
+        document.getElementById('addLocationBtn').style.display   = subView === 'locations'    ? 'block' : 'none';
+        
+        this.renderEquipmentView();
+    }
+    
+    renderEquipmentView() {
+        switch(this.equipmentSubView) {
+            case 'combinations': this.renderEquipmentCombinations(); break;
+            case 'rigs':         this.renderComponents('rigs');      break;
+            case 'canopies':     this.renderComponents('canopies');  break;
+            case 'linesets':     this.renderComponents('linesets');  break;
+            case 'locations':    this.renderComponents('locations'); break;
+        }
+    }
+
+    updateEquipmentOptions() {
+        const select = document.getElementById('equipment');
+        select.innerHTML = '<option value="">Select Equipment</option>';
+        
+        // Only show non-archived combinations
+        const activeCombinations = this.equipmentCombinations.filter(eq => !eq.archived);
+        
+        activeCombinations.forEach(eq => {
+            const option = document.createElement('option');
+            option.value = eq.id;
+            option.textContent = eq.name; // Use the auto-generated name
+            select.appendChild(option);
+        });
+    }
+
+    renderEquipmentCombinations() {
+        const container = document.getElementById('equipmentList');
+        
+        if (this.equipmentCombinations.length === 0) {
+            container.innerHTML = '<p class="no-items">No equipment combinations created yet.</p>';
+            return;
+        }
+        
+        const sorted = [...this.equipmentCombinations].sort((a, b) => !!a.archived - !!b.archived);
+
+        container.innerHTML = sorted.map(eq => {
+            const rig = this.rigs.find(r => r.id === eq.rigId);
+            const canopy = this.canopies.find(c => c.id === eq.canopyId);
+            const lineset = this.linesets.find(l => l.id === eq.linesetId);
+            
+            let displayName = eq.name;
+            let components = '';
+            let jumpInfo = '';
+            if (rig && canopy && lineset) {
+                // Use the stored name (auto-generated)
+                displayName = eq.name;
+                components = `<div class="equipment-components">${rig.name} | ${canopy.name} | ${lineset.name}</div>`;
+                const logged = eq.jumpCount || 0;
+                const preApp = eq.previousJumps || 0;
+                const total = logged + preApp;
+                jumpInfo = `<div class="jump-info">Logged: ${logged} | Pre-app: ${preApp} | Total: ${total}</div>`;
+            }
+            
+            return `
+                <div class="equipment-item ${eq.archived ? 'archived' : ''}">
+                    <div class="equipment-info">
+                        <span class="equipment-name">${displayName}</span>
+                        ${components}
+                        ${jumpInfo}
+                        ${eq.archived ? '<span class="archived-badge">Archived</span>' : ''}
+                    </div>
+                    <div class="equipment-actions">
+                        <button onclick="window.logbook.editEquipment('${eq.id}')" class="btn-edit">Edit</button>
+                        <button onclick="window.logbook.toggleArchiveEquipment('${eq.id}')" class="btn-toggle">
+                            ${eq.archived ? 'Unarchive' : 'Archive'}
+                        </button>
+                        <button onclick="window.logbook.deleteEquipment('${eq.id}')" class="btn-delete">Delete</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    addEquipment() {
+        document.getElementById('equipmentForm').reset();
+        document.getElementById('equipmentId').value = '';
+        document.getElementById('equipmentStartingJumpNumber').value = 0;
+        this.populateComponentSelects();
+        document.getElementById('equipmentModal').style.display = 'block';
+    }
+    
+    populateComponentSelects() {
+        // Populate rig select
+        const rigSelect = document.getElementById('equipmentRig');
+        rigSelect.innerHTML = '<option value="">Select Rig</option>';
+        this.rigs.forEach(rig => {
+            const option = document.createElement('option');
+            option.value = rig.id;
+            option.textContent = rig.name;
+            rigSelect.appendChild(option);
+        });
+        
+        // Populate canopy select
+        const canopySelect = document.getElementById('equipmentCanopy');
+        canopySelect.innerHTML = '<option value="">Select Canopy</option>';
+        this.canopies.forEach(canopy => {
+            const option = document.createElement('option');
+            option.value = canopy.id;
+            option.textContent = canopy.name;
+            canopySelect.appendChild(option);
+        });
+        
+        // Populate lineset select
+        const linesetSelect = document.getElementById('equipmentLineset');
+        linesetSelect.innerHTML = '<option value="">Select Lineset</option>';
+        this.linesets.forEach(lineset => {
+            const option = document.createElement('option');
+            option.value = lineset.id;
+            option.textContent = lineset.name;
+            linesetSelect.appendChild(option);
+        });
+    }
+
+    editEquipment(id) {
+        const equipment = this.equipmentCombinations.find(eq => eq.id === id);
+        if (equipment) {
+            document.getElementById('equipmentId').value = equipment.id;
+            document.getElementById('equipmentStartingJumpNumber').value = equipment.previousJumps || 0;
+            this.populateComponentSelects();
+            
+            // Set selected values
+            document.getElementById('equipmentRig').value = equipment.rigId || '';
+            document.getElementById('equipmentCanopy').value = equipment.canopyId || '';
+            document.getElementById('equipmentLineset').value = equipment.linesetId || '';
+            
+            document.getElementById('equipmentModal').style.display = 'block';
+        }
+    }
+
+    saveEquipment() {
+        const id = document.getElementById('equipmentId').value;
+        const rigId = document.getElementById('equipmentRig').value;
+        const canopyId = document.getElementById('equipmentCanopy').value;
+        const linesetId = document.getElementById('equipmentLineset').value;
+        const previousJumps = Math.max(0, parseInt(document.getElementById('equipmentStartingJumpNumber').value) || 0);
+        
+        if (!rigId || !canopyId || !linesetId) {
+            this.showMessage('Please select rig, canopy, and lineset', 'error');
+            return;
+        }
+        
+        // Auto-generate name from components
+        const rig = this.rigs.find(r => r.id === rigId);
+        const canopy = this.canopies.find(c => c.id === canopyId);
+        const lineset = this.linesets.find(l => l.id === linesetId);
+        const name = `${rig.name}-${canopy.name}-${lineset.name}`;
+        
+        if (id) {
+            // Edit existing
+            const equipment = this.equipmentCombinations.find(eq => eq.id === id);
+            if (equipment) {
+                equipment.name = name;
+                equipment.rigId = rigId;
+                equipment.canopyId = canopyId;
+                equipment.linesetId = linesetId;
+                equipment.previousJumps = previousJumps;
+            }
+        } else {
+            // Add new
+            const newId = 'eq_' + Date.now();
+            this.equipmentCombinations.push({
+                id: newId,
+                name: name,
+                rigId: rigId,
+                canopyId: canopyId,
+                linesetId: linesetId,
+                previousJumps: previousJumps,
+                jumpCount: 0,
+                archived: false
+            });
+        }
+        
+        this.saveComponentsToLocalStorage();
+        this.updateEquipmentOptions();
+        this.renderEquipmentView();
+        this.closeEquipmentModal();
+        this.showMessage('Equipment saved successfully!', 'success');
+    }
+
+    deleteEquipment(id) {
+        if (confirm('Are you sure you want to delete this equipment combination?')) {
+            // Check if equipment is used in any jumps
+            const usedInJumps = this.jumps.some(jump => jump.equipment === id);
+            if (usedInJumps) {
+                this.showMessage('Cannot delete equipment that has been used in jumps. Archive it instead.', 'error');
+                return;
+            }
+            
+            this.equipmentCombinations = this.equipmentCombinations.filter(eq => eq.id !== id);
+            this.saveComponentsToLocalStorage();
+            this.updateEquipmentOptions();
+            this.renderEquipmentView();
+            this.showMessage('Equipment deleted successfully!', 'success');
+        }
+    }
+    
+    toggleArchiveEquipment(id) {
+        const equipment = this.equipmentCombinations.find(eq => eq.id === id);
+        if (equipment) {
+            equipment.archived = !equipment.archived;
+            this.saveComponentsToLocalStorage();
+            this.updateEquipmentOptions();
+            this.renderEquipmentView();
+            this.showMessage(`Equipment ${equipment.archived ? 'archived' : 'unarchived'} successfully!`, 'success');
+        }
+    }
+
+    addComponent(type) {
+        document.getElementById('componentForm').reset();
+        document.getElementById('componentId').value = '';
+        document.getElementById('componentType').value = type;
+        document.getElementById('componentModalTitle').textContent = `Add ${type.charAt(0).toUpperCase() + type.slice(1)}`;
+        document.getElementById('componentModal').style.display = 'block';
+    }
+    
+    saveComponent() {
+        const id = document.getElementById('componentId').value;
+        const name = document.getElementById('componentName').value.trim();
+        const type = document.getElementById('componentType').value;
+        
+        if (!name) {
+            this.showMessage('Please enter component name', 'error');
+            return;
+        }
+        
+        // Get the correct collection name for each type
+        let collectionName;
+        switch(type) {
+            case 'rig':      collectionName = 'rigs';      break;
+            case 'canopy':   collectionName = 'canopies';  break;
+            case 'lineset':  collectionName = 'linesets';  break;
+            case 'location': collectionName = 'locations'; break;
+            default:
+                this.showMessage('Invalid component type', 'error');
+                return;
+        }
+        
+        const collection = this[collectionName];
+        
+        if (id) {
+            // Edit existing
+            const component = collection.find(c => c.id === id);
+            if (component) {
+                component.name = name;
+            }
+        } else {
+            // Add new
+            const newId = type + '_' + Date.now();
+            collection.push({ id: newId, name: name });
+        }
+        
+        this.saveComponentsToLocalStorage();
+        this.renderEquipmentView();
+        this.closeComponentModal();
+        // Refresh autocomplete if a location was saved
+        if (type === 'location') this.updateLocationDatalist();
+        if (navigator.onLine && window.SheetsAPI) window.SheetsAPI.syncEquipmentToSheet();
+        this.showMessage(`${type.charAt(0).toUpperCase() + type.slice(1)} saved successfully!`, 'success');
+    }
+    
+    updateLocationDatalist() {
+        const datalist = document.getElementById('locationSuggestions');
+        if (!datalist) return;
+        datalist.innerHTML = this.locations
+            .map(loc => `<option value="${loc.name}">`)
+            .join('');
+    }
+    
+    renderComponents(type) {
+        const container = document.getElementById('equipmentList');
+        const collection = this[type];
+        
+        if (collection.length === 0) {
+            container.innerHTML = `<p class="no-items">No ${type} added yet.</p>`;
+            return;
+        }
+        
+        container.innerHTML = collection.map(component => `
+            <div class="equipment-item">
+                <div class="equipment-info">
+                    <span class="equipment-name">${component.name}</span>
+                </div>
+                <div class="equipment-actions">
+                    <button onclick="window.logbook.editComponent('${component.id}', '${type}')" class="btn-edit">Edit</button>
+                    <button onclick="window.logbook.deleteComponent('${component.id}', '${type}')" class="btn-delete">Delete</button>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    editComponent(id, type) {
+        const collection = this[type];
+        const component = collection.find(c => c.id === id);
+        if (component) {
+            document.getElementById('componentId').value = component.id;
+            document.getElementById('componentName').value = component.name;
+            document.getElementById('componentType').value = type.slice(0, -1); // Remove 's' from end
+            document.getElementById('componentModalTitle').textContent = `Edit ${type.slice(0, -1).charAt(0).toUpperCase() + type.slice(1, -1)}`;
+            document.getElementById('componentModal').style.display = 'block';
+        }
+    }
+    
+    deleteComponent(id, type) {
+        const typeSingular = type.slice(0, -1);
+        if (confirm(`Are you sure you want to delete this ${typeSingular}?`)) {
+            // Check if component is used in any equipment combinations
+            const usedInEquipment = this.equipmentCombinations.some(eq => 
+                eq.rigId === id || eq.canopyId === id || eq.linesetId === id
+            );
+            if (usedInEquipment) {
+                this.showMessage(`Cannot delete ${typeSingular} that is used in equipment combinations`, 'error');
+                return;
+            }
+            
+            const collection = this[type];
+            const index = collection.findIndex(c => c.id === id);
+            if (index !== -1) {
+                collection.splice(index, 1);
+                this.saveComponentsToLocalStorage();
+                this.renderEquipmentView();
+                if (type === 'locations') this.updateLocationDatalist();
+                if (navigator.onLine && window.SheetsAPI) window.SheetsAPI.syncEquipmentToSheet();
+                this.showMessage(`${typeSingular.charAt(0).toUpperCase() + typeSingular.slice(1)} deleted successfully!`, 'success');
+            }
+        }
+    }
+    
+    closeComponentModal() {
+        document.getElementById('componentModal').style.display = 'none';
+    }
+    
+    closeEquipmentModal() {
+        document.getElementById('equipmentModal').style.display = 'none';
+    }
+
+    renderStats() {
+        const container = document.getElementById('statsContent');
+        
+        if (this.jumps.length === 0) {
+            container.innerHTML = '<p class="no-items">No jumps logged yet.</p>';
+            return;
+        }
+        
+        // Calculate equipment combination statistics
+        const equipmentStats = this.equipmentCombinations.map(eq => {
+            const loggedJumpsCount = this.jumps.filter(jump => jump.equipment === eq.id).length;
+            const totalCount = loggedJumpsCount + (eq.previousJumps || 0);
+            let name = eq.name;
+            const rig = this.rigs.find(r => r.id === eq.rigId);
+            const canopy = this.canopies.find(c => c.id === eq.canopyId);
+            const lineset = this.linesets.find(l => l.id === eq.linesetId);
+            if (rig && canopy && lineset) {
+                name = `${rig.name} + ${canopy.name} + ${lineset.name}`;
+            }
+            return { name, count: totalCount, logged: loggedJumpsCount, preApp: eq.previousJumps || 0, archived: eq.archived };
+        });
+        
+        // Separate active and archived equipment, then sort each group
+        const activeStats = equipmentStats
+            .filter(stat => !stat.archived && stat.count > 0)
+            .sort((a, b) => b.count - a.count);
+            
+        const archivedStats = equipmentStats
+            .filter(stat => stat.archived)
+            .sort((a, b) => b.count - a.count);
+            
+        // Combine: active first, then archived at the end
+        const sortedEquipmentStats = [...activeStats, ...archivedStats];
+        
+        // Calculate component-level statistics
+        const rigStats = {};
+        const canopyStats = {};
+        
+        // Count logged jumps for each component
+        this.jumps.forEach(jump => {
+            const combination = this.equipmentCombinations.find(eq => eq.id === jump.equipment);
+            if (combination) {
+                const rig = this.rigs.find(r => r.id === combination.rigId);
+                if (rig) rigStats[rig.name] = (rigStats[rig.name] || 0) + 1;
+                
+                const canopy = this.canopies.find(c => c.id === combination.canopyId);
+                if (canopy) canopyStats[canopy.name] = (canopyStats[canopy.name] || 0) + 1;
+            }
+        });
+        
+        // Add pre-app jump counts for each equipment combination
+        this.equipmentCombinations.forEach(eq => {
+            const preApp = eq.previousJumps || 0;
+            if (preApp > 0) {
+                const rig = this.rigs.find(r => r.id === eq.rigId);
+                if (rig) rigStats[rig.name] = (rigStats[rig.name] || 0) + preApp;
+                
+                const canopy = this.canopies.find(c => c.id === eq.canopyId);
+                if (canopy) canopyStats[canopy.name] = (canopyStats[canopy.name] || 0) + preApp;
+            }
+        });
+        
+        let html = `
+            <div class="stats-section">
+                <h3>Equipment Combinations</h3>
+                <div class="stats-list">
+        `;
+        
+        if (sortedEquipmentStats.length > 0) {
+            const maxCount = Math.max(...sortedEquipmentStats.map(s => s.count));
+            sortedEquipmentStats.forEach(stat => {
+                const percentage = stat.count > 0 ? (stat.count / maxCount) * 100 : 0;
+                const breakdown = stat.preApp > 0
+                    ? `${stat.count} total (${stat.logged} logged + ${stat.preApp} pre-app)`
+                    : `${stat.count} jumps`;
+                html += `
+                    <div class="stat-item${stat.archived ? ' archived' : ''}">
+                        <div class="stat-info">
+                            <span class="stat-name">${stat.name} ${stat.archived ? '(Archived)' : ''}</span>
+                            <span class="stat-count">${breakdown}</span>
+                        </div>
+                        <div class="stat-bar">
+                            <div class="stat-fill" style="width: ${percentage}%"></div>
+                        </div>
+                    </div>
+                `;
+            });
+        } else {
+            html += '<p class="no-items">No equipment statistics available.</p>';
+        }
+        
+        html += '</div></div>';
+        
+        // Add canopy statistics
+        html += this.renderComponentStats('Canopies', canopyStats);
+        
+        // Add rig statistics
+        html += this.renderComponentStats('Rigs', rigStats);
+        
+        container.innerHTML = html;
+    }
+    
+    renderComponentStats(title, statsObject) {
+        const statsArray = Object.entries(statsObject)
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count);
+            
+        let html = `
+            <div class="stats-section">
+                <h3>${title}</h3>
+                <div class="stats-list">
+        `;
+        
+        if (statsArray.length > 0) {
+            const maxCount = Math.max(...statsArray.map(s => s.count));
+            statsArray.forEach(stat => {
+                const percentage = (stat.count / maxCount) * 100;
+                html += `
+                    <div class="stat-item">
+                        <div class="stat-info">
+                            <span class="stat-name">${stat.name}</span>
+                            <span class="stat-count">${stat.count} jumps</span>
+                        </div>
+                        <div class="stat-bar">
+                            <div class="stat-fill" style="width: ${percentage}%"></div>
+                        </div>
+                    </div>
+                `;
+            });
+        } else {
+            html += `<p class="no-items">No ${title.toLowerCase()} statistics available.</p>`;
+        }
+        
+        html += '</div></div>';
+        return html;
+    }
+
+    exportData() {
+        if (this.jumps.length === 0) {
+            this.showMessage('No jumps to export', 'error');
+            return;
+        }
+
+        const csvHeader = 'Jump Number,Date,Location,Equipment,Notes,Timestamp\n';
+        const csvData = this.jumps.map(jump => {
+            // Resolve combination ID to a readable name for the export
+            let equipmentDisplay = jump.equipment;
+            const combination = this.equipmentCombinations.find(eq => eq.id === jump.equipment);
+            if (combination) {
+                const rig = this.rigs.find(r => r.id === combination.rigId);
+                const canopy = this.canopies.find(c => c.id === combination.canopyId);
+                const lineset = this.linesets.find(l => l.id === combination.linesetId);
+                equipmentDisplay = (rig && canopy && lineset)
+                    ? `${rig.name} + ${canopy.name} + ${lineset.name}`
+                    : combination.name;
+            }
+            return `${jump.jumpNumber},"${jump.date}","${jump.location}","${equipmentDisplay}","${jump.notes}","${jump.timestamp}"`;
+        }).join('\n');
+
+        const csvContent = csvHeader + csvData;
+        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `skydiving-logbook-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        this.showMessage('Data exported successfully!', 'success');
+    }
+
+    updateOnlineStatus() {
+        const syncStatus = document.getElementById('syncStatus');
+        if (navigator.onLine) {
+            syncStatus.textContent = 'Online';
+            syncStatus.className = 'sync-status success';
+            this.hideOfflineIndicator();
+        } else {
+            syncStatus.textContent = 'Offline';
+            syncStatus.className = 'sync-status error';
+            this.showOfflineIndicator();
+        }
+    }
+
+    showOfflineIndicator() {
+        let indicator = document.querySelector('.offline-indicator');
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.className = 'offline-indicator';
+            indicator.textContent = '📡 You are offline. Data will sync when connection is restored.';
+            document.body.insertBefore(indicator, document.querySelector('.container'));
+        }
+        indicator.classList.remove('hidden');
+    }
+
+    hideOfflineIndicator() {
+        const indicator = document.querySelector('.offline-indicator');
+        if (indicator) {
+            indicator.classList.add('hidden');
+        }
+    }
+
+    showMessage(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+
+        document.body.appendChild(toast);
+        
+        // Fade in (next frame so the transition fires)
+        requestAnimationFrame(() => toast.classList.add('toast-visible'));
+        
+        // Fade out and remove
+        setTimeout(() => {
+            toast.classList.remove('toast-visible');
+            toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+        }, 3000);
+    }
+}
+
+// Initialize the app when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    window.logbook = new SkydivingLogbook();
+});
+
+// Service Worker registration for offline functionality
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+            .then((registration) => {
+                console.log('SW registered: ', registration);
+                // Check for SW updates periodically (every 30 min)
+                setInterval(() => registration.update(), 30 * 60 * 1000);
+            })
+            .catch((registrationError) => {
+                console.log('SW registration failed: ', registrationError);
+            });
+    });
+}

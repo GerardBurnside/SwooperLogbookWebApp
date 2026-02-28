@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skydiving Logbook</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#2196F3">
+    <!-- iOS PWA support -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="SkyLogbook">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🪂%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🪂 Skydiving Logbook</h1>
+            <div class="stats">
+                <span id="totalJumps">Latest Jump: #0</span>
+            </div>
+            <nav class="main-nav">
+                <button id="jumpsViewBtn" class="nav-btn active">Jumps</button>
+                <button id="equipmentViewBtn" class="nav-btn">Equipment</button>
+                <button id="statsViewBtn" class="nav-btn">Statistics</button>
+            </nav>
+        </header>
+
+        <main>
+            <!-- Jump Entry and History View -->
+            <div id="jumpsView" class="view">
+                <!-- Jump Entry Form -->
+                <section class="jump-entry">
+                    <h2>Log New Jump</h2>
+                    <form id="jumpForm">
+                        <div class="form-group">
+                            <label for="date">Date</label>
+                            <input type="date" id="date" name="date" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="location">Drop Zone / Location</label>
+                            <input type="text" id="location" name="location" list="locationSuggestions" placeholder="e.g., Sky High DZ, California" required autocomplete="off">
+                            <datalist id="locationSuggestions"></datalist>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="equipment">Equipment Used</label>
+                            <select id="equipment" name="equipment" required>
+                                <option value="">Select Equipment</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="notes">Notes (Optional)</label>
+                            <textarea id="notes" name="notes" placeholder="Weather, altitude, freefall time, etc."></textarea>
+                        </div>
+                        
+                        <button type="submit" class="btn-primary">Log Jump</button>
+                    </form>
+                </section>
+
+                <!-- Jump History -->
+                <section class="jump-history">
+                    <h2>Recent Jumps</h2>
+                    <div id="jumpsList" class="jumps-list">
+                        <p class="no-jumps">No jumps logged yet. Add your first jump above!</p>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Equipment Management View -->
+            <div id="equipmentView" class="view" style="display: none;">
+                <section class="equipment-management">
+                    <h2>Equipment Management</h2>
+                    
+                    <!-- Equipment Sub-Navigation -->
+                    <nav class="equipment-nav">
+                        <button class="equipment-nav-btn active" data-view="combinations">Combinations</button>
+                        <button class="equipment-nav-btn" data-view="rigs">Rigs</button>
+                        <button class="equipment-nav-btn" data-view="canopies">Canopies</button>
+                        <button class="equipment-nav-btn" data-view="linesets">Linesets</button>
+                        <button class="equipment-nav-btn" data-view="locations">Locations</button>
+                    </nav>
+                    
+                    <div class="section-header">
+                        <h3 id="equipmentSectionTitle">Equipment Combinations</h3>
+                        <div class="header-buttons">
+                            <button id="addEquipmentBtn" class="btn-primary">Add Combination</button>
+                            <button id="addRigBtn" class="btn-secondary" style="display:none;">Add Rig</button>
+                            <button id="addCanopyBtn" class="btn-secondary" style="display:none;">Add Canopy</button>
+                            <button id="addLinesetBtn" class="btn-secondary" style="display:none;">Add Lineset</button>
+                            <button id="addLocationBtn" class="btn-secondary" style="display:none;">Add Location</button>
+                        </div>
+                    </div>
+                    
+                    <div id="equipmentList" class="equipment-list">
+                        <p class="no-items">Loading...</p>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Statistics View -->
+            <div id="statsView" class="view" style="display: none;">
+                <section class="statistics">
+                    <h2>Jump Statistics</h2>
+                    <div id="statsContent">
+                        <p class="no-items">Loading...</p>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <!-- Equipment Modal -->
+        <div id="equipmentModal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="window.logbook.closeEquipmentModal()">&times;</span>
+                <h2>Equipment Combination</h2>
+                <form id="equipmentForm">
+                    <input type="hidden" id="equipmentId">
+                    <div class="form-group">
+                        <label for="equipmentStartingJumpNumber">Previous Jumps (before this app)</label>
+                        <input type="number" id="equipmentStartingJumpNumber" min="0" value="0" required placeholder="e.g. 500 jumps on this gear before logging">
+                    </div>
+                    <div class="form-group">
+                        <label for="equipmentRig">Rig</label>
+                        <select id="equipmentRig" required>
+                            <option value="">Select Rig</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="equipmentCanopy">Canopy</label>
+                        <select id="equipmentCanopy" required>
+                            <option value="">Select Canopy</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="equipmentLineset">Lineset</label>
+                        <select id="equipmentLineset" required>
+                            <option value="">Select Lineset</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn-primary">Save Combination</button>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Component Modal -->
+        <div id="componentModal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="window.logbook.closeComponentModal()">&times;</span>
+                <h2 id="componentModalTitle">Add Component</h2>
+                <form id="componentForm">
+                    <input type="hidden" id="componentId">
+                    <input type="hidden" id="componentType">
+                    <div class="form-group">
+                        <label for="componentName">Component Name</label>
+                        <input type="text" id="componentName" required placeholder="e.g., Javelin Odyssey">
+                    </div>
+                    <button type="submit" class="btn-primary">Save Component</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="settingsModal" class="modal">
+            <div class="modal-content">
+                <span class="close">&times;</span>
+                <h2>Settings</h2>
+                <div class="form-group">
+                    <label for="startingJumpNumber">Starting Jump Number</label>
+                    <input type="number" id="startingJumpNumber" min="1" placeholder="Enter your first jump number">
+                </div>
+                <button id="saveSettings" class="btn-primary">Save Settings</button>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer>
+            <button id="settingsBtn" class="btn-secondary">Settings</button>
+            <button id="exportBtn" class="btn-secondary">Export Data</button>
+            <span class="sync-status" id="syncStatus">Ready</span>
+        </footer>
+    </div>
+
+    <script src="js/app.js"></script>
+    <script src="js/sheets.js"></script>
+
+    <!-- PWA Install Prompt -->
+    <div id="installBanner" style="display:none; position:fixed; bottom:0; left:0; right:0;
+        background:#1976D2; color:#fff; padding:12px 16px; z-index:9999;
+        display:none; align-items:center; justify-content:space-between; font-size:14px;">
+        <span>📲 Install this app for offline use!</span>
+        <span>
+            <button id="installBtn" style="background:#fff; color:#1976D2; border:none;
+                padding:6px 14px; border-radius:4px; font-weight:bold; cursor:pointer; margin-right:8px;">Install</button>
+            <button id="dismissInstall" style="background:transparent; color:#fff; border:1px solid #fff;
+                padding:6px 10px; border-radius:4px; cursor:pointer;">✕</button>
+        </span>
+    </div>
+    <script>
+        // Capture the beforeinstallprompt event (Android / desktop Chrome)
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            // Only show if user hasn't dismissed before
+            if (!localStorage.getItem('installDismissed')) {
+                document.getElementById('installBanner').style.display = 'flex';
+            }
+        });
+        document.getElementById('installBtn').addEventListener('click', () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(() => {
+                    deferredPrompt = null;
+                    document.getElementById('installBanner').style.display = 'none';
+                });
+            }
+        });
+        document.getElementById('dismissInstall').addEventListener('click', () => {
+            document.getElementById('installBanner').style.display = 'none';
+            localStorage.setItem('installDismissed', '1');
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+# Config files with sensitive data
+config/sheets-config.json
+
+# Node modules (if added later)
+node_modules/
+
+# Environment files
+.env
+.env.local
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/settings.json
+.idea/
+
+# Build files
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
