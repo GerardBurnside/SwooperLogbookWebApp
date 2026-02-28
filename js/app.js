@@ -47,7 +47,7 @@ class SkydivingLogbook {
         this.renderJumpsList();
         this.setCurrentDate();
         this.updateEquipmentOptions();
-        this.updateLocationDatalist();
+        this.setupLocationAutocomplete();
         this.preFillFormWithLastJump();
         this.showView('jumps');
         
@@ -934,11 +934,86 @@ class SkydivingLogbook {
     }
     
     updateLocationDatalist() {
-        const datalist = document.getElementById('locationSuggestions');
-        if (!datalist) return;
-        datalist.innerHTML = this.locations
-            .map(loc => `<option value="${loc.name}">`)
-            .join('');
+        // No-op: replaced by custom autocomplete dropdown
+    }
+
+    setupLocationAutocomplete() {
+        const input = document.getElementById('location');
+        const dropdown = document.getElementById('locationDropdown');
+        if (!input || !dropdown) return;
+
+        let activeIndex = -1;
+
+        const showDropdown = () => {
+            const query = input.value.trim().toLowerCase();
+            const matches = this.locations.filter(loc =>
+                loc.name.toLowerCase().includes(query)
+            );
+
+            if (matches.length === 0) {
+                dropdown.classList.remove('open');
+                return;
+            }
+
+            dropdown.innerHTML = matches.map((loc, i) => {
+                let display = loc.name;
+                if (query) {
+                    const idx = loc.name.toLowerCase().indexOf(query);
+                    if (idx !== -1) {
+                        display = loc.name.slice(0, idx)
+                            + '<span class="match">' + loc.name.slice(idx, idx + query.length) + '</span>'
+                            + loc.name.slice(idx + query.length);
+                    }
+                }
+                return `<div class="autocomplete-option" data-index="${i}" data-value="${loc.name}">${display}</div>`;
+            }).join('');
+
+            activeIndex = -1;
+            dropdown.classList.add('open');
+        };
+
+        const selectOption = (value) => {
+            input.value = value;
+            dropdown.classList.remove('open');
+            activeIndex = -1;
+        };
+
+        input.addEventListener('focus', showDropdown);
+        input.addEventListener('input', showDropdown);
+
+        input.addEventListener('keydown', (e) => {
+            const options = dropdown.querySelectorAll('.autocomplete-option');
+            if (!dropdown.classList.contains('open') || options.length === 0) return;
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                activeIndex = Math.min(activeIndex + 1, options.length - 1);
+                options.forEach((o, i) => o.classList.toggle('active', i === activeIndex));
+                options[activeIndex].scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                activeIndex = Math.max(activeIndex - 1, 0);
+                options.forEach((o, i) => o.classList.toggle('active', i === activeIndex));
+                options[activeIndex].scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'Enter' && activeIndex >= 0) {
+                e.preventDefault();
+                selectOption(options[activeIndex].dataset.value);
+            } else if (e.key === 'Escape') {
+                dropdown.classList.remove('open');
+            }
+        });
+
+        dropdown.addEventListener('click', (e) => {
+            const option = e.target.closest('.autocomplete-option');
+            if (option) selectOption(option.dataset.value);
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.location-autocomplete')) {
+                dropdown.classList.remove('open');
+            }
+        });
     }
     
     renderComponents(type) {

@@ -229,6 +229,51 @@ textarea {
     resize: vertical;
 }
 
+/* Custom Location Autocomplete */
+.location-autocomplete {
+    position: relative;
+}
+
+.autocomplete-dropdown {
+    display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    max-height: 200px;
+    overflow-y: auto;
+    background: #fff;
+    border: 2px solid #2196F3;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.autocomplete-dropdown.open {
+    display: block;
+}
+
+.autocomplete-option {
+    padding: 0.65rem 0.75rem;
+    cursor: pointer;
+    font-size: 1rem;
+    border-bottom: 1px solid #eee;
+}
+
+.autocomplete-option:last-child {
+    border-bottom: none;
+}
+
+.autocomplete-option:hover,
+.autocomplete-option.active {
+    background: #e3f2fd;
+}
+
+.autocomplete-option .match {
+    font-weight: 700;
+}
+
 /* Buttons */
 .btn-primary {
     width: 100%;
