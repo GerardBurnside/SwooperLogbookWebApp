@@ -36,6 +36,7 @@ class SkydivingLogbook {
         
         this.currentView = 'jumps'; // 'jumps', 'equipment', 'stats'
         this.equipmentSubView = 'combinations'; // 'combinations', 'rigs', 'canopies', 'linesets', 'locations'
+        this.showArchivedStats = false;
         
         this.init();
     }
@@ -1025,8 +1026,10 @@ class SkydivingLogbook {
             .filter(stat => stat.archived)
             .sort((a, b) => b.count - a.count);
             
-        // Combine: active first, then archived at the end
-        const sortedEquipmentStats = [...activeStats, ...archivedStats];
+        // Combine: active first, then archived only if toggled on
+        const sortedEquipmentStats = this.showArchivedStats
+            ? [...activeStats, ...archivedStats]
+            : activeStats;
         
         // Calculate component-level statistics
         const rigStats = {};
@@ -1056,9 +1059,18 @@ class SkydivingLogbook {
             }
         });
         
+        const hasArchived = archivedStats.length > 0;
+        const archivedBtnLabel = this.showArchivedStats ? 'Hide Archived' : `Show Archived (${archivedStats.length})`;
+        const archivedToggleBtn = hasArchived
+            ? `<button class="btn-secondary btn-sm" onclick="window.logbook.toggleArchivedStats()">${archivedBtnLabel}</button>`
+            : '';
+
         let html = `
             <div class="stats-section">
-                <h3>Equipment Combinations</h3>
+                <div class="stats-section-header">
+                    <h3>Equipment Combinations</h3>
+                    ${archivedToggleBtn}
+                </div>
                 <div class="stats-list">
         `;
         
@@ -1096,6 +1108,11 @@ class SkydivingLogbook {
         container.innerHTML = html;
     }
     
+    toggleArchivedStats() {
+        this.showArchivedStats = !this.showArchivedStats;
+        this.renderStats();
+    }
+
     renderComponentStats(title, statsObject) {
         const statsArray = Object.entries(statsObject)
             .map(([name, count]) => ({ name, count }))
