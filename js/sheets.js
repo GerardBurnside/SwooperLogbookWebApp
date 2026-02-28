@@ -34,7 +34,10 @@ class SheetsAPI {
         try {
             const response = await fetch('./config/sheets-config.json');
             if (response.ok) {
-                return await response.json();
+                const fileConfig = await response.json();
+                // Also persist to localStorage so it survives offline / missing file
+                localStorage.setItem('sheets-config', JSON.stringify(fileConfig));
+                return fileConfig;
             }
         } catch (error) {
             console.log('Config file not found, checking localStorage');
@@ -43,6 +46,23 @@ class SheetsAPI {
         // Fallback to localStorage
         const config = localStorage.getItem('sheets-config');
         return config ? JSON.parse(config) : {};
+    }
+
+    /**
+     * Re-initialize the API with new credentials (called from Settings).
+     */
+    reinitialize(webAppUrl, spreadsheetId) {
+        this.webAppUrl = webAppUrl || '';
+        this.spreadsheetId = spreadsheetId || '';
+
+        if (this.webAppUrl) {
+            this.initialized = true;
+            console.log('Google Apps Script API re-initialized with new config');
+            this.updateSyncStatus('Ready');
+        } else {
+            this.initialized = false;
+            this.updateSyncStatus('Not configured');
+        }
     }
 
     async syncJump(jump) {

@@ -398,6 +398,27 @@ class SkydivingLogbook {
 
     openSettingsModal() {
         document.getElementById('startingJumpNumber').value = this.settings.startingJumpNumber;
+
+        // Populate Google Sheets config fields from localStorage (or current API state)
+        const savedConfig = JSON.parse(localStorage.getItem('sheets-config') || '{}');
+        const webAppUrl = (window.SheetsAPI && window.SheetsAPI.webAppUrl) || savedConfig.webAppUrl || '';
+        const spreadsheetId = (window.SheetsAPI && window.SheetsAPI.spreadsheetId) || savedConfig.spreadsheetId || '';
+        document.getElementById('cfgWebAppUrl').value = webAppUrl;
+        document.getElementById('cfgSpreadsheetId').value = spreadsheetId;
+
+        // Show connection status
+        const statusEl = document.getElementById('sheetsConfigStatus');
+        if (window.SheetsAPI && window.SheetsAPI.initialized) {
+            statusEl.textContent = '✅ Connected to Google Sheets';
+            statusEl.style.color = '#2e7d32';
+        } else if (webAppUrl) {
+            statusEl.textContent = '⚠️ Configured but not connected — check values';
+            statusEl.style.color = '#e65100';
+        } else {
+            statusEl.textContent = 'ℹ️ Enter your Apps Script URL and Spreadsheet ID to enable sync';
+            statusEl.style.color = '#666';
+        }
+
         document.getElementById('settingsModal').style.display = 'block';
     }
 
@@ -415,6 +436,20 @@ class SkydivingLogbook {
 
         this.settings.startingJumpNumber = startingJumpNumber;
         localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
+
+        // ── Save Google Sheets config to localStorage ──
+        const webAppUrl = document.getElementById('cfgWebAppUrl').value.trim();
+        const spreadsheetId = document.getElementById('cfgSpreadsheetId').value.trim();
+
+        if (webAppUrl || spreadsheetId) {
+            const sheetsConfig = { webAppUrl, spreadsheetId };
+            localStorage.setItem('sheets-config', JSON.stringify(sheetsConfig));
+
+            // Re-initialize the Sheets API with the new values
+            if (window.SheetsAPI) {
+                window.SheetsAPI.reinitialize(webAppUrl, spreadsheetId);
+            }
+        }
         
         // Push settings to Google Sheets if online
         if (navigator.onLine && window.SheetsAPI?.initialized) {
