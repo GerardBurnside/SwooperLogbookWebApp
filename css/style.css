@@ -655,6 +655,14 @@ textarea {
     transition: width 0.3s ease;
 }
 
+.stat-fill.stat-fill-orange {
+    background: linear-gradient(90deg, #FF9800, #FFC107);
+}
+
+.stat-fill.stat-fill-red {
+    background: linear-gradient(90deg, #f44336, #e53935);
+}
+
 /* Modal */
 .modal {
     display: none;

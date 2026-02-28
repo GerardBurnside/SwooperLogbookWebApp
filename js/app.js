@@ -1144,7 +1144,7 @@ class SkydivingLogbook {
                 const hybridSuffix = /-Hybrid$/i.test(eq.name || '') ? ' (Hybrid)' : '';
                 name = `${rig.name} + ${canopy.name} + ${lineset.name}${hybridSuffix}`;
             }
-            return { name, count: totalCount, logged: loggedJumpsCount, preApp: eq.previousJumps || 0, archived: eq.archived };
+            return { name, count: totalCount, logged: loggedJumpsCount, preApp: eq.previousJumps || 0, archived: eq.archived, hybrid: /-Hybrid$/i.test(eq.name || '') };
         });
         
         // Separate active and archived equipment, then sort each group
@@ -1205,9 +1205,16 @@ class SkydivingLogbook {
         `;
         
         if (sortedEquipmentStats.length > 0) {
-            const maxCount = Math.max(...sortedEquipmentStats.map(s => s.count));
             sortedEquipmentStats.forEach(stat => {
-                const percentage = stat.count > 0 ? (stat.count / maxCount) * 100 : 0;
+                const redThreshold = stat.hybrid ? 90 : 180;
+                const orangeThreshold = stat.hybrid ? 60 : 140;
+                const percentage = Math.min((stat.count / redThreshold) * 100, 100);
+                let barColorClass = '';
+                if (stat.count >= redThreshold) {
+                    barColorClass = 'stat-fill-red';
+                } else if (stat.count >= orangeThreshold) {
+                    barColorClass = 'stat-fill-orange';
+                }
                 const breakdown = stat.preApp > 0
                     ? `${stat.count} total (${stat.logged} logged + ${stat.preApp} pre-app)`
                     : `${stat.count} jumps`;
@@ -1218,7 +1225,7 @@ class SkydivingLogbook {
                             <span class="stat-count">${breakdown}</span>
                         </div>
                         <div class="stat-bar">
-                            <div class="stat-fill" style="width: ${percentage}%"></div>
+                            <div class="stat-fill ${barColorClass}" style="width: ${percentage}%"></div>
                         </div>
                     </div>
                 `;
