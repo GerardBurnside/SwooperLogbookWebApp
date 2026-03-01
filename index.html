@@ -94,7 +94,6 @@
                         <button class="equipment-nav-btn active" data-view="rigs">Rigs</button>
                         <button class="equipment-nav-btn" data-view="harnesses">Harnesses</button>
                         <button class="equipment-nav-btn" data-view="canopies">Canopies</button>
-                        <button class="equipment-nav-btn" data-view="linesets">Linesets</button>
                         <button class="equipment-nav-btn" data-view="locations">Locations</button>
                     </nav>
                     
@@ -104,7 +103,6 @@
                             <button id="addEquipmentBtn" class="btn-primary">Add Rig</button>
                             <button id="addHarnessBtn" class="btn-secondary" style="display:none;">Add Harness</button>
                             <button id="addCanopyBtn" class="btn-secondary" style="display:none;">Add Canopy</button>
-                            <button id="addLinesetBtn" class="btn-secondary" style="display:none;">Add Lineset</button>
                             <button id="addLocationBtn" class="btn-secondary" style="display:none;">Add Location</button>
                         </div>
                     </div>
@@ -150,10 +148,8 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="equipmentLineset">Lineset</label>
-                        <select id="equipmentLineset" required>
-                            <option value="">Select Lineset</option>
-                        </select>
+                        <label for="equipmentLinesetNumber">Lineset #</label>
+                        <input type="number" id="equipmentLinesetNumber" min="1" value="1" required>
                     </div>
                     <div class="form-group">
                         <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">

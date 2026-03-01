@@ -15,10 +15,6 @@ class SkydivingLogbook {
             { id: 'petra64', name: 'Petra64' },
             { id: 'petra68', name: 'Petra68' }
         ];
-        this.linesets = JSON.parse(localStorage.getItem('skydiving-linesets')) || [
-            { id: 'set1', name: 'Lineset #1' },
-            { id: 'set2', name: 'Lineset #2' }
-        ];
         this.equipmentRigs = JSON.parse(localStorage.getItem('skydiving-equipment-rigs')) || [];
         this.locations = JSON.parse(localStorage.getItem('skydiving-locations')) || [
             { id: 'loc_lfoz',    name: 'LFOZ Epcol' },
@@ -72,7 +68,7 @@ class SkydivingLogbook {
 
         // Push local equipment first so any pending changes aren't lost
         const hasLocalEquipment = this.harnesses.length || this.canopies.length ||
-                                  this.linesets.length || this.equipmentRigs.length ||
+                                  this.equipmentRigs.length ||
                                   this.locations.length;
         if (hasLocalEquipment) {
             console.log('[AutoSync] Pushing local equipment to sheet first');
@@ -178,10 +174,6 @@ class SkydivingLogbook {
         
         document.getElementById('addCanopyBtn').addEventListener('click', () => {
             this.addComponent('canopy');
-        });
-        
-        document.getElementById('addLinesetBtn').addEventListener('click', () => {
-            this.addLinesetQuick();
         });
         
         document.getElementById('addLocationBtn').addEventListener('click', () => {
@@ -445,11 +437,10 @@ class SkydivingLogbook {
         if (rig) {
             const harness = this.harnesses.find(r => r.id === rig.harnessId);
             const canopy = this.canopies.find(c => c.id === rig.canopyId);
-            const lineset = this.linesets.find(l => l.id === rig.linesetId);
             
-            if (harness && canopy && lineset) {
+            if (harness && canopy && rig.linesetNumber) {
                 const hybridSuffix = /-Hybrid$/i.test(rig.name || '') ? ' (Hybrid)' : '';
-                equipmentName = `${harness.name} + ${canopy.name} + ${lineset.name}${hybridSuffix}`;
+                equipmentName = `${harness.name} + ${canopy.name} + Lineset#${rig.linesetNumber}${hybridSuffix}`;
             } else {
                 equipmentName = rig.name;
             }
@@ -627,7 +618,6 @@ class SkydivingLogbook {
     saveComponentsToLocalStorage() {
         localStorage.setItem('skydiving-harnesses', JSON.stringify(this.harnesses));
         localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
-        localStorage.setItem('skydiving-linesets', JSON.stringify(this.linesets));
         localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
         localStorage.setItem('skydiving-locations', JSON.stringify(this.locations));
         
@@ -647,7 +637,7 @@ class SkydivingLogbook {
                     name: eq.name,
                     harnessId: 'legacy',
                     canopyId: 'legacy',
-                    linesetId: 'legacy',
+                    linesetNumber: 1,
                     previousJumps: 0,
                     jumpCount: 0,
                     archived: false
@@ -660,9 +650,6 @@ class SkydivingLogbook {
             }
             if (!this.canopies.find(c => c.id === 'legacy')) {
                 this.canopies.push({ id: 'legacy', name: 'Legacy Canopy' });
-            }
-            if (!this.linesets.find(l => l.id === 'legacy')) {
-                this.linesets.push({ id: 'legacy', name: 'Legacy Lineset' });
             }
             
             this.saveComponentsToLocalStorage();
@@ -685,14 +672,22 @@ class SkydivingLogbook {
                 eq.jumpCount = 0;
                 needsSave = true;
             }
+            // Migrate linesetId → linesetNumber
+            if (eq.linesetId && eq.linesetNumber === undefined) {
+                const oldLinesets = JSON.parse(localStorage.getItem('skydiving-linesets') || '[]');
+                const ls = oldLinesets.find(l => l.id === eq.linesetId);
+                const nameMatch = ls && ls.name.match(/Lineset\s*#?(\d+)/i);
+                eq.linesetNumber = nameMatch ? parseInt(nameMatch[1], 10) : 1;
+                delete eq.linesetId;
+                needsSave = true;
+            }
             // Update names to auto-generated format if components exist
-            if (eq.harnessId && eq.canopyId && eq.linesetId) {
+            if (eq.harnessId && eq.canopyId && eq.linesetNumber) {
                 const harness = this.harnesses.find(r => r.id === eq.harnessId);
                 const canopy = this.canopies.find(c => c.id === eq.canopyId);
-                const lineset = this.linesets.find(l => l.id === eq.linesetId);
-                if (harness && canopy && lineset) {
+                if (harness && canopy) {
                     const hybridSuffix = /-Hybrid$/i.test(eq.name || '') ? '-Hybrid' : '';
-                    const autoName = `${harness.name}-${canopy.name}-${lineset.name}${hybridSuffix}`;
+                    const autoName = `${harness.name}-${canopy.name}-Lineset#${eq.linesetNumber}${hybridSuffix}`;
                     if (eq.name !== autoName) {
                         eq.name = autoName;
                         needsSave = true;
@@ -703,6 +698,8 @@ class SkydivingLogbook {
         
         if (needsSave) {
             this.saveComponentsToLocalStorage();
+            // Clean up old linesets localStorage after migration
+            localStorage.removeItem('skydiving-linesets');
         }
     }
     
@@ -763,7 +760,6 @@ class SkydivingLogbook {
             'rigs': 'Equipment Rigs',
             'harnesses':         'Harnesses',
             'canopies':     'Canopies',
-            'linesets':     'Linesets',
             'locations':    'Drop Zones / Locations'
         };
         
@@ -773,7 +769,6 @@ class SkydivingLogbook {
         document.getElementById('addEquipmentBtn').style.display  = subView === 'rigs' ? 'block' : 'none';
         document.getElementById('addHarnessBtn').style.display        = subView === 'harnesses'         ? 'block' : 'none';
         document.getElementById('addCanopyBtn').style.display     = subView === 'canopies'     ? 'block' : 'none';
-        document.getElementById('addLinesetBtn').style.display    = subView === 'linesets'     ? 'block' : 'none';
         document.getElementById('addLocationBtn').style.display   = subView === 'locations'    ? 'block' : 'none';
         
         this.renderEquipmentView();
@@ -784,7 +779,6 @@ class SkydivingLogbook {
             case 'rigs': this.renderEquipmentRigs(); break;
             case 'harnesses':         this.renderComponents('harnesses');      break;
             case 'canopies':     this.renderComponents('canopies');  break;
-            case 'linesets':     this.renderComponents('linesets');  break;
             case 'locations':    this.renderComponents('locations'); break;
         }
     }
@@ -817,15 +811,14 @@ class SkydivingLogbook {
         container.innerHTML = sorted.map(eq => {
             const harness = this.harnesses.find(r => r.id === eq.harnessId);
             const canopy = this.canopies.find(c => c.id === eq.canopyId);
-            const lineset = this.linesets.find(l => l.id === eq.linesetId);
             
             let displayName = eq.name;
             let components = '';
             let jumpInfo = '';
-            if (harness && canopy && lineset) {
+            if (harness && canopy) {
                 // Use the stored name (auto-generated)
                 displayName = eq.name;
-                components = `<div class="equipment-components">${harness.name} | ${canopy.name} | ${lineset.name}</div>`;
+                components = `<div class="equipment-components">${harness.name} | ${canopy.name} | Lineset#${eq.linesetNumber || 1}</div>`;
                 const logged = eq.jumpCount || 0;
                 const preApp = eq.previousJumps || 0;
                 const total = logged + preApp;
@@ -881,15 +874,6 @@ class SkydivingLogbook {
             canopySelect.appendChild(option);
         });
         
-        // Populate lineset select
-        const linesetSelect = document.getElementById('equipmentLineset');
-        linesetSelect.innerHTML = '<option value="">Select Lineset</option>';
-        this.linesets.forEach(lineset => {
-            const option = document.createElement('option');
-            option.value = lineset.id;
-            option.textContent = lineset.name;
-            linesetSelect.appendChild(option);
-        });
     }
 
     editEquipment(id) {
@@ -902,7 +886,7 @@ class SkydivingLogbook {
             // Set selected values
             document.getElementById('equipmentHarness').value = equipment.harnessId || '';
             document.getElementById('equipmentCanopy').value = equipment.canopyId || '';
-            document.getElementById('equipmentLineset').value = equipment.linesetId || '';
+            document.getElementById('equipmentLinesetNumber').value = equipment.linesetNumber || 1;
             document.getElementById('equipmentHybridCheck').checked = /-Hybrid$/i.test(equipment.name || '');
             
             document.getElementById('equipmentModal').style.display = 'block';
@@ -913,20 +897,19 @@ class SkydivingLogbook {
         const id = document.getElementById('equipmentId').value;
         const harnessId = document.getElementById('equipmentHarness').value;
         const canopyId = document.getElementById('equipmentCanopy').value;
-        const linesetId = document.getElementById('equipmentLineset').value;
+        const linesetNumber = Math.max(1, parseInt(document.getElementById('equipmentLinesetNumber').value) || 1);
         const previousJumps = Math.max(0, parseInt(document.getElementById('equipmentStartingJumpNumber').value) || 0);
         
-        if (!harnessId || !canopyId || !linesetId) {
-            this.showMessage('Please select harness, canopy, and lineset', 'error');
+        if (!harnessId || !canopyId) {
+            this.showMessage('Please select harness and canopy', 'error');
             return;
         }
         
         // Auto-generate name from components
         const harness = this.harnesses.find(r => r.id === harnessId);
         const canopy = this.canopies.find(c => c.id === canopyId);
-        const lineset = this.linesets.find(l => l.id === linesetId);
         const isHybrid = document.getElementById('equipmentHybridCheck').checked;
-        let name = `${harness.name}-${canopy.name}-${lineset.name}`;
+        let name = `${harness.name}-${canopy.name}-Lineset#${linesetNumber}`;
         if (isHybrid) name += '-Hybrid';
         
         if (id) {
@@ -936,7 +919,7 @@ class SkydivingLogbook {
                 equipment.name = name;
                 equipment.harnessId = harnessId;
                 equipment.canopyId = canopyId;
-                equipment.linesetId = linesetId;
+                equipment.linesetNumber = linesetNumber;
                 equipment.previousJumps = previousJumps;
             }
         } else {
@@ -947,7 +930,7 @@ class SkydivingLogbook {
                 name: name,
                 harnessId: harnessId,
                 canopyId: canopyId,
-                linesetId: linesetId,
+                linesetNumber: linesetNumber,
                 previousJumps: previousJumps,
                 jumpCount: 0,
                 archived: false
@@ -1002,30 +985,6 @@ class SkydivingLogbook {
         document.getElementById('componentModal').style.display = 'block';
     }
 
-    /**
-     * Instantly create a new lineset with an auto-incremented name
-     * (Lineset#1, Lineset#2, …).
-     */
-    addLinesetQuick() {
-        // Determine the next number by looking at existing lineset names
-        let maxNum = 0;
-        for (const ls of this.linesets) {
-            const match = ls.name.match(/Lineset#(\d+)/i);
-            if (match) {
-                maxNum = Math.max(maxNum, parseInt(match[1], 10));
-            }
-        }
-        const nextNum = maxNum + 1;
-        const newId = 'lineset_' + Date.now();
-        const name = `Lineset#${nextNum}`;
-        this.linesets.push({ id: newId, name });
-
-        this.saveComponentsToLocalStorage();
-        this.renderEquipmentView();
-        if (navigator.onLine && window.SheetsAPI) window.SheetsAPI.syncEquipmentToSheet();
-        this.showMessage(`${name} added!`, 'success');
-    }
-    
     saveComponent() {
         const id = document.getElementById('componentId').value;
         const name = document.getElementById('componentName').value.trim();
@@ -1041,7 +1000,6 @@ class SkydivingLogbook {
         switch(type) {
             case 'harness':      collectionName = 'harnesses';      break;
             case 'canopy':   collectionName = 'canopies';  break;
-            case 'lineset':  collectionName = 'linesets';  break;
             case 'location': collectionName = 'locations'; break;
             default:
                 this.showMessage('Invalid component type', 'error');
@@ -1194,7 +1152,7 @@ class SkydivingLogbook {
         if (confirm(`Are you sure you want to delete this ${typeSingular}?`)) {
             // Check if component is used in any equipment rigs
             const usedInEquipment = this.equipmentRigs.some(eq => 
-                eq.harnessId === id || eq.canopyId === id || eq.linesetId === id
+                eq.harnessId === id || eq.canopyId === id
             );
             if (usedInEquipment) {
                 this.showMessage(`Cannot delete ${typeSingular} that is used in equipment rigs`, 'error');
@@ -1237,10 +1195,9 @@ class SkydivingLogbook {
             let name = eq.name;
             const harness = this.harnesses.find(r => r.id === eq.harnessId);
             const canopy = this.canopies.find(c => c.id === eq.canopyId);
-            const lineset = this.linesets.find(l => l.id === eq.linesetId);
-            if (harness && canopy && lineset) {
+            if (harness && canopy) {
                 const hybridSuffix = /-Hybrid$/i.test(eq.name || '') ? ' (Hybrid)' : '';
-                name = `${harness.name} + ${canopy.name} + ${lineset.name}${hybridSuffix}`;
+                name = `${harness.name} + ${canopy.name} + Lineset#${eq.linesetNumber || 1}${hybridSuffix}`;
             }
             return { name, count: totalCount, logged: loggedJumpsCount, preApp: eq.previousJumps || 0, archived: eq.archived, hybrid: /-Hybrid$/i.test(eq.name || '') };
         });
@@ -1397,9 +1354,8 @@ class SkydivingLogbook {
             if (rig) {
                 const harness = this.harnesses.find(r => r.id === rig.harnessId);
                 const canopy = this.canopies.find(c => c.id === rig.canopyId);
-                const lineset = this.linesets.find(l => l.id === rig.linesetId);
-                equipmentDisplay = (rig && canopy && lineset)
-                    ? `${harness.name} + ${canopy.name} + ${lineset.name}`
+                equipmentDisplay = (harness && canopy && rig.linesetNumber)
+                    ? `${harness.name} + ${canopy.name} + Lineset#${rig.linesetNumber}`
                     : rig.name;
             }
             return `${jump.jumpNumber},"${jump.date}","${jump.location}","${equipmentDisplay}","${jump.notes}","${jump.timestamp}"`;

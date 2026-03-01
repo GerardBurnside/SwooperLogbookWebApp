@@ -272,7 +272,6 @@ class SheetsAPI {
         const payload = {
             harnesses:    logbook.harnesses,
             canopies:     logbook.canopies,
-            linesets:     logbook.linesets,
             settings:     logbook.settings,
             locations:    logbook.locations
         };
@@ -318,12 +317,11 @@ class SheetsAPI {
             const d = result.data || {};
 
             // Only apply if the sheet actually contains data
-            const hasData = d.harnesses || d.canopies || d.linesets || d.rigs;
+            const hasData = d.harnesses || d.canopies || d.rigs;
             if (!hasData) return false;
 
             if (d.harnesses)         localStorage.setItem('skydiving-harnesses',                   JSON.stringify(d.harnesses));
             if (d.canopies)     localStorage.setItem('skydiving-canopies',               JSON.stringify(d.canopies));
-            if (d.linesets)     localStorage.setItem('skydiving-linesets',               JSON.stringify(d.linesets));
             if (d.rigs) localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(d.rigs));
             if (d.settings)     localStorage.setItem('skydiving-settings',               JSON.stringify(d.settings));
             if (d.locations)    localStorage.setItem('skydiving-locations',              JSON.stringify(d.locations));
@@ -333,7 +331,6 @@ class SheetsAPI {
             if (logbook) {
                 if (d.harnesses)         logbook.harnesses                  = d.harnesses;
                 if (d.canopies)     logbook.canopies              = d.canopies;
-                if (d.linesets)     logbook.linesets              = d.linesets;
                 if (d.rigs) logbook.equipmentRigs = d.rigs;
                 if (d.settings)     logbook.settings              = d.settings;
                 if (d.locations)    logbook.locations             = d.locations;
@@ -371,13 +368,12 @@ class SheetsAPI {
         if (result.error) throw new Error(result.error);
 
         const d = result.data || {};
-        const hasData = d.harnesses || d.canopies || d.linesets || d.rigs;
+        const hasData = d.harnesses || d.canopies || d.rigs;
         if (!hasData) return false;
 
         // Overwrite localStorage
         if (d.harnesses)  localStorage.setItem('skydiving-harnesses',       JSON.stringify(d.harnesses));
         if (d.canopies)   localStorage.setItem('skydiving-canopies',        JSON.stringify(d.canopies));
-        if (d.linesets)   localStorage.setItem('skydiving-linesets',        JSON.stringify(d.linesets));
         if (d.rigs)       localStorage.setItem('skydiving-equipment-rigs',  JSON.stringify(d.rigs));
         if (d.settings)   localStorage.setItem('skydiving-settings',        JSON.stringify(d.settings));
         if (d.locations)  localStorage.setItem('skydiving-locations',       JSON.stringify(d.locations));
@@ -387,7 +383,6 @@ class SheetsAPI {
         if (logbook) {
             if (d.harnesses)  logbook.harnesses     = d.harnesses;
             if (d.canopies)   logbook.canopies      = d.canopies;
-            if (d.linesets)   logbook.linesets       = d.linesets;
             if (d.rigs)       logbook.equipmentRigs  = d.rigs;
             if (d.settings)   logbook.settings       = d.settings;
             if (d.locations)  logbook.locations       = d.locations;
