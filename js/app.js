@@ -894,6 +894,22 @@ class SkydivingLogbook {
         document.getElementById('equipmentNotes').value = parts.join(' | ');
     }
 
+    /**
+     * After a harness or canopy is saved, rebuild the stored notes field
+     * of every rig that uses it from the (now updated) component notes.
+     */
+    propagateComponentNotesToRigs() {
+        this.equipmentRigs.forEach(eq => {
+            const harness = this.harnesses.find(h => h.id === eq.harnessId);
+            const canopy  = this.canopies.find(c => c.id === eq.canopyId);
+            const parts = [
+                harness?.notes ? `H: ${harness.notes}` : '',
+                canopy?.notes  ? `C: ${canopy.notes}`  : ''
+            ].filter(Boolean);
+            eq.notes = parts.join(' | ');
+        });
+    }
+
     autoFillLinesetNumber() {
         const canopyId = document.getElementById('equipmentCanopy').value;
         if (!canopyId) {
@@ -1093,6 +1109,10 @@ class SkydivingLogbook {
             collection.push({ id: newId, name: name, notes: notes });
         }
         
+        // Propagate updated component notes to all affected rigs
+        if (type === 'harness' || type === 'canopy') {
+            this.propagateComponentNotesToRigs();
+        }
         this.saveComponentsToLocalStorage();
         this.renderEquipmentView();
         this.closeComponentModal();
