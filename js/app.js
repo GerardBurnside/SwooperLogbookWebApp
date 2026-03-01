@@ -3,8 +3,13 @@ class SkydivingLogbook {
     constructor() {
         this.jumps = JSON.parse(localStorage.getItem('skydiving-jumps')) || [];
         this.settings = JSON.parse(localStorage.getItem('skydiving-settings')) || {
-            startingJumpNumber: 1
+            startingJumpNumber: 1,
+            recentJumpsDays: 3
         };
+        // Backfill for existing saved settings that predate this field
+        if (this.settings.recentJumpsDays === undefined) {
+            this.settings.recentJumpsDays = 3;
+        }
         
         // Component-based equipment system
         this.harnesses = JSON.parse(localStorage.getItem('skydiving-harnesses')) || [
@@ -356,10 +361,10 @@ class SkydivingLogbook {
         // Show most recent jumps first
         const sortedJumps = [...this.jumps].sort((a, b) => b.jumpNumber - a.jumpNumber);
 
-        // Cutoff: 3 days ago at midnight
+        // Cutoff: configurable number of days ago at midnight
         const cutoff = new Date();
         cutoff.setHours(0, 0, 0, 0);
-        cutoff.setDate(cutoff.getDate() - 3);
+        cutoff.setDate(cutoff.getDate() - (this.settings.recentJumpsDays || 3));
 
         const recentJumps = [];
         const olderJumps = [];
@@ -517,6 +522,7 @@ class SkydivingLogbook {
 
     openSettingsModal() {
         document.getElementById('startingJumpNumber').value = this.settings.startingJumpNumber;
+        document.getElementById('recentJumpsDays').value = this.settings.recentJumpsDays ?? 3;
 
         // Populate Google Sheets config fields from localStorage (or current API state)
         const savedConfig = JSON.parse(localStorage.getItem('sheets-config') || '{}');
@@ -553,7 +559,14 @@ class SkydivingLogbook {
             return;
         }
 
+        const recentJumpsDays = parseInt(document.getElementById('recentJumpsDays').value);
+        if (!recentJumpsDays || recentJumpsDays < 0) {
+            this.showMessage('Please enter a valid number of days (0 or higher)', 'error');
+            return;
+        }
+
         this.settings.startingJumpNumber = startingJumpNumber;
+        this.settings.recentJumpsDays = recentJumpsDays;
         localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
 
         // ── Save Google Sheets config to localStorage ──

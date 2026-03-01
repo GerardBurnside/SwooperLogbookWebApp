@@ -187,6 +187,11 @@
                     <label for="startingJumpNumber">Starting Jump Number</label>
                     <input type="number" id="startingJumpNumber" min="1" placeholder="Enter your starting jump number">
                 </div>
+                <div class="form-group">
+                    <label for="recentJumpsDays">Recent jumps cutoff (days)</label>
+                    <input type="number" id="recentJumpsDays" min="0" placeholder="e.g. 3">
+                    <small style="color:#888; font-size:12px;">Jumps within this many days are shown individually; older jumps are grouped by month. Set to 0 to always group.</small>
+                </div>
 
                 <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
                 <h3 style="margin-bottom: 8px;">Google Sheets Integration</h3>
