@@ -562,6 +562,13 @@ textarea {
     font-weight: 500;
 }
 
+.component-notes {
+    font-size: 0.8rem;
+    color: #666;
+    margin-top: 0.25rem;
+    font-style: italic;
+}
+
 .archived-badge {
     background: #ff9800;
     color: white;

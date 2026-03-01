@@ -853,6 +853,7 @@ class SkydivingLogbook {
                 const total = logged + preApp;
                 jumpInfo = `<div class="jump-info">Logged: ${logged} | Pre-app: ${preApp} | Total: ${total}</div>`;
             }
+            const rigNotes = eq.notes ? `<div class="component-notes">\uD83D\uDCDD ${eq.notes}</div>` : '';
             
             return `
                 <div class="equipment-item ${eq.archived ? 'archived' : ''}">
@@ -860,6 +861,7 @@ class SkydivingLogbook {
                         <span class="equipment-name">${displayName}</span>
                         ${components}
                         ${jumpInfo}
+                        ${rigNotes}
                         ${eq.archived ? '<span class="archived-badge">Archived</span>' : ''}
                     </div>
                     <div class="equipment-actions">
@@ -892,6 +894,7 @@ class SkydivingLogbook {
         document.getElementById('equipmentId').value = '';
         document.getElementById('equipmentStartingJumpNumber').value = 0;
         document.getElementById('equipmentLinesetNumber').value = 1;
+        document.getElementById('equipmentNotes').value = '';
         this.populateComponentSelects();
         document.getElementById('equipmentModal').style.display = 'block';
     }
@@ -930,6 +933,7 @@ class SkydivingLogbook {
             document.getElementById('equipmentCanopy').value = equipment.canopyId || '';
             document.getElementById('equipmentLinesetNumber').value = equipment.linesetNumber || 1;
             document.getElementById('equipmentHybridCheck').checked = /-Hybrid$/i.test(equipment.name || '');
+            document.getElementById('equipmentNotes').value = equipment.notes || '';
             
             document.getElementById('equipmentModal').style.display = 'block';
         }
@@ -941,6 +945,7 @@ class SkydivingLogbook {
         const canopyId = document.getElementById('equipmentCanopy').value;
         const linesetNumber = Math.max(1, parseInt(document.getElementById('equipmentLinesetNumber').value) || 1);
         const previousJumps = Math.max(0, parseInt(document.getElementById('equipmentStartingJumpNumber').value) || 0);
+        const notes = document.getElementById('equipmentNotes').value.trim();
         
         if (!harnessId || !canopyId) {
             this.showMessage('Please select harness and canopy', 'error');
@@ -963,6 +968,7 @@ class SkydivingLogbook {
                 equipment.canopyId = canopyId;
                 equipment.linesetNumber = linesetNumber;
                 equipment.previousJumps = previousJumps;
+                equipment.notes = notes;
             }
         } else {
             // Add new
@@ -975,7 +981,8 @@ class SkydivingLogbook {
                 linesetNumber: linesetNumber,
                 previousJumps: previousJumps,
                 jumpCount: 0,
-                archived: false
+                archived: false,
+                notes: notes
             });
         }
         
@@ -1023,6 +1030,7 @@ class SkydivingLogbook {
         document.getElementById('componentForm').reset();
         document.getElementById('componentId').value = '';
         document.getElementById('componentType').value = type;
+        document.getElementById('componentNotes').value = '';
         document.getElementById('componentModalTitle').textContent = `Add ${type.charAt(0).toUpperCase() + type.slice(1)}`;
         document.getElementById('componentModal').style.display = 'block';
     }
@@ -1036,6 +1044,7 @@ class SkydivingLogbook {
             this.showMessage('Please enter component name', 'error');
             return;
         }
+        const notes = document.getElementById('componentNotes').value.trim();
         
         // Get the correct collection name for each type
         let collectionName;
@@ -1055,11 +1064,12 @@ class SkydivingLogbook {
             const component = collection.find(c => c.id === id);
             if (component) {
                 component.name = name;
+                component.notes = notes;
             }
         } else {
             // Add new
             const newId = type + '_' + Date.now();
-            collection.push({ id: newId, name: name });
+            collection.push({ id: newId, name: name, notes: notes });
         }
         
         this.saveComponentsToLocalStorage();
@@ -1170,6 +1180,7 @@ class SkydivingLogbook {
             <div class="equipment-item ${component.archived ? 'archived' : ''}">
                 <div class="equipment-info">
                     <span class="equipment-name">${component.name}</span>
+                    ${component.notes ? `<div class="component-notes">\uD83D\uDCDD ${component.notes}</div>` : ''}
                     ${component.archived ? '<span class="archived-badge">Archived</span>' : ''}
                 </div>
                 <div class="equipment-actions">
@@ -1202,6 +1213,7 @@ class SkydivingLogbook {
             const singular = this._singularize(type);
             document.getElementById('componentId').value = component.id;
             document.getElementById('componentName').value = component.name;
+            document.getElementById('componentNotes').value = component.notes || '';
             document.getElementById('componentType').value = singular;
             document.getElementById('componentModalTitle').textContent = `Edit ${singular.charAt(0).toUpperCase() + singular.slice(1)}`;
             document.getElementById('componentModal').style.display = 'block';
