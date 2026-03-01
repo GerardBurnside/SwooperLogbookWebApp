@@ -195,11 +195,17 @@ class SkydivingLogbook {
             if (val > 1) input.value = val - 1;
         });
 
-        // Auto-fill lineset number when canopy changes (add-new mode only)
+        // Auto-fill lineset number and rig notes when canopy changes
         document.getElementById('equipmentCanopy').addEventListener('change', () => {
             if (!document.getElementById('equipmentId').value) {
                 this.autoFillLinesetNumber();
             }
+            this.autoFillRigNotes();
+        });
+
+        // Auto-fill rig notes when harness changes
+        document.getElementById('equipmentHarness').addEventListener('change', () => {
+            this.autoFillRigNotes();
         });
 
         // Equipment sub-navigation
@@ -876,6 +882,18 @@ class SkydivingLogbook {
         }).join('');
     }
 
+    autoFillRigNotes() {
+        const harnessId = document.getElementById('equipmentHarness').value;
+        const canopyId  = document.getElementById('equipmentCanopy').value;
+        const harness   = this.harnesses.find(h => h.id === harnessId);
+        const canopy    = this.canopies.find(c => c.id === canopyId);
+        const parts = [
+            harness?.notes ? `H: ${harness.notes}` : '',
+            canopy?.notes  ? `C: ${canopy.notes}`  : ''
+        ].filter(Boolean);
+        document.getElementById('equipmentNotes').value = parts.join(' | ');
+    }
+
     autoFillLinesetNumber() {
         const canopyId = document.getElementById('equipmentCanopy').value;
         if (!canopyId) {
@@ -896,6 +914,7 @@ class SkydivingLogbook {
         document.getElementById('equipmentLinesetNumber').value = 1;
         document.getElementById('equipmentNotes').value = '';
         this.populateComponentSelects();
+        this.autoFillRigNotes();
         document.getElementById('equipmentModal').style.display = 'block';
     }
     
@@ -933,7 +952,9 @@ class SkydivingLogbook {
             document.getElementById('equipmentCanopy').value = equipment.canopyId || '';
             document.getElementById('equipmentLinesetNumber').value = equipment.linesetNumber || 1;
             document.getElementById('equipmentHybridCheck').checked = /-Hybrid$/i.test(equipment.name || '');
-            document.getElementById('equipmentNotes').value = equipment.notes || '';
+            this.autoFillRigNotes();
+            // Allow a previously customised note to show if it differs from auto-generated
+            if (equipment.notes) document.getElementById('equipmentNotes').value = equipment.notes;
             
             document.getElementById('equipmentModal').style.display = 'block';
         }
