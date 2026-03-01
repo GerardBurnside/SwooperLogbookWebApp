@@ -747,6 +747,75 @@ textarea {
     color: #000;
 }
 
+/* Conflict resolution modal */
+.conflict-modal-content {
+    max-width: 520px;
+    margin: 5% auto;
+    max-height: 85vh;
+    overflow-y: auto;
+}
+
+.conflict-item {
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    overflow: hidden;
+}
+
+.conflict-item h4 {
+    background: #fff3cd;
+    padding: 0.5rem 0.75rem;
+    margin: 0;
+    font-size: 0.9rem;
+    color: #856404;
+    border-bottom: 1px solid #ffe69c;
+}
+
+.conflict-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+}
+
+.conflict-option {
+    padding: 0.75rem;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: border-color 0.15s, background 0.15s;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.conflict-option:first-child {
+    border-right: 1px solid #e9ecef;
+}
+
+.conflict-option.selected {
+    border-color: #2196F3;
+    background: #e3f2fd;
+}
+
+.conflict-option label {
+    display: block;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #888;
+    margin-bottom: 0.3rem;
+    pointer-events: none;
+}
+
+.conflict-detail {
+    font-size: 0.85rem;
+    color: #333;
+    margin-bottom: 0.15rem;
+}
+
+.conflict-ts {
+    font-size: 0.7rem;
+    color: #aaa;
+    margin-top: 0.3rem;
+}
+
 /* Footer */
 footer {
     background: #f8f9fa;

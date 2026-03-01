@@ -210,6 +210,20 @@
             </div>
         </div>
 
+        <!-- Conflict Resolution Modal -->
+        <div id="conflictModal" class="modal">
+            <div class="modal-content conflict-modal-content">
+                <h2>⚠️ Sync Conflicts</h2>
+                <p style="color:#666; font-size:13px; margin-bottom:1rem;">
+                    The same jump number was edited on two devices. Tap the version you want to keep for each jump, then press <strong>Apply &amp; Sync</strong>.
+                </p>
+                <div id="conflictList"></div>
+                <div style="margin-top:1.5rem; text-align:right;">
+                    <button id="resolveConflictsBtn" class="btn-primary">Apply &amp; Sync</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Footer -->
         <footer>
             <button id="settingsBtn" class="btn-secondary">Settings</button>

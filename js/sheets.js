@@ -4,6 +4,7 @@ class SheetsAPI {
         this.webAppUrl = ''; // Will be loaded from config
         this.spreadsheetId = ''; // Will be loaded from config
         this.initialized = false;
+        this._pollTimer = null; // handle for the 2-minute background poll
         
         // Expose a promise that resolves when setup is complete
         this.ready = this.setupAPI();
@@ -176,80 +177,117 @@ class SheetsAPI {
             return;
         }
 
+        // Cancel any pending poll — will be rescheduled at the end of this sync
+        this._cancelPoll();
         this.updateSyncStatus('Syncing...');
-        
+
         try {
-            // Detect whether any critical local equipment list is empty.
-            // If so, pull from the sheet FIRST to avoid overwriting good data
-            // with an empty local list.
+            // ── Equipment sync (lastModified-based direction) ─────────────────────────
+            // syncEquipmentFromSheet compares timestamps internally and returns false
+            // when local data is newer — in that case we push instead.
             const logbook = window.logbook;
             const localRigsEmpty = !logbook || !logbook.equipmentRigs || logbook.equipmentRigs.length === 0;
 
             if (localRigsEmpty) {
-                // --- Pull equipment FIRST to recover missing data ---
-                console.log('[Sync] Local rigs empty – pulling equipment from sheet first...');
-                const equipmentSynced = await this.syncEquipmentFromSheet();
-                console.log('[Sync] Equipment pull result:', equipmentSynced);
-
-                // Now push (will include the recovered data)
-                console.log('[Sync] Pushing local equipment to sheet...');
-                await this.syncEquipmentToSheet();
+                // Fresh device — pull first to recover data, then push so sheet has IDs
+                console.log('[Sync] Local rigs empty — pulling equipment from sheet...');
+                const pulled = await this.syncEquipmentFromSheet();
+                if (!pulled) await this.syncEquipmentToSheet();
             } else {
-                // --- Normal flow: push local equipment first so edits are never lost ---
-                console.log('[Sync] Pushing local equipment to sheet...');
-                await this.syncEquipmentToSheet();
-
-                // --- Then pull back (picks up our push + ensures consistency) ---
-                console.log('[Sync] Pulling equipment from sheet...');
-                const equipmentSynced = await this.syncEquipmentFromSheet();
-                console.log('[Sync] Equipment pull result:', equipmentSynced);
+                // Let syncEquipmentFromSheet decide direction based on lastModified
+                const pulled = await this.syncEquipmentFromSheet();
+                if (!pulled) {
+                    console.log('[Sync] Local equipment is newer — pushing to sheet...');
+                    await this.syncEquipmentToSheet();
+                }
             }
 
-            // Get local jumps
+            // ── Jump sync (merge by jumpNumber) ──────────────────────────────────────
             const localJumps = JSON.parse(localStorage.getItem('skydiving-jumps')) || [];
-            
-            // Get data from sheet
             const sheetJumps = await this.getAllJumps();
-            
-            // If we have local jumps but sheet is empty, upload local jumps
-            if (localJumps.length > 0 && sheetJumps.length === 0) {
-                await this.uploadAllJumps(localJumps);
-            }
-            // If sheet has data, use it as source of truth (download)
-            else if (sheetJumps.length > 0) {
-                localStorage.setItem('skydiving-jumps', JSON.stringify(sheetJumps));
-                
-                if (window.logbook) {
-                    window.logbook.jumps = sheetJumps;
 
-                    // Seed startingJumpNumber from the sheet's lowest jump number so
-                    // renumbering after future adds/deletes continues from the right base.
-                    const minFromSheet = Math.min(...sheetJumps.map(j => j.jumpNumber));
-                    if (Number.isFinite(minFromSheet) && minFromSheet > 0) {
-                        window.logbook.settings.startingJumpNumber = minFromSheet;
+            if (localJumps.length === 0 && sheetJumps.length === 0) {
+                // Nothing to sync
+            } else if (localJumps.length > 0 && sheetJumps.length === 0) {
+                // Sheet is empty — push everything up
+                await this.uploadAllJumps(localJumps);
+            } else {
+                // Merge: align by jumpNumber, surface conflicts
+                const localMap  = new Map(localJumps.map(j => [j.jumpNumber, j]));
+                const sheetMap  = new Map(sheetJumps.map(j => [j.jumpNumber, j]));
+                const allNums   = new Set([...localMap.keys(), ...sheetMap.keys()]);
+
+                const conflicts = [];
+                const mergedMap = new Map();
+
+                for (const num of allNums) {
+                    const local = localMap.get(num);
+                    const sheet = sheetMap.get(num);
+
+                    if (!local) {
+                        mergedMap.set(num, sheet);           // only on sheet
+                    } else if (!sheet) {
+                        mergedMap.set(num, local);           // only local
+                    } else if (local.timestamp === sheet.timestamp) {
+                        mergedMap.set(num, local);           // identical — no conflict
+                    } else {
+                        // Same jump number, different content — ask user
+                        conflicts.push({ jumpNumber: num, local, sheet });
+                        mergedMap.set(num, local);           // tentative until dialog resolves
+                    }
+                }
+
+                if (conflicts.length > 0) {
+                    const resolutions = await this._showConflictDialog(conflicts);
+                    resolutions.forEach(({ jumpNumber, chosen }) => mergedMap.set(jumpNumber, chosen));
+                }
+
+                // Sort and renumber sequentially from the base jump number
+                const finalJumps = Array.from(mergedMap.values())
+                    .sort((a, b) => a.jumpNumber - b.jumpNumber);
+                const base = finalJumps.length > 0 ? finalJumps[0].jumpNumber : 1;
+                finalJumps.forEach((j, i) => { j.jumpNumber = base + i; });
+
+                // Persist merged list
+                localStorage.setItem('skydiving-jumps', JSON.stringify(finalJumps));
+
+                // Apply to live app state
+                if (window.logbook) {
+                    window.logbook.jumps = finalJumps;
+                    if (finalJumps.length > 0) {
+                        window.logbook.settings.startingJumpNumber = finalJumps[0].jumpNumber;
                         localStorage.setItem('skydiving-settings', JSON.stringify(window.logbook.settings));
                     }
-
-                    // Recalculate equipment jump counts since jump data was replaced
                     window.logbook.initializeEquipmentJumpCounts();
                     window.logbook.updateStats();
                     window.logbook.renderJumpsList();
-                    // Re-fill form with the (possibly updated) last jump
                     window.logbook.preFillFormWithLastJump();
                 }
-            }
-            // If both are empty, nothing to sync
 
-            // --- Push equipment once more to capture any jump-count changes ---
+                // Upload the merged result if anything changed
+                const uploadNeeded = conflicts.length > 0
+                    || finalJumps.length !== sheetJumps.length
+                    || localStorage.getItem('skydiving-needs-sync') === '1';
+                if (uploadNeeded) await this.uploadAllJumps(finalJumps);
+            }
+
+            // Push equipment once more to capture any jump-count recalculations
             await this.syncEquipmentToSheet();
-            
+
+            // Clear the dirty flag
+            localStorage.removeItem('skydiving-needs-sync');
+
             this.updateSyncStatus('Synced');
             setTimeout(() => this.updateSyncStatus('Online'), 2000);
-            
+
+            // Schedule the next automatic background poll
+            this._schedulePoll();
+
         } catch (error) {
             console.error('Failed to sync with sheet:', error);
             this.updateSyncStatus('Sync failed');
             setTimeout(() => this.updateSyncStatus('Online'), 3000);
+            this._schedulePoll(); // retry even on failure
         }
     }
 
@@ -269,10 +307,15 @@ class SheetsAPI {
             ? logbook.equipmentRigs
             : undefined;
 
+        // Embed a lastModified timestamp in the settings row so other devices
+        // can compare on pull — no Apps Script changes required.
+        const equipModified = new Date().toISOString();
+        localStorage.setItem('skydiving-equipment-modified', equipModified);
+
         const payload = {
             harnesses:    logbook.harnesses,
             canopies:     logbook.canopies,
-            settings:     logbook.settings,
+            settings:     { ...logbook.settings, _lastModified: equipModified },
             locations:    logbook.locations
         };
         if (rigsToSend) payload.rigs = rigsToSend;
@@ -320,20 +363,40 @@ class SheetsAPI {
             const hasData = d.harnesses || d.canopies || d.rigs;
             if (!hasData) return false;
 
-            if (d.harnesses)         localStorage.setItem('skydiving-harnesses',                   JSON.stringify(d.harnesses));
-            if (d.canopies)     localStorage.setItem('skydiving-canopies',               JSON.stringify(d.canopies));
-            if (d.rigs) localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(d.rigs));
-            if (d.settings)     localStorage.setItem('skydiving-settings',               JSON.stringify(d.settings));
-            if (d.locations)    localStorage.setItem('skydiving-locations',              JSON.stringify(d.locations));
+            // Compare lastModified timestamps (embedded in the settings row by
+            // syncEquipmentToSheet). If local is newer, skip the pull so we don't
+            // overwrite the user's unsynchronised changes.
+            const sheetModified = d.settings?._lastModified || '';
+            const localModified = localStorage.getItem('skydiving-equipment-modified') || '';
+            if (sheetModified && localModified && localModified > sheetModified) {
+                console.log('[Sync] Local equipment is newer than sheet — skipping pull');
+                return false;
+            }
+
+            if (d.harnesses)  localStorage.setItem('skydiving-harnesses',       JSON.stringify(d.harnesses));
+            if (d.canopies)   localStorage.setItem('skydiving-canopies',        JSON.stringify(d.canopies));
+            if (d.rigs)       localStorage.setItem('skydiving-equipment-rigs',  JSON.stringify(d.rigs));
+            if (d.locations)  localStorage.setItem('skydiving-locations',       JSON.stringify(d.locations));
+
+            // Strip the internal _lastModified key before persisting settings locally
+            if (d.settings) {
+                const { _lastModified: sheetTs, ...cleanSettings } = d.settings;
+                localStorage.setItem('skydiving-settings', JSON.stringify(cleanSettings));
+                if (sheetTs) localStorage.setItem('skydiving-equipment-modified', sheetTs);
+            }
 
             // Apply to live logbook instance
             const logbook = window.logbook;
             if (logbook) {
-                if (d.harnesses)         logbook.harnesses                  = d.harnesses;
-                if (d.canopies)     logbook.canopies              = d.canopies;
-                if (d.rigs) logbook.equipmentRigs = d.rigs;
-                if (d.settings)     logbook.settings              = d.settings;
-                if (d.locations)    logbook.locations             = d.locations;
+                if (d.harnesses)  logbook.harnesses    = d.harnesses;
+                if (d.canopies)   logbook.canopies     = d.canopies;
+                if (d.rigs)       logbook.equipmentRigs = d.rigs;
+                if (d.settings) {
+                    // Strip internal _lastModified before applying to the live object
+                    const { _lastModified: _ts, ...cleanSettings } = d.settings;
+                    logbook.settings = cleanSettings;
+                }
+                if (d.locations)  logbook.locations    = d.locations;
 
                 logbook.updateEquipmentOptions();
                 logbook.updateLocationDatalist();
@@ -405,8 +468,10 @@ class SheetsAPI {
     async syncAfterDelete(jumps) {
         if (!this.initialized || !navigator.onLine) return;
 
+        this._cancelPoll();
         try {
             this.updateSyncStatus('Syncing...');
+            localStorage.removeItem('skydiving-needs-sync');
             await this.uploadAllJumps(jumps);
             this.updateSyncStatus('Synced');
             setTimeout(() => this.updateSyncStatus('Online'), 2000);
@@ -414,7 +479,98 @@ class SheetsAPI {
             console.error('Failed to sync delete with sheet:', error);
             this.updateSyncStatus('Sync failed');
             setTimeout(() => this.updateSyncStatus('Online'), 3000);
+        } finally {
+            this._schedulePoll();
         }
+    }
+
+    /** Schedule a background sync poll after `intervalMs` ms (default 2 min). */
+    _schedulePoll(intervalMs = 120000) {
+        this._cancelPoll();
+        if (!this.initialized) return;
+        this._pollTimer = setTimeout(() => {
+            if (navigator.onLine) {
+                console.log('[Poll] Auto-sync triggered');
+                this.syncWithSheet(); // reschedules itself on completion
+            } else {
+                this._schedulePoll(intervalMs); // offline — try again later
+            }
+        }, intervalMs);
+    }
+
+    /** Cancel any pending background poll. */
+    _cancelPoll() {
+        if (this._pollTimer !== null) {
+            clearTimeout(this._pollTimer);
+            this._pollTimer = null;
+        }
+    }
+
+    /**
+     * Show the conflict-resolution modal for a list of jump conflicts.
+     * Returns a Promise that resolves with [{ jumpNumber, chosen }] after the
+     * user selects which version to keep for each conflicting jump.
+     */
+    _showConflictDialog(conflicts) {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('conflictModal');
+            const list  = document.getElementById('conflictList');
+            const btn   = document.getElementById('resolveConflictsBtn');
+
+            list.innerHTML = '';
+
+            conflicts.forEach(({ jumpNumber, local, sheet }) => {
+                const localTs = new Date(local.timestamp).toLocaleString();
+                const sheetTs = new Date(sheet.timestamp).toLocaleString();
+
+                const item = document.createElement('div');
+                item.className = 'conflict-item';
+                item.dataset.jumpNumber = String(jumpNumber);
+                item.innerHTML = `
+                    <h4>Jump #${jumpNumber}</h4>
+                    <div class="conflict-options">
+                        <div class="conflict-option selected" data-side="local">
+                            <label>This device</label>
+                            <div class="conflict-detail">${local.date} &middot; ${local.location || '&mdash;'}</div>
+                            ${local.notes ? `<div class="conflict-detail">${local.notes}</div>` : ''}
+                            <div class="conflict-ts">Saved ${localTs}</div>
+                        </div>
+                        <div class="conflict-option" data-side="sheet">
+                            <label>Other device</label>
+                            <div class="conflict-detail">${sheet.date} &middot; ${sheet.location || '&mdash;'}</div>
+                            ${sheet.notes ? `<div class="conflict-detail">${sheet.notes}</div>` : ''}
+                            <div class="conflict-ts">Saved ${sheetTs}</div>
+                        </div>
+                    </div>`;
+
+                item.querySelectorAll('.conflict-option').forEach(opt => {
+                    opt.addEventListener('click', () => {
+                        item.querySelectorAll('.conflict-option').forEach(o => o.classList.remove('selected'));
+                        opt.classList.add('selected');
+                    });
+                });
+
+                list.appendChild(item);
+            });
+
+            modal.style.display = 'block';
+
+            const onResolve = () => {
+                btn.removeEventListener('click', onResolve);
+                modal.style.display = 'none';
+
+                const resolutions = conflicts.map(({ jumpNumber, local, sheet }) => {
+                    const item     = list.querySelector(`[data-jump-number="${jumpNumber}"]`);
+                    const selected = item?.querySelector('.conflict-option.selected');
+                    const side     = selected?.dataset.side || 'local';
+                    return { jumpNumber, chosen: side === 'sheet' ? sheet : local };
+                });
+
+                resolve(resolutions);
+            };
+
+            btn.addEventListener('click', onResolve);
+        });
     }
 
     async uploadAllJumps(jumps) {

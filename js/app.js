@@ -49,7 +49,13 @@ class SkydivingLogbook {
         
         // Check if we're online/offline
         this.updateOnlineStatus();
-        window.addEventListener('online', () => this.updateOnlineStatus());
+        window.addEventListener('online', () => {
+            this.updateOnlineStatus();
+            // Flush any pending writes as soon as connectivity returns
+            if (window.SheetsAPI?.initialized) {
+                window.SheetsAPI.syncWithSheet();
+            }
+        });
         window.addEventListener('offline', () => this.updateOnlineStatus());
         
         // Auto-sync equipment from Google Sheets on startup
@@ -66,20 +72,8 @@ class SkydivingLogbook {
 
         if (!window.SheetsAPI.initialized) return;
 
-        // Push local equipment first so any pending changes aren't lost
-        const hasLocalEquipment = this.harnesses.length || this.canopies.length ||
-                                  this.equipmentRigs.length ||
-                                  this.locations.length;
-        if (hasLocalEquipment) {
-            console.log('[AutoSync] Pushing local equipment to sheet first');
-            await window.SheetsAPI.syncEquipmentToSheet();
-        }
-
-        console.log('[AutoSync] Pulling equipment from Google Sheets...');
-        const pulled = await window.SheetsAPI.syncEquipmentFromSheet();
-        console.log('[AutoSync] Equipment pull result:', pulled);
-
-        // Also do a full jump sync so everything is up-to-date
+        // syncWithSheet handles equipment direction, jump merge, dirty flag, and
+        // schedules the 2-minute background poll on completion.
         await window.SheetsAPI.syncWithSheet();
     }
 
@@ -613,6 +607,8 @@ class SkydivingLogbook {
 
     saveToLocalStorage() {
         localStorage.setItem('skydiving-jumps', JSON.stringify(this.jumps));
+        // Mark that there are local changes not yet pushed to the sheet
+        localStorage.setItem('skydiving-needs-sync', '1');
     }
 
     saveComponentsToLocalStorage() {
@@ -620,6 +616,8 @@ class SkydivingLogbook {
         localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
         localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
         localStorage.setItem('skydiving-locations', JSON.stringify(this.locations));
+        // Stamp the modification time so the other device knows to pull this version
+        localStorage.setItem('skydiving-equipment-modified', new Date().toISOString());
         
         // Push to Google Sheets if online
         if (navigator.onLine && window.SheetsAPI?.initialized) {
