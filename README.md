@@ -2,6 +2,8 @@
 
 A personal mobile-friendly web application for tracking skydiving jumps. Data is stored in Google Spreadsheet for easy access and backup.
 
+This app was conceived for swoopers to keep track on the number of jumps on their linesets.
+
 ## Features
 - 📱 Mobile-responsive design
 - 🪂 Jump entry with location and equipment tracking
