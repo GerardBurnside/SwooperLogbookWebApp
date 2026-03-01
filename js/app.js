@@ -183,7 +183,25 @@ class SkydivingLogbook {
             e.preventDefault();
             this.saveComponent();
         });
-        
+
+        // Lineset stepper buttons
+        document.getElementById('linesetUp').addEventListener('click', () => {
+            const input = document.getElementById('equipmentLinesetNumber');
+            input.value = (parseInt(input.value) || 1) + 1;
+        });
+        document.getElementById('linesetDown').addEventListener('click', () => {
+            const input = document.getElementById('equipmentLinesetNumber');
+            const val = parseInt(input.value) || 1;
+            if (val > 1) input.value = val - 1;
+        });
+
+        // Auto-fill lineset number when canopy changes (add-new mode only)
+        document.getElementById('equipmentCanopy').addEventListener('change', () => {
+            if (!document.getElementById('equipmentId').value) {
+                this.autoFillLinesetNumber();
+            }
+        });
+
         // Equipment sub-navigation
         document.querySelectorAll('.equipment-nav-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
@@ -856,35 +874,48 @@ class SkydivingLogbook {
         }).join('');
     }
 
+    autoFillLinesetNumber() {
+        const canopyId = document.getElementById('equipmentCanopy').value;
+        if (!canopyId) {
+            document.getElementById('equipmentLinesetNumber').value = 1;
+            return;
+        }
+        const rigsWithCanopy = this.equipmentRigs.filter(eq => eq.canopyId === canopyId);
+        const maxLineset = rigsWithCanopy.length > 0
+            ? Math.max(...rigsWithCanopy.map(eq => eq.linesetNumber || 1))
+            : 0;
+        document.getElementById('equipmentLinesetNumber').value = maxLineset + 1;
+    }
+
     addEquipment() {
         document.getElementById('equipmentForm').reset();
         document.getElementById('equipmentId').value = '';
         document.getElementById('equipmentStartingJumpNumber').value = 0;
+        document.getElementById('equipmentLinesetNumber').value = 1;
         this.populateComponentSelects();
         document.getElementById('equipmentModal').style.display = 'block';
     }
     
     populateComponentSelects() {
-        // Populate harness select
+        // Populate harness select (active only)
         const harnessSelect = document.getElementById('equipmentHarness');
         harnessSelect.innerHTML = '<option value="">Select Harness</option>';
-        this.harnesses.forEach(harness => {
+        this.harnesses.filter(h => !h.archived).forEach(harness => {
             const option = document.createElement('option');
             option.value = harness.id;
             option.textContent = harness.name;
             harnessSelect.appendChild(option);
         });
         
-        // Populate canopy select
+        // Populate canopy select (active only)
         const canopySelect = document.getElementById('equipmentCanopy');
         canopySelect.innerHTML = '<option value="">Select Canopy</option>';
-        this.canopies.forEach(canopy => {
+        this.canopies.filter(c => !c.archived).forEach(canopy => {
             const option = document.createElement('option');
             option.value = canopy.id;
             option.textContent = canopy.name;
             canopySelect.appendChild(option);
         });
-        
     }
 
     editEquipment(id) {
@@ -1131,18 +1162,37 @@ class SkydivingLogbook {
             container.innerHTML = `<p class="no-items">No ${type} added yet.</p>`;
             return;
         }
+
+        // Active first, then archived
+        const sorted = [...collection].sort((a, b) => !!a.archived - !!b.archived);
         
-        container.innerHTML = collection.map(component => `
-            <div class="equipment-item">
+        container.innerHTML = sorted.map(component => `
+            <div class="equipment-item ${component.archived ? 'archived' : ''}">
                 <div class="equipment-info">
                     <span class="equipment-name">${component.name}</span>
+                    ${component.archived ? '<span class="archived-badge">Archived</span>' : ''}
                 </div>
                 <div class="equipment-actions">
                     <button onclick="window.logbook.editComponent('${component.id}', '${type}')" class="btn-edit">Edit</button>
+                    <button onclick="window.logbook.toggleArchiveComponent('${component.id}', '${type}')" class="btn-toggle">
+                        ${component.archived ? 'Unarchive' : 'Archive'}
+                    </button>
                     <button onclick="window.logbook.deleteComponent('${component.id}', '${type}')" class="btn-delete">Delete</button>
                 </div>
             </div>
         `).join('');
+    }
+
+    toggleArchiveComponent(id, type) {
+        const collection = this[type];
+        const component = collection.find(c => c.id === id);
+        if (component) {
+            component.archived = !component.archived;
+            this.saveComponentsToLocalStorage();
+            this.renderEquipmentView();
+            const typeSingular = this._singularize(type);
+            this.showMessage(`${typeSingular.charAt(0).toUpperCase() + typeSingular.slice(1)} ${component.archived ? 'archived' : 'unarchived'} successfully!`, 'success');
+        }
     }
     
     editComponent(id, type) {

@@ -149,7 +149,11 @@
                     </div>
                     <div class="form-group">
                         <label for="equipmentLinesetNumber">Lineset #</label>
-                        <input type="number" id="equipmentLinesetNumber" min="1" value="1" required>
+                        <div class="multiplier-widget lineset-widget">
+                            <button type="button" class="multiplier-btn" id="linesetDown">−</button>
+                            <input type="number" id="equipmentLinesetNumber" min="1" value="1" readonly>
+                            <button type="button" class="multiplier-btn" id="linesetUp">+</button>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">

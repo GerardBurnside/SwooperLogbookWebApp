@@ -348,6 +348,15 @@ textarea {
     background: #1565C0;
 }
 
+/* Lineset stepper inside equipment modal — slightly wider than jump multiplier */
+.lineset-widget {
+    justify-content: flex-start;
+}
+
+.lineset-widget input {
+    width: 3rem;
+}
+
 .btn-primary {
     width: 100%;
     padding: 0.75rem;
