@@ -156,6 +156,28 @@ class SkydivingLogbook {
             this.exportData();
         });
 
+        // Share backup via native share sheet (e.g. Gmail on Android)
+        document.getElementById('shareBtn').addEventListener('click', () => {
+            this.shareDataViaEmail();
+        });
+        const shareBtn = document.getElementById('shareBtn');
+        const canShareFiles = !!navigator.share && (
+            !navigator.canShare || navigator.canShare({
+                files: [new File(['{}'], 'share-test.json', { type: 'application/json' })]
+            })
+        );
+        if (!canShareFiles) {
+            shareBtn.style.display = 'none';
+        }
+
+        // Import data
+        document.getElementById('importBtn').addEventListener('click', () => {
+            document.getElementById('importFileInput').click();
+        });
+        document.getElementById('importFileInput').addEventListener('change', (e) => {
+            this.importData(e);
+        });
+
         // Navigation buttons
         document.getElementById('jumpsViewBtn').addEventListener('click', () => {
             this.showView('jumps');
@@ -1479,40 +1501,162 @@ class SkydivingLogbook {
         return html;
     }
 
+    hasExportableData() {
+        return this.jumps.length > 0
+            || this.equipmentRigs.length > 0
+            || this.harnesses.length > 0
+            || this.canopies.length > 0;
+    }
+
+    buildExportPayload() {
+        return {
+            exportedAt: new Date().toISOString(),
+            version: 1,
+            data: {
+                jumps: this.jumps,
+                equipmentRigs: this.equipmentRigs,
+                harnesses: this.harnesses,
+                canopies: this.canopies,
+                locations: this.locations,
+                settings: this.settings
+            }
+        };
+    }
+
+    buildExportFilename() {
+        return `skydiving-logbook-backup-${new Date().toISOString().split('T')[0]}.json`;
+    }
+
     exportData() {
-        if (this.jumps.length === 0) {
-            this.showMessage('No jumps to export', 'error');
+        if (!this.hasExportableData()) {
+            this.showMessage('No data to export', 'error');
             return;
         }
 
-        const csvHeader = 'Jump Number,Date,Location,Equipment,Notes,Timestamp\n';
-        const csvData = this.jumps.map(jump => {
-            // Resolve rig ID to a readable name for the export
-            let equipmentDisplay = jump.equipment;
-            const rig = this.equipmentRigs.find(eq => eq.id === jump.equipment);
-            if (rig) {
-                const harness = this.harnesses.find(r => r.id === rig.harnessId);
-                const canopy = this.canopies.find(c => c.id === rig.canopyId);
-                equipmentDisplay = (harness && canopy && rig.linesetNumber)
-                    ? `${harness.name} + ${canopy.name} + Lineset#${rig.linesetNumber}`
-                    : rig.name;
-            }
-            return `${jump.jumpNumber},"${jump.date}","${jump.location}","${equipmentDisplay}","${jump.notes}","${jump.timestamp}"`;
-        }).join('\n');
+        const exportPayload = this.buildExportPayload();
 
-        const csvContent = csvHeader + csvData;
-        const blob = new Blob([csvContent], { type: 'text/csv' });
+        const jsonContent = JSON.stringify(exportPayload, null, 2);
+        const blob = new Blob([jsonContent], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         
         const a = document.createElement('a');
         a.href = url;
-        a.download = `skydiving-logbook-${new Date().toISOString().split('T')[0]}.csv`;
+        a.download = this.buildExportFilename();
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
         this.showMessage('Data exported successfully!', 'success');
+    }
+
+    async shareDataViaEmail() {
+        if (!this.hasExportableData()) {
+            this.showMessage('No data to share', 'error');
+            return;
+        }
+
+        const exportPayload = this.buildExportPayload();
+        const file = new File(
+            [JSON.stringify(exportPayload, null, 2)],
+            this.buildExportFilename(),
+            { type: 'application/json' }
+        );
+
+        if (!navigator.share) {
+            this.exportData();
+            this.showMessage('Sharing not supported on this device. Backup downloaded instead.', 'info');
+            return;
+        }
+
+        if (navigator.canShare && !navigator.canShare({ files: [file] })) {
+            this.exportData();
+            this.showMessage('File sharing not supported here. Backup downloaded instead.', 'info');
+            return;
+        }
+
+        try {
+            await navigator.share({
+                title: 'Skydiving Logbook Backup',
+                text: 'Backup JSON attached',
+                files: [file]
+            });
+            this.showMessage('Share sheet opened.', 'success');
+        } catch (error) {
+            if (error?.name === 'AbortError') {
+                return;
+            }
+            console.error('Share failed:', error);
+            this.exportData();
+            this.showMessage('Could not share file. Backup downloaded instead.', 'error');
+        }
+    }
+
+    async importData(event) {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        try {
+            const text = await file.text();
+            const parsed = JSON.parse(text);
+            const payload = parsed?.data ? parsed.data : parsed;
+
+            if (!payload || typeof payload !== 'object') {
+                this.showMessage('Invalid import file format', 'error');
+                return;
+            }
+
+            const hasAnySupportedData =
+                Array.isArray(payload.jumps)
+                || Array.isArray(payload.equipmentRigs)
+                || Array.isArray(payload.harnesses)
+                || Array.isArray(payload.canopies)
+                || Array.isArray(payload.locations)
+                || (payload.settings && typeof payload.settings === 'object');
+
+            if (!hasAnySupportedData) {
+                this.showMessage('Import file has no supported data', 'error');
+                return;
+            }
+
+            const confirmed = confirm('Importing will overwrite local jumps and equipment data. Continue?');
+            if (!confirmed) return;
+
+            this.jumps = Array.isArray(payload.jumps) ? payload.jumps : [];
+            this.equipmentRigs = Array.isArray(payload.equipmentRigs) ? payload.equipmentRigs : [];
+            this.harnesses = Array.isArray(payload.harnesses) ? payload.harnesses : [];
+            this.canopies = Array.isArray(payload.canopies) ? payload.canopies : [];
+            this.locations = Array.isArray(payload.locations) ? payload.locations : [];
+
+            if (payload.settings && typeof payload.settings === 'object') {
+                this.settings = {
+                    ...this.settings,
+                    ...payload.settings
+                };
+            }
+
+            if (this.settings.recentJumpsDays === undefined) {
+                this.settings.recentJumpsDays = 3;
+            }
+
+            this.initializeEquipmentJumpCounts();
+            this.saveToLocalStorage();
+            this.saveComponentsToLocalStorage();
+            localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
+
+            this.updateEquipmentOptions();
+            this.renderJumpsList();
+            this.updateStats();
+            this.renderEquipmentView();
+            this.renderStats();
+
+            this.showMessage('Data imported successfully!', 'success');
+        } catch (error) {
+            console.error('Import failed:', error);
+            this.showMessage('Import failed: invalid JSON file', 'error');
+        } finally {
+            event.target.value = '';
+        }
     }
 
     updateOnlineStatus() {
