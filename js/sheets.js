@@ -414,6 +414,28 @@ class SheetsAPI {
     }
     
     /**
+     * Return true if the spreadsheet has a readable backupRigs sheet tab.
+     */
+    async hasBackupRigsSheet() {
+        if (!this.initialized) return false;
+
+        try {
+            const response = await fetch(this.webAppUrl + '?action=getBackupEquipment', {
+                method: 'GET',
+                redirect: 'follow'
+            });
+
+            if (!response.ok) return false;
+
+            const result = await response.json();
+            return !result.error;
+        } catch (error) {
+            console.warn('Could not verify backupRigs sheet:', error);
+            return false;
+        }
+    }
+
+    /**
      * Restore all equipment from the "backupRigs" sheet tab.
      * Overwrites local equipment and pushes restored data to the main Equipment sheet.
      */

@@ -583,9 +583,17 @@ class SkydivingLogbook {
         });
     }
 
-    openSettingsModal() {
+    async openSettingsModal() {
         document.getElementById('startingJumpNumber').value = this.settings.startingJumpNumber;
         document.getElementById('recentJumpsDays').value = this.settings.recentJumpsDays ?? 3;
+
+        const restoreBtn = document.getElementById('restoreFromBackupBtn');
+        restoreBtn.style.display = 'none';
+
+        if (navigator.onLine && window.SheetsAPI?.initialized) {
+            const hasBackupRigsSheet = await window.SheetsAPI.hasBackupRigsSheet();
+            restoreBtn.style.display = hasBackupRigsSheet ? 'block' : 'none';
+        }
 
         document.getElementById('settingsModal').style.display = 'block';
     }
