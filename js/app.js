@@ -914,13 +914,17 @@ class SkydivingLogbook {
     autoFillRigNotes() {
         const harnessId = document.getElementById('equipmentHarness').value;
         const canopyId  = document.getElementById('equipmentCanopy').value;
-        const harness   = this.harnesses.find(h => h.id === harnessId);
-        const canopy    = this.canopies.find(c => c.id === canopyId);
+        document.getElementById('equipmentNotes').value = this.composeRigNotes(harnessId, canopyId);
+    }
+
+    composeRigNotes(harnessId, canopyId) {
+        const harness = this.harnesses.find(h => h.id === harnessId);
+        const canopy  = this.canopies.find(c => c.id === canopyId);
         const parts = [
             harness?.notes ? `H: ${harness.notes}` : '',
             canopy?.notes  ? `C: ${canopy.notes}`  : ''
         ].filter(Boolean);
-        document.getElementById('equipmentNotes').value = parts.join('\n');
+        return parts.join('\n');
     }
 
     /**
@@ -929,13 +933,7 @@ class SkydivingLogbook {
      */
     propagateComponentNotesToRigs() {
         this.equipmentRigs.forEach(eq => {
-            const harness = this.harnesses.find(h => h.id === eq.harnessId);
-            const canopy  = this.canopies.find(c => c.id === eq.canopyId);
-            const parts = [
-                harness?.notes ? `H: ${harness.notes}` : '',
-                canopy?.notes  ? `C: ${canopy.notes}`  : ''
-            ].filter(Boolean);
-            eq.notes = parts.join('\n');
+            eq.notes = this.composeRigNotes(eq.harnessId, eq.canopyId);
         });
     }
 
@@ -998,8 +996,6 @@ class SkydivingLogbook {
             document.getElementById('equipmentLinesetNumber').value = equipment.linesetNumber || 1;
             document.getElementById('equipmentHybridCheck').checked = /-Hybrid$/i.test(equipment.name || '');
             this.autoFillRigNotes();
-            // Allow a previously customised note to show if it differs from auto-generated
-            if (equipment.notes) document.getElementById('equipmentNotes').value = equipment.notes;
             
             document.getElementById('equipmentModal').style.display = 'block';
         }
@@ -1011,7 +1007,7 @@ class SkydivingLogbook {
         const canopyId = document.getElementById('equipmentCanopy').value;
         const linesetNumber = Math.max(1, parseInt(document.getElementById('equipmentLinesetNumber').value) || 1);
         const previousJumps = Math.max(0, parseInt(document.getElementById('equipmentStartingJumpNumber').value) || 0);
-        const notes = document.getElementById('equipmentNotes').value.trim();
+        const notes = this.composeRigNotes(harnessId, canopyId);
         
         if (!harnessId || !canopyId) {
             this.showMessage('Please select harness and canopy', 'error');
