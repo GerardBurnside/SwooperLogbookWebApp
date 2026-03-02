@@ -567,6 +567,7 @@ textarea {
     color: #666;
     margin-top: 0.25rem;
     font-style: italic;
+    white-space: pre-line;
 }
 
 .archived-badge {

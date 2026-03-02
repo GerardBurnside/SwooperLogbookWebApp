@@ -920,7 +920,7 @@ class SkydivingLogbook {
             harness?.notes ? `H: ${harness.notes}` : '',
             canopy?.notes  ? `C: ${canopy.notes}`  : ''
         ].filter(Boolean);
-        document.getElementById('equipmentNotes').value = parts.join(' | ');
+        document.getElementById('equipmentNotes').value = parts.join('\n');
     }
 
     /**
@@ -935,7 +935,7 @@ class SkydivingLogbook {
                 harness?.notes ? `H: ${harness.notes}` : '',
                 canopy?.notes  ? `C: ${canopy.notes}`  : ''
             ].filter(Boolean);
-            eq.notes = parts.join(' | ');
+            eq.notes = parts.join('\n');
         });
     }
 
