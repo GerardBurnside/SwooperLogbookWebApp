@@ -1,5 +1,5 @@
-// Google Apps Script for Skydiving Logbook
-// This script acts as a backend API for the Skydiving Logbook web app
+// Google Apps Script for Swooper Logbook
+// This script acts as a backend API for the Swooper Logbook web app
 
 function doGet(e) {
   const action = e.parameter.action;

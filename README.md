@@ -1,4 +1,4 @@
-# Skydiving Logbook Web App
+# Swooper Logbook Web App
 
 A personal mobile-friendly web application for tracking skydiving jumps. Data is stored in Google Spreadsheet for easy access and backup.
 

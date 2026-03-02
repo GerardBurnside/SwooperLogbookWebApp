@@ -1,7 +1,7 @@
 {
-  "name": "Skydiving Logbook",
-  "short_name": "SkyLogbook",
-  "description": "Personal skydiving jump tracker with Google Sheets integration",
+  "name": "Swooper Logbook",
+  "short_name": "SwooperLog",
+  "description": "Personal skydiving jump tracker with Google Sheets integration, tailored for swoopers.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

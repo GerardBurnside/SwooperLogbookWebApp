@@ -1,4 +1,4 @@
-// Skydiving Logbook App - Main Application Logic
+// Swooper Logbook App - Main Application Logic
 class SkydivingLogbook {
     constructor() {
         this.jumps = JSON.parse(localStorage.getItem('skydiving-jumps')) || [];

@@ -1,4 +1,4 @@
-# Skydiving Logbook Web App - Development Guide
+# Swooper Logbook Web App - Development Guide
 
 This project is a personal mobile-friendly web application for tracking skydiving jumps with Google Sheets integration.
 

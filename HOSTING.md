@@ -1,4 +1,4 @@
-# Hosting Guide for Skydiving Logbook App
+# Hosting Guide for Swooper Logbook App
 
 ## Free Hosting Options
 

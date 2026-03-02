@@ -18,7 +18,7 @@ The **Equipment** sheet is read and written by the app automatically — you sho
 1. **Create a Google Spreadsheet:**
    - Go to [Google Sheets](https://sheets.google.com)
    - Create a new spreadsheet
-   - Rename it to "Skydiving Logbook"
+   - Rename it to "Swooper Logbook"
    - Rename the first sheet to "Jumps"
    - Add headers in row 1: `Jump Number`, `Date`, `Location`, `Equipment`, `Notes`, `Timestamp`
 
@@ -30,7 +30,7 @@ The **Equipment** sheet is read and written by the app automatically — you sho
    - While in your spreadsheet, go to `Extensions` → `Apps Script`
    - Delete any existing code in the script editor
    - Copy and paste the code from `config/apps-script.js`
-   - Save the script (give it a name like "Skydiving Logbook API")
+   - Save the script (give it a name like "Swooper Logbook API")
 
 4. **Deploy the Apps Script:**
    - In the Apps Script editor, click `Deploy` → `New deployment`
