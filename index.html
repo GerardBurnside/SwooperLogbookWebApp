@@ -192,8 +192,8 @@
 
         <!-- Settings Modal -->
         <div id="settingsModal" class="modal">
-            <div class="modal-content">
-                <span class="close">&times;</span>
+            <div class="modal-content settings-modal-content">
+                <span class="close" id="settingsClose">&times;</span>
                 <h2>Settings</h2>
                 <div class="form-group">
                     <label for="startingJumpNumber">Starting Jump Number</label>
@@ -205,8 +205,23 @@
                     <small style="color:#888; font-size:12px;">Jumps within this many days are shown individually; older jumps are grouped by month. Set to 0 to always group.</small>
                 </div>
 
+                <button id="saveSettings" class="btn-primary">Save Settings</button>
+
                 <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
-                <h3 style="margin-bottom: 8px;">Google Sheets Integration</h3>
+                <button id="googleSheetsIntegrationBtn" class="btn-secondary" style="width:100%;">Google Sheet Integration</button>
+
+                <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
+                <h3 style="margin-bottom: 8px;">Backup &amp; Restore</h3>
+                <p style="font-size: 13px; margin-bottom: 10px; color: #666;">Restore all equipment data from the <strong>backupRigs</strong> sheet in your spreadsheet. This will overwrite your current local equipment.</p>
+                <button id="restoreFromBackupBtn" class="btn-secondary" style="background: #e65100; color: #fff;">Restore Equipment from Backup</button>
+            </div>
+        </div>
+
+        <!-- Google Sheets Integration Modal -->
+        <div id="sheetsModal" class="modal">
+            <div class="modal-content">
+                <span class="close" id="sheetsClose">&times;</span>
+                <h2>Google Sheet Integration</h2>
                 <p id="sheetsConfigStatus" style="font-size: 13px; margin-bottom: 10px; color: #666;"></p>
 
                 <div class="form-group">
@@ -218,12 +233,7 @@
                     <input type="text" id="cfgSpreadsheetId" placeholder="e.g. 1BxiM…" autocomplete="off">
                 </div>
 
-                <button id="saveSettings" class="btn-primary">Save Settings</button>
-
-                <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
-                <h3 style="margin-bottom: 8px;">Backup &amp; Restore</h3>
-                <p style="font-size: 13px; margin-bottom: 10px; color: #666;">Restore all equipment data from the <strong>backupRigs</strong> sheet in your spreadsheet. This will overwrite your current local equipment.</p>
-                <button id="restoreFromBackupBtn" class="btn-secondary" style="background: #e65100; color: #fff;">Restore Equipment from Backup</button>
+                <button id="saveSheetsConfig" class="btn-primary">Save</button>
             </div>
         </div>
 

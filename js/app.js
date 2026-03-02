@@ -133,8 +133,21 @@ class SkydivingLogbook {
             this.restoreEquipmentFromBackup();
         });
 
+        // Google Sheets Integration modal
+        document.getElementById('googleSheetsIntegrationBtn').addEventListener('click', () => {
+            this.openSheetsModal();
+        });
+
+        document.getElementById('sheetsClose').addEventListener('click', () => {
+            this.closeSheetsModal();
+        });
+
+        document.getElementById('saveSheetsConfig').addEventListener('click', () => {
+            this.saveSheetsConfig();
+        });
+
         // Modal close
-        document.querySelector('.close').addEventListener('click', () => {
+        document.getElementById('settingsClose').addEventListener('click', () => {
             this.closeModal();
         });
 
@@ -220,6 +233,7 @@ class SkydivingLogbook {
             const settingsModal = document.getElementById('settingsModal');
             const equipmentModal = document.getElementById('equipmentModal');
             const componentModal = document.getElementById('componentModal');
+            const sheetsModal = document.getElementById('sheetsModal');
             if (e.target === settingsModal) {
                 this.closeModal();
             }
@@ -228,6 +242,9 @@ class SkydivingLogbook {
             }
             if (e.target === componentModal) {
                 this.closeComponentModal();
+            }
+            if (e.target === sheetsModal) {
+                this.closeSheetsModal();
             }
         });
     }
@@ -548,6 +565,14 @@ class SkydivingLogbook {
         document.getElementById('startingJumpNumber').value = this.settings.startingJumpNumber;
         document.getElementById('recentJumpsDays').value = this.settings.recentJumpsDays ?? 3;
 
+        document.getElementById('settingsModal').style.display = 'block';
+    }
+
+    closeModal() {
+        document.getElementById('settingsModal').style.display = 'none';
+    }
+
+    openSheetsModal() {
         // Populate Google Sheets config fields from localStorage (or current API state)
         const savedConfig = JSON.parse(localStorage.getItem('sheets-config') || '{}');
         const webAppUrl = (window.SheetsAPI && window.SheetsAPI.webAppUrl) || savedConfig.webAppUrl || '';
@@ -568,11 +593,29 @@ class SkydivingLogbook {
             statusEl.style.color = '#666';
         }
 
-        document.getElementById('settingsModal').style.display = 'block';
+        document.getElementById('sheetsModal').style.display = 'block';
     }
 
-    closeModal() {
-        document.getElementById('settingsModal').style.display = 'none';
+    closeSheetsModal() {
+        document.getElementById('sheetsModal').style.display = 'none';
+    }
+
+    saveSheetsConfig() {
+        const webAppUrl = document.getElementById('cfgWebAppUrl').value.trim();
+        const spreadsheetId = document.getElementById('cfgSpreadsheetId').value.trim();
+
+        if (webAppUrl || spreadsheetId) {
+            const sheetsConfig = { webAppUrl, spreadsheetId };
+            localStorage.setItem('sheets-config', JSON.stringify(sheetsConfig));
+
+            // Re-initialize the Sheets API with the new values
+            if (window.SheetsAPI) {
+                window.SheetsAPI.reinitialize(webAppUrl, spreadsheetId);
+            }
+        }
+
+        this.closeSheetsModal();
+        this.showMessage('Google Sheets configuration saved!', 'success');
     }
 
     saveSettings() {
@@ -593,20 +636,6 @@ class SkydivingLogbook {
         this.settings.recentJumpsDays = recentJumpsDays;
         localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
 
-        // ── Save Google Sheets config to localStorage ──
-        const webAppUrl = document.getElementById('cfgWebAppUrl').value.trim();
-        const spreadsheetId = document.getElementById('cfgSpreadsheetId').value.trim();
-
-        if (webAppUrl || spreadsheetId) {
-            const sheetsConfig = { webAppUrl, spreadsheetId };
-            localStorage.setItem('sheets-config', JSON.stringify(sheetsConfig));
-
-            // Re-initialize the Sheets API with the new values
-            if (window.SheetsAPI) {
-                window.SheetsAPI.reinitialize(webAppUrl, spreadsheetId);
-            }
-        }
-        
         // Push settings to Google Sheets if online
         if (navigator.onLine && window.SheetsAPI?.initialized) {
             window.SheetsAPI.syncEquipmentToSheet();

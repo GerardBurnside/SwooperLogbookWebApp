@@ -771,6 +771,13 @@ textarea {
     overflow-y: auto;
 }
 
+/* Settings modal — scrollable on small screens */
+.settings-modal-content {
+    max-height: 85vh;
+    overflow-y: auto;
+    margin: 5% auto;
+}
+
 .conflict-item {
     border: 1px solid #e9ecef;
     border-radius: 8px;
