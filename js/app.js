@@ -587,15 +587,19 @@ class SkydivingLogbook {
         document.getElementById('startingJumpNumber').value = this.settings.startingJumpNumber;
         document.getElementById('recentJumpsDays').value = this.settings.recentJumpsDays ?? 3;
 
-        const restoreBtn = document.getElementById('restoreFromBackupBtn');
-        const restoreDesc = document.getElementById('restoreFromBackupDesc');
-        restoreBtn.style.display = 'none';
-        restoreDesc.style.display = 'none';
+        const restoreBtn   = document.getElementById('restoreFromBackupBtn');
+        const restoreDesc  = document.getElementById('restoreFromBackupDesc');
+        const restoreTitle = document.getElementById('restoreFromBackupTitle');
+        restoreBtn.style.display   = 'none';
+        restoreDesc.style.display  = 'none';
+        restoreTitle.style.display = 'none';
 
         if (navigator.onLine && window.SheetsAPI?.initialized) {
             const hasBackupRigsSheet = await window.SheetsAPI.hasBackupRigsSheet();
-            restoreBtn.style.display = hasBackupRigsSheet ? 'block' : 'none';
-            restoreDesc.style.display = hasBackupRigsSheet ? 'block' : 'none';
+            const vis = hasBackupRigsSheet ? 'block' : 'none';
+            restoreBtn.style.display   = vis;
+            restoreDesc.style.display  = vis;
+            restoreTitle.style.display = vis;
         }
 
         document.getElementById('settingsModal').style.display = 'block';
