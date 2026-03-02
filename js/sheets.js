@@ -428,7 +428,13 @@ class SheetsAPI {
             if (!response.ok) return false;
 
             const result = await response.json();
-            return !result.error;
+            if (result.error) return false;
+
+            if (typeof result.hasBackupRigsSheet === 'boolean') {
+                return result.hasBackupRigsSheet;
+            }
+
+            return !!(result.data && Object.keys(result.data).length > 0);
         } catch (error) {
             console.warn('Could not verify backupRigs sheet:', error);
             return false;

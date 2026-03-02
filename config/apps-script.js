@@ -159,7 +159,7 @@ function getBackupEquipment() {
   const sheet = ss.getSheetByName('backupRigs');
   if (!sheet) {
     return ContentService
-      .createTextOutput(JSON.stringify({ success: true, data: {} }))
+      .createTextOutput(JSON.stringify({ success: true, hasBackupRigsSheet: false, data: {} }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 
@@ -180,7 +180,7 @@ function getBackupEquipment() {
   });
 
   return ContentService
-    .createTextOutput(JSON.stringify({ success: true, data: result }))
+    .createTextOutput(JSON.stringify({ success: true, hasBackupRigsSheet: true, data: result }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
