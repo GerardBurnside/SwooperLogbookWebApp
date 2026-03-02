@@ -1437,7 +1437,7 @@ class SkydivingLogbook {
         
         if (sortedEquipmentStats.length > 0) {
             sortedEquipmentStats.forEach(stat => {
-                const redThreshold = stat.hybrid ? 90 : 180;
+                const redThreshold = stat.hybrid ? 80 : 160;
                 const orangeThreshold = stat.hybrid ? 60 : 140;
                 const percentage = Math.min((stat.count / redThreshold) * 100, 100);
                 let barColorClass = '';
