@@ -47,8 +47,12 @@
                         
                         <div class="form-group location-autocomplete">
                             <label for="location">Drop Zone / Location</label>
-                            <input type="text" id="location" name="location" placeholder="e.g., Sky High DZ, California" required autocomplete="off">
+                            <div class="location-input-row">
+                                <input type="text" id="location" name="location" placeholder="e.g., Sky High DZ, California" required autocomplete="off">
+                                <button type="button" id="detectLocationBtn" class="detect-location-btn" title="Detect nearest dropzone">📍</button>
+                            </div>
                             <div id="locationDropdown" class="autocomplete-dropdown"></div>
+                            <span id="locationGeoHint" class="location-geo-hint" style="display:none;"></span>
                         </div>
                         
                         <div class="form-group">
@@ -203,6 +207,13 @@
                     <label for="recentJumpsDays">Recent jumps cutoff (days)</label>
                     <input type="number" id="recentJumpsDays" min="0" placeholder="e.g. 3">
                     <small style="color:#888; font-size:12px;">Jumps within this many days are shown individually; older jumps are grouped by month. Set to 0 to always group.</small>
+                </div>
+                <div class="form-group settings-checkbox-row">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="autoDetectDZ">
+                        Automatically detect nearest dropzone when logging a jump
+                    </label>
+                    <small style="color:#888; font-size:12px;">Uses your device location + OpenStreetMap to suggest the closest known dropzone. Disable to use the 📍 button manually instead.</small>
                 </div>
 
                 <button id="saveSettings" class="btn-primary">Save Settings</button>

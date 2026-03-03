@@ -234,6 +234,74 @@ textarea {
     position: relative;
 }
 
+.location-input-row {
+    display: flex;
+    gap: 0.4rem;
+    align-items: stretch;
+}
+
+.location-input-row input[type="text"] {
+    flex: 1;
+    min-width: 0;
+}
+
+.detect-location-btn {
+    flex-shrink: 0;
+    background: none;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    padding: 0 0.65rem;
+    font-size: 1.1rem;
+    cursor: pointer;
+    line-height: 1;
+    color: #555;
+    touch-action: manipulation;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.detect-location-btn:hover,
+.detect-location-btn:active {
+    border-color: #2196F3;
+    background: #e3f2fd;
+}
+
+.location-geo-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: #555;
+    font-style: italic;
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Settings checkbox row */
+.settings-checkbox-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
 .autocomplete-dropdown {
     display: none;
     position: absolute;

@@ -4,11 +4,15 @@ class SkydivingLogbook {
         this.jumps = JSON.parse(localStorage.getItem('skydiving-jumps')) || [];
         this.settings = JSON.parse(localStorage.getItem('skydiving-settings')) || {
             startingJumpNumber: 1,
-            recentJumpsDays: 3
+            recentJumpsDays: 3,
+            autoDetectDZ: true
         };
-        // Backfill for existing saved settings that predate this field
+        // Backfill for existing saved settings that predate these fields
         if (this.settings.recentJumpsDays === undefined) {
             this.settings.recentJumpsDays = 3;
+        }
+        if (this.settings.autoDetectDZ === undefined) {
+            this.settings.autoDetectDZ = true;
         }
         
         // Component-based equipment system
@@ -22,12 +26,17 @@ class SkydivingLogbook {
         ];
         this.equipmentRigs = JSON.parse(localStorage.getItem('skydiving-equipment-rigs')) || [];
         this.locations = JSON.parse(localStorage.getItem('skydiving-locations')) || [
-            { id: 'loc_lfoz',    name: 'LFOZ Epcol' },
-            { id: 'loc_klatovy', name: 'Klatovy' },
-            { id: 'loc_ravenna', name: 'Ravenna' },
-            { id: 'loc_palm',    name: 'The Palm Skydive Dubai' },
-            { id: 'loc_desert',  name: 'Desert Skydive Dubai' }
+            { id: 'loc_lfoz',    name: 'LFOZ Epcol',               lat: null, lng: null },
+            { id: 'loc_klatovy', name: 'Klatovy',                   lat: null, lng: null },
+            { id: 'loc_ravenna', name: 'Ravenna',                   lat: null, lng: null },
+            { id: 'loc_palm',    name: 'The Palm Skydive Dubai',    lat: null, lng: null },
+            { id: 'loc_desert',  name: 'Desert Skydive Dubai',      lat: null, lng: null }
         ];
+        // Backfill lat/lng on locations loaded from older data
+        this.locations.forEach(loc => {
+            if (loc.lat === undefined) loc.lat = null;
+            if (loc.lng === undefined) loc.lng = null;
+        });
         
         // Migrate old equipment data if needed
         this.migrateOldEquipmentData();
@@ -51,6 +60,9 @@ class SkydivingLogbook {
         this.setupLocationAutocomplete();
         this.preFillFormWithLastJump();
         this.showView('jumps');
+        
+        // Kick off background geocoding for any location missing coordinates
+        this.geocodeAllLocations();
         
         // Check if we're online/offline
         this.updateOnlineStatus();
@@ -155,6 +167,13 @@ class SkydivingLogbook {
         document.getElementById('exportBtn').addEventListener('click', () => {
             this.exportData();
         });
+
+        // Detect nearest DZ button (manual mode)
+        const detectBtn = document.getElementById('detectLocationBtn');
+        if (detectBtn) {
+            detectBtn.addEventListener('click', () => this.detectNearestLocation(true));
+        }
+        this.updateDetectLocationBtnVisibility();
 
         // Share backup via native share sheet (e.g. Gmail on Android)
         document.getElementById('shareBtn').addEventListener('click', () => {
@@ -348,9 +367,11 @@ class SkydivingLogbook {
             );
             if (!locationExists) {
                 const newId = 'loc_' + Date.now();
-                this.locations.push({ id: newId, name: jump.location });
+                const newLoc = { id: newId, name: jump.location, lat: null, lng: null };
+                this.locations.push(newLoc);
                 this.saveComponentsToLocalStorage();
                 this.updateLocationDatalist();
+                this.geocodeLocation(newLoc);
             }
         }
 
@@ -586,6 +607,7 @@ class SkydivingLogbook {
     async openSettingsModal() {
         document.getElementById('startingJumpNumber').value = this.settings.startingJumpNumber;
         document.getElementById('recentJumpsDays').value = this.settings.recentJumpsDays ?? 3;
+        document.getElementById('autoDetectDZ').checked = this.settings.autoDetectDZ ?? true;
 
         const restoreBtn   = document.getElementById('restoreFromBackupBtn');
         const restoreDesc  = document.getElementById('restoreFromBackupDesc');
@@ -671,7 +693,9 @@ class SkydivingLogbook {
 
         this.settings.startingJumpNumber = startingJumpNumber;
         this.settings.recentJumpsDays = recentJumpsDays;
+        this.settings.autoDetectDZ = document.getElementById('autoDetectDZ').checked;
         localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
+        this.updateDetectLocationBtnVisibility();
 
         // Push settings to Google Sheets if online
         if (navigator.onLine && window.SheetsAPI?.initialized) {
@@ -844,6 +868,8 @@ class SkydivingLogbook {
             this.renderEquipmentView();
         } else if (viewName === 'stats') {
             this.renderStats();
+        } else if (viewName === 'jumps' && this.settings.autoDetectDZ) {
+            this.detectNearestLocation(false);
         }
     }
     
@@ -1162,13 +1188,29 @@ class SkydivingLogbook {
             // Edit existing
             const component = collection.find(c => c.id === id);
             if (component) {
+                // If the location name changed, clear coords so it gets re-geocoded
+                if (type === 'location' && component.name !== name) {
+                    component.lat = null;
+                    component.lng = null;
+                }
                 component.name = name;
                 component.notes = notes;
+                if (type === 'location' && component.lat == null) {
+                    this.geocodeLocation(component);
+                }
             }
         } else {
             // Add new
             const newId = type + '_' + Date.now();
-            collection.push({ id: newId, name: name, notes: notes });
+            const newComponent = { id: newId, name: name, notes: notes };
+            if (type === 'location') {
+                newComponent.lat = null;
+                newComponent.lng = null;
+                collection.push(newComponent);
+                this.geocodeLocation(newComponent);
+            } else {
+                collection.push(newComponent);
+            }
         }
         
         // Propagate updated component notes to all affected rigs
@@ -1266,7 +1308,104 @@ class SkydivingLogbook {
             }
         });
     }
-    
+
+    // ── Geolocation helpers ─────────────────────────────────────────────────
+
+    /** Haversine distance between two lat/lng points, returns km. */
+    haversineKm(lat1, lng1, lat2, lng2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2
+            + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    /**
+     * Geocode a single location by name using OpenStreetMap Nominatim.
+     * Updates location.lat / .lng in-place and persists to storage.
+     */
+    async geocodeLocation(location) {
+        if (!navigator.onLine) return;
+        try {
+            const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location.name)}&format=json&limit=1`;
+            const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data.length) return;
+            location.lat = parseFloat(data[0].lat);
+            location.lng = parseFloat(data[0].lon);
+            this.saveComponentsToLocalStorage();
+        } catch (_) {
+            // Network error or rate-limited — silent fail
+        }
+    }
+
+    /**
+     * Background-geocodes all locations that are missing coordinates.
+     * Staggered at 1.2 s per request to respect Nominatim's usage policy.
+     */
+    geocodeAllLocations() {
+        if (!navigator.onLine) return;
+        const ungeocoded = this.locations.filter(l => l.lat == null);
+        ungeocoded.forEach((loc, i) => {
+            setTimeout(() => this.geocodeLocation(loc), i * 1200);
+        });
+    }
+
+    /**
+     * Ask for the user's current position and pre-fill the location field
+     * with the nearest known dropzone that has stored coordinates.
+     *
+     * @param {boolean} forceOverwrite – if true, overwrite even if the field
+     *   already has a value (used by the manual button); if false (auto-mode)
+     *   only fill when the field is empty or holds the last-jump value.
+     */
+    async detectNearestLocation(forceOverwrite = false) {
+        if (!navigator.geolocation) return;
+        const locationsWithCoords = this.locations.filter(l => l.lat != null && l.lng != null);
+        if (locationsWithCoords.length === 0) return;
+
+        const input = document.getElementById('location');
+        const hint  = document.getElementById('locationGeoHint');
+        if (!input) return;
+
+        // In auto-mode only proceed if field is empty
+        if (!forceOverwrite && input.value.trim() !== '') return;
+
+        try {
+            const pos = await new Promise((resolve, reject) =>
+                navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000, maximumAge: 60000 })
+            );
+            const { latitude, longitude } = pos.coords;
+
+            let nearest = null, minDist = Infinity;
+            for (const loc of locationsWithCoords) {
+                const d = this.haversineKm(latitude, longitude, loc.lat, loc.lng);
+                if (d < minDist) { minDist = d; nearest = loc; }
+            }
+
+            if (nearest) {
+                input.value = nearest.name;
+                if (hint) {
+                    hint.textContent = `📍 Nearest: ${nearest.name} (${Math.round(minDist)} km)`;
+                    hint.style.display = 'block';
+                    // Fade out the hint after 6 seconds
+                    clearTimeout(this._geoHintTimer);
+                    this._geoHintTimer = setTimeout(() => { if (hint) hint.style.display = 'none'; }, 6000);
+                }
+            }
+        } catch (_) {
+            // Permission denied or timeout — silent fail
+        }
+    }
+
+    /** Show the manual detect button only when auto-detect is disabled. */
+    updateDetectLocationBtnVisibility() {
+        const btn = document.getElementById('detectLocationBtn');
+        if (btn) btn.style.display = this.settings.autoDetectDZ ? 'none' : 'inline-flex';
+    }
+
     renderComponents(type) {
         const container = document.getElementById('equipmentList');
         const collection = this[type];
