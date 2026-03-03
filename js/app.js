@@ -145,6 +145,10 @@ class SkydivingLogbook {
             this.restoreEquipmentFromBackup();
         });
 
+        document.getElementById('useCurrentLocationBtn').addEventListener('click', () => {
+            this.setComponentCoordsFromGPS();
+        });
+
         // Google Sheets Integration modal
         document.getElementById('googleSheetsIntegrationBtn').addEventListener('click', () => {
             this.openSheetsModal();
@@ -1157,6 +1161,16 @@ class SkydivingLogbook {
         document.getElementById('componentType').value = type;
         document.getElementById('componentNotes').value = '';
         document.getElementById('componentModalTitle').textContent = `Add ${type.charAt(0).toUpperCase() + type.slice(1)}`;
+        // Show/hide GPS coords section for locations
+        const isLocation = type === 'location';
+        document.getElementById('locationCoordsSection').style.display = isLocation ? 'block' : 'none';
+        if (isLocation) {
+            document.getElementById('componentLat').value = '';
+            document.getElementById('componentLng').value = '';
+            const hint = document.getElementById('coordsHint');
+            hint.textContent = 'Leave blank to auto-geocode from the name.';
+            hint.style.color = '#888';
+        }
         document.getElementById('componentModal').style.display = 'block';
     }
 
@@ -1170,6 +1184,26 @@ class SkydivingLogbook {
             return;
         }
         const notes = document.getElementById('componentNotes').value.trim();
+
+        // Read manual GPS coords if this is a location and the fields have values
+        let manualLat = null, manualLng = null;
+        if (type === 'location') {
+            const latVal = document.getElementById('componentLat').value;
+            const lngVal = document.getElementById('componentLng').value;
+            if (latVal !== '' && lngVal !== '') {
+                const parsedLat = parseFloat(latVal);
+                const parsedLng = parseFloat(lngVal);
+                if (!isNaN(parsedLat) && !isNaN(parsedLng)
+                        && parsedLat >= -90 && parsedLat <= 90
+                        && parsedLng >= -180 && parsedLng <= 180) {
+                    manualLat = parsedLat;
+                    manualLng = parsedLng;
+                } else {
+                    this.showMessage('Invalid coordinates — latitude must be −90…90, longitude −180…180', 'error');
+                    return;
+                }
+            }
+        }
         
         // Get the correct collection name for each type
         let collectionName;
@@ -1188,15 +1222,18 @@ class SkydivingLogbook {
             // Edit existing
             const component = collection.find(c => c.id === id);
             if (component) {
-                // If the location name changed, clear coords so it gets re-geocoded
-                if (type === 'location' && component.name !== name) {
-                    component.lat = null;
-                    component.lng = null;
-                }
+                const nameChanged = type === 'location' && component.name !== name;
                 component.name = name;
                 component.notes = notes;
-                if (type === 'location' && component.lat == null) {
-                    this.geocodeLocation(component);
+                if (type === 'location') {
+                    if (manualLat !== null) {
+                        // Manual coords override everything
+                        component.lat = manualLat;
+                        component.lng = manualLng;
+                    } else {
+                        if (nameChanged) { component.lat = null; component.lng = null; }
+                        if (component.lat == null) this.geocodeLocation(component);
+                    }
                 }
             }
         } else {
@@ -1204,10 +1241,15 @@ class SkydivingLogbook {
             const newId = type + '_' + Date.now();
             const newComponent = { id: newId, name: name, notes: notes };
             if (type === 'location') {
-                newComponent.lat = null;
-                newComponent.lng = null;
+                if (manualLat !== null) {
+                    newComponent.lat = manualLat;
+                    newComponent.lng = manualLng;
+                } else {
+                    newComponent.lat = null;
+                    newComponent.lng = null;
+                    this.geocodeLocation(newComponent);
+                }
                 collection.push(newComponent);
-                this.geocodeLocation(newComponent);
             } else {
                 collection.push(newComponent);
             }
@@ -1400,6 +1442,36 @@ class SkydivingLogbook {
         }
     }
 
+    /**
+     * Fires navigator.geolocation and fills the lat/lng inputs in the
+     * component modal (used by the "Use current GPS position" button).
+     */
+    async setComponentCoordsFromGPS() {
+        if (!navigator.geolocation) {
+            this.showMessage('Geolocation is not supported by your browser', 'error');
+            return;
+        }
+        const hint = document.getElementById('coordsHint');
+        const btn  = document.getElementById('useCurrentLocationBtn');
+        hint.textContent = 'Getting position…';
+        hint.style.color = '#888';
+        btn.disabled = true;
+        try {
+            const pos = await new Promise((resolve, reject) =>
+                navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 })
+            );
+            document.getElementById('componentLat').value = pos.coords.latitude.toFixed(6);
+            document.getElementById('componentLng').value = pos.coords.longitude.toFixed(6);
+            hint.textContent = `✅ Captured (±${Math.round(pos.coords.accuracy)} m accuracy)`;
+            hint.style.color = '#2e7d32';
+        } catch (err) {
+            hint.textContent = err.code === 1 ? '⚠️ Location permission denied' : '⚠️ Could not get position — try again';
+            hint.style.color = '#c62828';
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
     /** Show the manual detect button only when auto-detect is disabled. */
     updateDetectLocationBtnVisibility() {
         const btn = document.getElementById('detectLocationBtn');
@@ -1458,6 +1530,21 @@ class SkydivingLogbook {
             document.getElementById('componentNotes').value = component.notes || '';
             document.getElementById('componentType').value = singular;
             document.getElementById('componentModalTitle').textContent = `Edit ${singular.charAt(0).toUpperCase() + singular.slice(1)}`;
+            // Show/hide GPS coords section for locations
+            const isLocation = singular === 'location';
+            document.getElementById('locationCoordsSection').style.display = isLocation ? 'block' : 'none';
+            if (isLocation) {
+                document.getElementById('componentLat').value = component.lat != null ? component.lat : '';
+                document.getElementById('componentLng').value = component.lng != null ? component.lng : '';
+                const hint = document.getElementById('coordsHint');
+                if (component.lat != null) {
+                    hint.textContent = `Saved: ${component.lat.toFixed(5)}, ${component.lng.toFixed(5)}`;
+                    hint.style.color = '#2e7d32';
+                } else {
+                    hint.textContent = 'No coordinates saved yet — leave blank to auto-geocode from name.';
+                    hint.style.color = '#888';
+                }
+            }
             document.getElementById('componentModal').style.display = 'block';
         }
     }

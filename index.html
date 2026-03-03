@@ -189,6 +189,15 @@
                         <label for="componentNotes">Notes <span style="color:#888;font-weight:normal;">(optional)</span></label>
                         <input type="text" id="componentNotes" placeholder="e.g. serial number, DOM, colour, remarks…">
                     </div>
+                    <div id="locationCoordsSection" class="form-group location-coords-section" style="display:none;">
+                        <label>GPS Coordinates <span style="color:#888;font-weight:normal;">(optional — overrides auto-geocoding)</span></label>
+                        <div class="coords-input-row">
+                            <input type="number" id="componentLat" step="any" min="-90" max="90" placeholder="Latitude">
+                            <input type="number" id="componentLng" step="any" min="-180" max="180" placeholder="Longitude">
+                        </div>
+                        <button type="button" id="useCurrentLocationBtn" class="btn-secondary use-current-location-btn">📍 Use current GPS position</button>
+                        <small id="coordsHint" class="coords-hint"></small>
+                    </div>
                     <button type="submit" class="btn-primary">Save Component</button>
                 </form>
             </div>
