@@ -175,6 +175,15 @@ class SheetsAPI {
     }
 
     /**
+     * Backward-compatible entry point used by app.js.
+     * Delegates to startup sync logic (pull/push/no-op + poll scheduling).
+     */
+    async syncWithSheet() {
+        await this.ready;
+        await this.doStartupSync();
+    }
+
+    /**
      * Push all local data to the sheet, but first verify the sheet has not
      * been updated by another device since our last sync. If it has, pull
      * instead and show the user a conflict notification.
