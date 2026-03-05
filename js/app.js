@@ -892,7 +892,13 @@ class SkydivingLogbook {
         });
         
         if (needsSave) {
-            this.saveComponentsToLocalStorage();
+            // Save only the rigs array — jump counts are computed/derived values,
+            // not user-initiated edits.  Calling saveComponentsToLocalStorage() here
+            // would update skydiving-equipment-modified to "now", making the laptop
+            // appear newer than a phone that just edited equipment notes, which would
+            // cause the subsequent syncWithSheet() to skip the pull and overwrite the
+            // phone's changes with stale local data.
+            localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
         }
     }
 

@@ -229,7 +229,15 @@ class SheetsAPI {
                     } else if (!sheet) {
                         mergedMap.set(num, local);           // only local
                     } else if (local.timestamp === sheet.timestamp) {
-                        mergedMap.set(num, local);           // identical — no conflict
+                        // Same creation timestamp.  The timestamp never changes after
+                        // a jump is first logged, so two records with matching timestamps
+                        // may still differ if notes/location/etc. were edited on another
+                        // device.  In that case the sheet version is the authoritative
+                        // one (it was explicitly synced from the editing device).
+                        const sameContent = (local.notes    || '') === (sheet.notes    || '')
+                                         && (local.location || '') === (sheet.location || '')
+                                         && (local.date     || '') === (sheet.date     || '');
+                        mergedMap.set(num, sameContent ? local : sheet);
                     } else {
                         // Same jump number, different content — ask user
                         conflicts.push({ jumpNumber: num, local, sheet });
