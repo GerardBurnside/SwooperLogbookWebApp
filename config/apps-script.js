@@ -116,6 +116,7 @@ function uploadJumps(jumpsData) {
 //   Row 3:  key="rigs"  value=<JSON array>
 //   Row 4:  key="settings"      value=<JSON object>
 //   Row 5:  key="locations"     value=<JSON array>
+//   Row 6:  key="_syncMeta"     value=<JSON object>
 
 function getOrCreateEquipmentSheet() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -127,6 +128,12 @@ function getOrCreateEquipmentSheet() {
     sheet.getRange('A3').setValue('rigs');
     sheet.getRange('A4').setValue('settings');
     sheet.getRange('A5').setValue('locations');
+    sheet.getRange('A6').setValue('_syncMeta');
+  } else {
+    const row6Key = sheet.getRange('A6').getValue();
+    if (!row6Key) {
+      sheet.getRange('A6').setValue('_syncMeta');
+    }
   }
   return sheet;
 }
@@ -135,7 +142,7 @@ function getEquipment() {
   const sheet = getOrCreateEquipmentSheet();
   
   // Read each row: col A = key, col B = JSON value
-  const rows = sheet.getRange(1, 1, 5, 2).getValues();
+  const rows = sheet.getRange(1, 1, 6, 2).getValues();
   const result = {};
   rows.forEach(row => {
     const key   = row[0];
@@ -187,7 +194,7 @@ function getBackupEquipment() {
 function saveEquipment(equipmentData) {
   const sheet = getOrCreateEquipmentSheet();
   
-  const keyOrder = ['harnesses', 'canopies', 'rigs', 'settings', 'locations'];
+  const keyOrder = ['harnesses', 'canopies', 'rigs', 'settings', 'locations', '_syncMeta'];
   keyOrder.forEach((key, index) => {
     sheet.getRange(index + 1, 1).setValue(key);
     if (equipmentData[key] !== undefined) {

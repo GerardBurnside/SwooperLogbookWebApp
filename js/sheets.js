@@ -1,727 +1,2071 @@
-// Google Sheets API Integration via Apps Script
-class SheetsAPI {
+// Swooper Logbook App - Main Application Logic
+class SkydivingLogbook {
     constructor() {
-        this.webAppUrl = ''; // Will be loaded from config
-        this.spreadsheetId = ''; // Will be loaded from config
-        this.initialized = false;
-        this._pollTimer = null; // handle for the 2-minute background poll
-        
-        // Expose a promise that resolves when setup is complete
-        this.ready = this.setupAPI();
-    }
-
-    async setupAPI() {
-        try {
-            // Load config from local file
-            const config = await this.loadConfig();
-            this.webAppUrl = config.webAppUrl;
-            this.spreadsheetId = config.spreadsheetId;
-            
-            if (this.webAppUrl) {
-                this.initialized = true;
-                console.log('Google Apps Script API initialized');
-                this.updateSyncStatus('Ready');
-            } else {
-                console.log('Google Apps Script API not configured');
-                this.updateSyncStatus('Not configured');
-            }
-        } catch (error) {
-            console.error('Failed to initialize Google Apps Script API:', error);
-            this.updateSyncStatus('Configuration error');
-        }
-    }
-
-    async loadConfig() {
-        // Try to load from config file, fallback to localStorage
-        try {
-            const response = await fetch('./config/sheets-config.json');
-            if (response.ok) {
-                const fileConfig = await response.json();
-                // Also persist to localStorage so it survives offline / missing file
-                localStorage.setItem('sheets-config', JSON.stringify(fileConfig));
-                return fileConfig;
-            }
-        } catch (error) {
-            console.log('Config file not found, checking localStorage');
-        }
-        
-        // Fallback to localStorage
-        const config = localStorage.getItem('sheets-config');
-        return config ? JSON.parse(config) : {};
-    }
-
-    /**
-     * Re-initialize the API with new credentials (called from Settings).
-     */
-    reinitialize(webAppUrl, spreadsheetId) {
-        this.webAppUrl = webAppUrl || '';
-        this.spreadsheetId = spreadsheetId || '';
-
-        if (this.webAppUrl) {
-            this.initialized = true;
-            console.log('Google Apps Script API re-initialized with new config');
-            this.updateSyncStatus('Ready');
-        } else {
-            this.initialized = false;
-            this.updateSyncStatus('Not configured');
-        }
-    }
-
-    async syncJump(jump) {
-        if (!this.initialized) {
-            console.log('Apps Script API not initialized, storing jump locally only');
-            return;
-        }
-
-        this.updateSyncStatus('Syncing...');
-        
-        try {
-            // Get equipment name from rig
-            let equipmentName = jump.equipment;
-            if (window.logbook) {
-                const rig = window.logbook.equipmentRigs.find(eq => eq.id === jump.equipment);
-                if (rig) {
-                    equipmentName = rig.name;
-                }
-            }
-            
-            const jumpData = {
-                jumpNumber: jump.jumpNumber,
-                date: jump.date,
-                location: jump.location,
-                equipment: equipmentName,
-                equipmentId: jump.equipment,  // preserve rig ID for round-trip
-                notes: jump.notes,
-                timestamp: jump.timestamp
-            };
-            
-            const response = await fetch(this.webAppUrl, {
-                method: 'POST',
-                // Use text/plain to avoid CORS preflight (simple request)
-                headers: {
-                    'Content-Type': 'text/plain',
-                },
-                redirect: 'follow',
-                body: JSON.stringify({ action: 'addJump', data: jumpData })
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            const result = await response.json();
-            if (result.error) {
-                throw new Error(result.error);
-            }
-            
-            this.updateSyncStatus('Synced');
-            setTimeout(() => this.updateSyncStatus('Online'), 2000);
-            
-        } catch (error) {
-            console.error('Failed to sync jump:', error);
-            this.updateSyncStatus('Sync failed');
-            setTimeout(() => this.updateSyncStatus('Online'), 3000);
-        }
-    }
-
-    async getAllJumps() {
-        if (!this.initialized) {
-            throw new Error('API not initialized');
-        }
-
-        const response = await fetch(this.webAppUrl + '?action=getJumps', {
-            method: 'GET',
-            redirect: 'follow'
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-        
-        if (result.error) {
-            throw new Error(result.error);
-        }
-
-        if (!result.data || result.data.length === 0) {
-            return [];
-        }
-
-        // Convert to jump objects (skip header row)
-        const rows = result.data.slice(1);
-        return rows.map((row, index) => {
-            const timestamp = row[5] || new Date().toISOString();
-            // Restore numeric id from timestamp (originally Date.now()); fall back to
-            // a unique value derived from index so id is never undefined.
-            const parsedTime = new Date(timestamp).getTime();
-            const id = Number.isFinite(parsedTime) ? parsedTime : Date.now() + index;
-            // col 7 (row[6]) holds the rig ID written by the updated script;
-            // fall back to row[3] (name string) for legacy rows without the ID column.
-            const equipment = (row[6] && row[6] !== '') ? row[6] : row[3] || '';
-            return {
-                id,
-                jumpNumber: parseInt(row[0]) || 0,
-                date: row[1] || '',
-                location: row[2] || '',
-                equipment,
-                notes: row[4] || '',
-                timestamp
-            };
-        });
-    }
-
-    async syncWithSheet() {
-        if (!this.initialized) {
-            console.log('Cannot sync: API not initialized');
-            return;
-        }
-
-        // Cancel any pending poll — will be rescheduled at the end of this sync
-        this._cancelPoll();
-        this.updateSyncStatus('Syncing...');
-
-        try {
-            // ── Equipment sync ────────────────────────────────────────────────────────
-            // Capture local tombstones BEFORE equipment sync may overwrite settings.
-            const logbook = window.logbook;
-            const localTombstones = Array.isArray(logbook?.settings?.deletedJumpTimestamps)
-                ? logbook.settings.deletedJumpTimestamps
-                : [];
-
-            const localRigsEmpty = !logbook || !logbook.equipmentRigs || logbook.equipmentRigs.length === 0;
-
-            // syncEquipmentFromSheet now always returns { pulled, tombstones }
-            const equip = await this.syncEquipmentFromSheet();
-            const sheetTombstones = equip.tombstones || [];
-
-            if (localRigsEmpty && !equip.pulled) {
-                // Fresh device with empty rigs and nothing on sheet yet — push defaults
-                console.log('[Sync] Local rigs empty — pushing defaults to sheet...');
-                // Will be pushed at the end of this sync
-            }
-            // If not pulled (equipment dirty or nothing on sheet), push happens at end.
-
-            // ── Union tombstones from both devices ────────────────────────────────────
-            // Use a Set to deduplicate, then write back so both local and sheet stay
-            // in sync with the full deletion history.
-            const allTombstones = [...new Set([...localTombstones, ...sheetTombstones])];
-            const tombstoneSet  = new Set(allTombstones);
-
-            // Persist unified tombstone list.  logbook.settings may have been replaced
-            // by the equipment pull above, so we update the live object in place.
-            if (logbook) {
-                logbook.settings.deletedJumpTimestamps = allTombstones;
-                localStorage.setItem('skydiving-settings', JSON.stringify(logbook.settings));
-            }
-
-            // ── Jump sync (merge by timestamp) ────────────────────────────────────────
-            const localJumps = JSON.parse(localStorage.getItem('skydiving-jumps')) || [];
-            const sheetJumps = await this.getAllJumps();
-
-            // Remove tombstoned jumps from both sources
-            const validLocal = localJumps.filter(j => j.timestamp && !tombstoneSet.has(j.timestamp));
-            const validSheet = sheetJumps.filter(j => j.timestamp && !tombstoneSet.has(j.timestamp));
-
-            // Merge by timestamp (union). Local overwrites sheet for the same timestamp
-            // so that field edits made on this device are preserved.
-            const byTimestamp = new Map();
-            for (const j of validSheet) byTimestamp.set(j.timestamp, j);
-            for (const j of validLocal)  byTimestamp.set(j.timestamp, j); // local wins
-
-            // Sort chronologically (stable: same date → by creation timestamp)
-            const finalJumps = Array.from(byTimestamp.values()).sort((a, b) => {
-                const da = Date.parse(a.date), db = Date.parse(b.date);
-                if (isNaN(da) && isNaN(db)) return 0;
-                if (isNaN(da)) return 1;
-                if (isNaN(db)) return -1;
-                if (da !== db) return da - db;
-                return Date.parse(a.timestamp) - Date.parse(b.timestamp);
-            });
-
-            // Renumber from the configured starting number
-            const startNum = logbook?.settings?.startingJumpNumber || 1;
-            finalJumps.forEach((j, i) => { j.jumpNumber = startNum + i; });
-
-            // Persist merged list locally
-            localStorage.setItem('skydiving-jumps', JSON.stringify(finalJumps));
-
-            // Apply to live app state
-            if (logbook) {
-                logbook.jumps = finalJumps;
-                if (finalJumps.length > 0) {
-                    logbook.settings.startingJumpNumber = finalJumps[0].jumpNumber;
-                    localStorage.setItem('skydiving-settings', JSON.stringify(logbook.settings));
-                }
-                logbook.initializeEquipmentJumpCounts();
-                logbook.updateStats();
-                logbook.renderJumpsList();
-                logbook.preFillFormWithLastJump();
-            }
-
-            // ── Upload if anything changed ─────────────────────────────────────────────
-            // Upload when: tombstoned items are still in the raw sheet, new local jumps
-            // exist, jump order/count differs, or the dirty flag is set.
-            const sheetHasTombstoned  = sheetJumps.some(j => tombstoneSet.has(j.timestamp));
-            const countDiffers        = finalJumps.length !== validSheet.length;
-            const orderDiffers        = validSheet.some(
-                (j, i) => finalJumps[i]?.timestamp !== j.timestamp);
-            const dirtyFlag           = localStorage.getItem('skydiving-needs-sync') === '1';
-
-            if (sheetHasTombstoned || countDiffers || orderDiffers || dirtyFlag) {
-                await this.uploadAllJumps(finalJumps);
-            }
-
-            // Push equipment once more to capture jump-count recalculations AND the
-            // unified tombstone list (stored inside logbook.settings).
-            await this.syncEquipmentToSheet();
-
-            // Clear the dirty flag
-            localStorage.removeItem('skydiving-needs-sync');
-
-            this.updateSyncStatus('Synced');
-            setTimeout(() => this.updateSyncStatus('Online'), 2000);
-
-            // Schedule the next automatic background poll
-            this._schedulePoll();
-
-        } catch (error) {
-            console.error('Failed to sync with sheet:', error);
-            this.updateSyncStatus('Sync failed');
-            setTimeout(() => this.updateSyncStatus('Online'), 3000);
-            this._schedulePoll(); // retry even on failure
-        }
-    }
-
-    /**
-     * Push all equipment components + settings to the Equipment sheet tab.
-     * Called whenever the user saves any equipment change.
-     */
-    async syncEquipmentToSheet() {
-        if (!this.initialized) return;
-
-        const logbook = window.logbook;
-        if (!logbook) return;
-
-        // Safety: never push an empty rigs array – it would erase the sheet.
-        // Omit the key so the Apps Script side leaves the existing data intact.
-        const rigsToSend = (logbook.equipmentRigs && logbook.equipmentRigs.length > 0)
-            ? logbook.equipmentRigs
-            : undefined;
-
-        const payload = {
-            harnesses:    logbook.harnesses,
-            canopies:     logbook.canopies,
-            settings:     logbook.settings,
-            locations:    logbook.locations
+        this.jumps = JSON.parse(localStorage.getItem('skydiving-jumps')) || [];
+        this.settings = JSON.parse(localStorage.getItem('skydiving-settings')) || {
+            startingJumpNumber: 1,
+            recentJumpsDays: 3,
+            autoDetectDZ: true,
+            standardRedThreshold: 160,
+            standardOrangeThreshold: 140,
+            hybridRedThreshold: 80,
+            hybridOrangeThreshold: 60
         };
-        if (rigsToSend) payload.rigs = rigsToSend;
+        // Backfill for existing saved settings that predate these fields
+        if (this.settings.recentJumpsDays === undefined) {
+            this.settings.recentJumpsDays = 3;
+        }
+        if (this.settings.autoDetectDZ === undefined) {
+            this.settings.autoDetectDZ = true;
+        }
+        if (this.settings.standardRedThreshold === undefined) {
+            this.settings.standardRedThreshold = 160;
+        }
+        if (this.settings.standardOrangeThreshold === undefined) {
+            this.settings.standardOrangeThreshold = 140;
+        }
+        if (this.settings.hybridRedThreshold === undefined) {
+            this.settings.hybridRedThreshold = 80;
+        }
+        if (this.settings.hybridOrangeThreshold === undefined) {
+            this.settings.hybridOrangeThreshold = 60;
+        }
+        
+        // Component-based equipment system
+        this.harnesses = JSON.parse(localStorage.getItem('skydiving-harnesses')) || [
+            { id: 'javelin', name: 'Javelin' },
+            { id: 'mutant', name: 'Mutant' }
+        ];
+        this.canopies = JSON.parse(localStorage.getItem('skydiving-canopies')) || [
+            { id: 'petra64', name: 'Petra64' },
+            { id: 'petra68', name: 'Petra68' }
+        ];
+        this.equipmentRigs = JSON.parse(localStorage.getItem('skydiving-equipment-rigs')) || [];
+        this.locations = JSON.parse(localStorage.getItem('skydiving-locations')) || [
+            { id: 'loc_lfoz',    name: 'LFOZ Epcol',               lat: null, lng: null },
+            { id: 'loc_klatovy', name: 'Klatovy',                   lat: null, lng: null },
+            { id: 'loc_ravenna', name: 'Ravenna',                   lat: null, lng: null },
+            { id: 'loc_palm',    name: 'The Palm Skydive Dubai',    lat: null, lng: null },
+            { id: 'loc_desert',  name: 'Desert Skydive Dubai',      lat: null, lng: null }
+        ];
+        // Backfill lat/lng on locations loaded from older data
+        this.locations.forEach(loc => {
+            if (loc.lat === undefined) loc.lat = null;
+            if (loc.lng === undefined) loc.lng = null;
+        });
+        
+        // Migrate old equipment data if needed
+        // this.migrateOldEquipmentData();
+        
+        // Initialize jump counts for equipment rigs
+        this.initializeEquipmentJumpCounts();
+        
+        this.currentView = 'jumps'; // 'jumps', 'equipment', 'stats'
+        this.equipmentSubView = 'rigs'; // 'rigs', 'harnesses', 'canopies', 'linesets', 'locations'
+        this.showArchivedStats = false;
+        
+        this.init();
+    }
 
-        try {
-            const response = await fetch(this.webAppUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain' },
-                redirect: 'follow',
-                body: JSON.stringify({ action: 'saveEquipment', data: payload })
+    init() {
+        this.setupEventListeners();
+        this.updateStats();
+        this.renderJumpsList();
+        this.setCurrentDate();
+        this.updateEquipmentOptions();
+        this.setupLocationAutocomplete();
+        this.preFillFormWithLastJump();
+        this.showView('jumps');
+        
+        // Kick off background geocoding for any location missing coordinates
+        this.geocodeAllLocations();
+        
+        // Check if we're online/offline
+        this.updateOnlineStatus();
+        window.addEventListener('online', () => {
+            this.updateOnlineStatus();
+            // Flush any pending writes as soon as connectivity returns
+            if (window.SheetsAPI?.initialized) {
+                window.SheetsAPI.syncWithSheet();
+            }
+        });
+        window.addEventListener('offline', () => this.updateOnlineStatus());
+        
+        // Auto-sync equipment from Google Sheets on startup
+        // Wait for SheetsAPI.ready (promise) instead of a fragile timeout
+        this.autoSyncEquipmentOnStartup();
+    }
+
+    async autoSyncEquipmentOnStartup() {
+        if (!navigator.onLine) return;
+        if (!window.SheetsAPI) return;
+
+        // Wait until the API has finished loading its config
+        await window.SheetsAPI.ready;
+
+        if (!window.SheetsAPI.initialized) return;
+
+        // syncWithSheet handles equipment direction, jump merge, dirty flag, and
+        // schedules the 2-minute background poll on completion.
+        await window.SheetsAPI.syncWithSheet();
+    }
+
+    setupEventListeners() {
+        // Jump form submission
+        document.getElementById('jumpForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const multiplier = parseInt(document.getElementById('jumpMultiplier').value) || 1;
+            const form = document.getElementById('jumpForm');
+            const jumpData = {
+                date: form.elements['date'].value,
+                location: form.elements['location'].value,
+                equipment: form.elements['equipment'].value,
+                notes: form.elements['notes'].value || ''
+            };
+            for (let i = 0; i < multiplier; i++) {
+                this.addJump(jumpData, multiplier > 1);
+            }
+            // Reset multiplier back to 1
+            document.getElementById('jumpMultiplier').value = 1;
+            // Reset form after all jumps logged
+            form.reset();
+            this.setCurrentDate();
+            this.preFillFormWithLastJump();
+            if (multiplier > 1) {
+                this.showMessage(`${multiplier} jumps logged successfully!`, 'success');
+            }
+        });
+
+        // Multiplier widget buttons
+        document.getElementById('multiplierUp').addEventListener('click', () => {
+            const input = document.getElementById('jumpMultiplier');
+            const val = parseInt(input.value) || 1;
+            if (val < 99) input.value = val + 1;
+        });
+        document.getElementById('multiplierDown').addEventListener('click', () => {
+            const input = document.getElementById('jumpMultiplier');
+            const val = parseInt(input.value) || 1;
+            if (val > 1) input.value = val - 1;
+        });
+
+        // Settings modal
+        document.getElementById('settingsBtn').addEventListener('click', () => {
+            this.openSettingsModal();
+        });
+
+        document.getElementById('saveSettings').addEventListener('click', () => {
+            this.saveSettings();
+        });
+
+        document.getElementById('restoreFromBackupBtn').addEventListener('click', () => {
+            this.restoreEquipmentFromBackup();
+        });
+
+        document.getElementById('useCurrentLocationBtn').addEventListener('click', () => {
+            this.setComponentCoordsFromGPS();
+        });
+
+        // Google Sheets Integration modal
+        document.getElementById('googleSheetsIntegrationBtn').addEventListener('click', () => {
+            this.openSheetsModal();
+        });
+
+        document.getElementById('sheetsClose').addEventListener('click', () => {
+            this.closeSheetsModal();
+        });
+
+        document.getElementById('saveSheetsConfig').addEventListener('click', () => {
+            this.saveSheetsConfig();
+        });
+
+        // Modal close
+        document.getElementById('settingsClose').addEventListener('click', () => {
+            this.closeModal();
+        });
+
+        // Export data
+        document.getElementById('exportBtn').addEventListener('click', () => {
+            this.exportData();
+        });
+
+        // Detect nearest DZ button (manual mode)
+        const detectBtn = document.getElementById('detectLocationBtn');
+        if (detectBtn) {
+            detectBtn.addEventListener('click', () => this.detectNearestLocation(true));
+        }
+        this.updateDetectLocationBtnVisibility();
+
+        // Share backup via native share sheet (e.g. Gmail on Android)
+        document.getElementById('shareBtn').addEventListener('click', () => {
+            this.shareDataViaEmail();
+        });
+        const shareBtn = document.getElementById('shareBtn');
+        const canShareFiles = !!navigator.share && (
+            !navigator.canShare || navigator.canShare({
+                files: [new File(['{}'], 'share-test.json', { type: 'application/json' })]
+            })
+        );
+        if (!canShareFiles) {
+            shareBtn.style.display = 'none';
+        }
+
+        // Import data
+        document.getElementById('importBtn').addEventListener('click', () => {
+            document.getElementById('importFileInput').click();
+        });
+        document.getElementById('importFileInput').addEventListener('change', (e) => {
+            this.importData(e);
+        });
+
+        // Navigation buttons
+        document.getElementById('jumpsViewBtn').addEventListener('click', () => {
+            this.showView('jumps');
+        });
+
+        document.getElementById('equipmentViewBtn').addEventListener('click', () => {
+            this.showView('equipment');
+        });
+
+        document.getElementById('statsViewBtn').addEventListener('click', () => {
+            this.showView('stats');
+        });
+
+        // Equipment management
+        document.getElementById('addEquipmentBtn').addEventListener('click', () => {
+            this.addEquipment();
+        });
+
+        document.getElementById('equipmentForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.saveEquipment();
+        });
+        
+        // Component management
+        document.getElementById('addHarnessBtn').addEventListener('click', () => {
+            this.addComponent('harness');
+        });
+        
+        document.getElementById('addCanopyBtn').addEventListener('click', () => {
+            this.addComponent('canopy');
+        });
+        
+        document.getElementById('addLocationBtn').addEventListener('click', () => {
+            this.addComponent('location');
+        });
+        
+        document.getElementById('componentForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.saveComponent();
+        });
+
+        // Lineset stepper buttons
+        document.getElementById('linesetUp').addEventListener('click', () => {
+            const input = document.getElementById('equipmentLinesetNumber');
+            input.value = (parseInt(input.value) || 1) + 1;
+        });
+        document.getElementById('linesetDown').addEventListener('click', () => {
+            const input = document.getElementById('equipmentLinesetNumber');
+            const val = parseInt(input.value) || 1;
+            if (val > 1) input.value = val - 1;
+        });
+
+        // Auto-fill lineset number and rig notes when canopy changes
+        document.getElementById('equipmentCanopy').addEventListener('change', () => {
+            if (!document.getElementById('equipmentId').value) {
+                this.autoFillLinesetNumber();
+            }
+            this.autoFillRigNotes();
+        });
+
+        // Auto-fill rig notes when harness changes
+        document.getElementById('equipmentHarness').addEventListener('change', () => {
+            this.autoFillRigNotes();
+        });
+
+        // Equipment sub-navigation
+        document.querySelectorAll('.equipment-nav-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this.showEquipmentSubView(e.target.dataset.view);
             });
+        });
 
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        // Close modal when clicking outside
+        window.addEventListener('click', (e) => {
+            const settingsModal = document.getElementById('settingsModal');
+            const equipmentModal = document.getElementById('equipmentModal');
+            const componentModal = document.getElementById('componentModal');
+            const sheetsModal = document.getElementById('sheetsModal');
+            if (e.target === settingsModal) {
+                this.closeModal();
+            }
+            if (e.target === equipmentModal) {
+                this.closeEquipmentModal();
+            }
+            if (e.target === componentModal) {
+                this.closeComponentModal();
+            }
+            if (e.target === sheetsModal) {
+                this.closeSheetsModal();
+            }
+        });
+    }
 
-            const result = await response.json();
-            if (result.error) throw new Error(result.error);
+    setCurrentDate() {
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('date').value = today;
+    }
 
-            // Clear the dirty flag — local and sheet are now in sync.
-            localStorage.removeItem('skydiving-equipment-dirty');
-            console.log('Equipment synced to sheet');
-        } catch (error) {
-            console.error('Failed to sync equipment to sheet:', error);
+    getLastJumpData() {
+        if (this.jumps.length === 0) {
+            return null;
+        }
+        
+        // Get the most recent jump (last in sorted array)
+        return this.jumps[this.jumps.length - 1];
+    }
+
+    preFillFormWithLastJump() {
+        const lastJump = this.getLastJumpData();
+        if (!lastJump) {
+            return;
+        }
+        
+        // Pre-fill location
+        const locationInput = document.getElementById('location');
+        if (lastJump.location && locationInput) {
+            locationInput.value = lastJump.location;
+        }
+        
+        // Pre-fill equipment
+        const equipmentSelect = document.getElementById('equipment');
+        if (lastJump.equipment && equipmentSelect) {
+            // Check if the equipment rig still exists and is not archived
+            const equipment = this.equipmentRigs.find(eq => eq.id === lastJump.equipment && !eq.archived);
+            if (equipment) {
+                equipmentSelect.value = lastJump.equipment;
+            }
         }
     }
 
-    /**
-     * Pull equipment components + settings from the Equipment sheet tab.
-     * Returns true if usable data was fetched, false otherwise.
-     */
-    async syncEquipmentFromSheet() {
-        if (!this.initialized) return { pulled: false, tombstones: [] };
+    updateNextJumpNumber() { /* field removed — kept as no-op for safety */ }
 
-        try {
-            const response = await fetch(this.webAppUrl + '?action=getEquipment', {
-                method: 'GET',
-                redirect: 'follow'
+    getNextJumpNumber() {
+        if (this.jumps.length === 0) return this.settings.startingJumpNumber;
+        return Math.max(...this.jumps.map(j => j.jumpNumber)) + 1;
+    }
+
+    addJump(jumpData = null, silent = false) {
+        const form = document.getElementById('jumpForm');
+        
+        // Use passed data or read from form
+        const data = jumpData || {
+            date: form.elements['date'].value,
+            location: form.elements['location'].value,
+            equipment: form.elements['equipment'].value,
+            notes: form.elements['notes'].value || ''
+        };
+        
+        // Remember the highest jump number before insertion to detect a past-date entry
+        const maxBefore = this.jumps.length > 0
+            ? Math.max(...this.jumps.map(j => j.jumpNumber))
+            : this.settings.startingJumpNumber - 1;
+
+        const jump = {
+            id: Date.now() + Math.random(),
+            jumpNumber: 0,          // assigned below by renumberJumps()
+            date: data.date,
+            location: data.location,
+            equipment: data.equipment,
+            notes: data.notes,
+            timestamp: new Date().toISOString()
+        };
+
+        // Auto-add new location if it doesn't exist yet
+        if (jump.location) {
+            const locationExists = this.locations.some(
+                loc => loc.name.toLowerCase() === jump.location.toLowerCase()
+            );
+            if (!locationExists) {
+                const newId = 'loc_' + Date.now();
+                const newLoc = { id: newId, name: jump.location, lat: null, lng: null };
+                this.locations.push(newLoc);
+                this.saveComponentsToLocalStorage();
+                this.updateLocationDatalist();
+                this.geocodeLocation(newLoc);
+            }
+        }
+
+        // Update equipment jump count if equipment is selected
+        if (jump.equipment) {
+            const equipment = this.equipmentRigs.find(eq => eq.id === jump.equipment);
+            if (equipment) {
+                equipment.jumpCount = (equipment.jumpCount || 0) + 1;
+                this.saveComponentsToLocalStorage();
+            }
+        }
+        
+        // Insert then renumber everything chronologically by date
+        this.jumps.push(jump);
+        this.renumberJumps(); // sorts by date, assigns numbers from startingJumpNumber
+        
+        // Save to localStorage
+        this.saveToLocalStorage();
+        
+        // Update UI
+        this.updateStats();
+        this.renderJumpsList();
+        
+        // Re-render equipment view if currently displayed
+        if (this.currentView === 'equipment') {
+            this.renderEquipmentView();
+        }
+        
+        // Reset form only for single jumps (multiplier handles its own reset)
+        if (!silent) {
+            form.reset();
+            this.setCurrentDate();
+            this.preFillFormWithLastJump();
+        }
+        
+        // Inform user; note if past-date renumbering happened
+        const isPastJump = jump.jumpNumber <= maxBefore;
+        if (!silent) {
+            this.showMessage(
+                isPastJump
+                    ? `Jump #${jump.jumpNumber} logged — subsequent jumps renumbered`
+                    : 'Jump logged successfully!',
+                'success'
+            );
+        }
+        
+        // Sync to Google Sheets
+        if (navigator.onLine && window.SheetsAPI) {
+            if (isPastJump) {
+                // Existing jumps were renumbered — overwrite the whole sheet
+                window.SheetsAPI.syncAfterDelete(this.jumps);
+            } else {
+                window.SheetsAPI.syncJump(jump);
+            }
+        }
+    }
+
+    updateStats() {
+        const latestJumpNumber = this.jumps.length > 0 ? Math.max(...this.jumps.map(jump => jump.jumpNumber)) : 0;
+        document.getElementById('totalJumps').textContent = `Latest Jump: #${latestJumpNumber}`;
+    }
+
+    renderJumpsList() {
+        const jumpsList = document.getElementById('jumpsList');
+        
+        if (this.jumps.length === 0) {
+            jumpsList.innerHTML = '<p class="no-jumps">No jumps logged yet. Add your first jump above!</p>';
+            return;
+        }
+
+        // Show most recent jumps first
+        const sortedJumps = [...this.jumps].sort((a, b) => b.jumpNumber - a.jumpNumber);
+
+        // Cutoff: configurable number of days ago at midnight
+        const cutoff = new Date();
+        cutoff.setHours(0, 0, 0, 0);
+        cutoff.setDate(cutoff.getDate() - (this.settings.recentJumpsDays || 3));
+
+        const recentJumps = [];
+        const olderJumps = [];
+
+        sortedJumps.forEach(jump => {
+            const jumpDate = new Date(jump.date);
+            if (jumpDate >= cutoff) {
+                recentJumps.push(jump);
+            } else {
+                olderJumps.push(jump);
+            }
+        });
+
+        let html = '';
+
+        // Render recent jumps individually
+        if (recentJumps.length > 0) {
+            html += recentJumps.map(jump => this.createJumpHTML(jump)).join('');
+        }
+
+        // Group older jumps by month
+        if (olderJumps.length > 0) {
+            const monthGroups = new Map();
+            olderJumps.forEach(jump => {
+                const d = new Date(jump.date);
+                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                if (!monthGroups.has(key)) {
+                    monthGroups.set(key, { label: d.toLocaleDateString(undefined, { year: 'numeric', month: 'long' }), jumps: [] });
+                }
+                monthGroups.get(key).jumps.push(jump);
             });
 
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-            const result = await response.json();
-            if (result.error) throw new Error(result.error);
-
-            const d = result.data || {};
-
-            // Always extract tombstones from sheet settings regardless of dirty flag.
-            // This lets the jump-merge phase discover deletions from other devices even
-            // when local equipment edits are pending.
-            const tombstones = Array.isArray(d.settings?.deletedJumpTimestamps)
-                ? d.settings.deletedJumpTimestamps
-                : [];
-
-            // Only apply if the sheet actually contains data
-            const hasData = d.harnesses || d.canopies || d.rigs;
-            if (!hasData) return { pulled: false, tombstones };
-
-            // If this device has unsaved local edits, skip the pull to avoid
-            // overwriting them.  The dirty flag is set only by genuine user actions
-            // (saveComponentsToLocalStorage / saveSettings) and cleared only after a
-            // successful push — startup code never touches it.
-            if (localStorage.getItem('skydiving-equipment-dirty') === '1') {
-                console.log('[Sync] Local equipment has unsaved changes — skipping pull');
-                return { pulled: false, tombstones };
+            // Keys are already in descending order (sorted input)
+            for (const [key, group] of monthGroups) {
+                const jumpCount = group.jumps.length;
+                html += `
+                    <div class="month-group" data-month="${key}">
+                        <div class="month-group-header" onclick="logbook.toggleMonthGroup('${key}')">
+                            <span class="month-group-arrow" id="arrow-${key}">&#9654;</span>
+                            <span class="month-group-label">${group.label}</span>
+                            <span class="month-group-count">${jumpCount} jump${jumpCount !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div class="month-group-body" id="month-${key}" style="display:none;">
+                            ${group.jumps.map(jump => this.createJumpHTML(jump)).join('')}
+                        </div>
+                    </div>
+                `;
             }
+        }
 
-            if (d.harnesses)  localStorage.setItem('skydiving-harnesses',       JSON.stringify(d.harnesses));
-            if (d.canopies)   localStorage.setItem('skydiving-canopies',        JSON.stringify(d.canopies));
-            if (d.rigs)       localStorage.setItem('skydiving-equipment-rigs',  JSON.stringify(d.rigs));
-            if (d.locations)  localStorage.setItem('skydiving-locations',       JSON.stringify(d.locations));
+        jumpsList.innerHTML = html;
+    }
 
-            // Strip the internal _lastModified key (legacy) before persisting settings
-            if (d.settings) {
-                const { _lastModified: _ts, ...cleanSettings } = d.settings;
-                localStorage.setItem('skydiving-settings', JSON.stringify(cleanSettings));
+    toggleMonthGroup(key) {
+        const body = document.getElementById('month-' + key);
+        const arrow = document.getElementById('arrow-' + key);
+        if (!body) return;
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : 'block';
+        if (arrow) arrow.innerHTML = open ? '&#9654;' : '&#9660;';
+    }
+
+    createJumpHTML(jump) {
+        const date = new Date(jump.date).toLocaleDateString();
+        let equipmentName = jump.equipment;
+        
+        // Try to find the equipment rig for better display
+        const rig = this.equipmentRigs.find(eq => eq.id === jump.equipment);
+        if (rig) {
+            const harness = this.harnesses.find(r => r.id === rig.harnessId);
+            const canopy = this.canopies.find(c => c.id === rig.canopyId);
+            
+            if (harness && canopy && rig.linesetNumber) {
+                const hybridSuffix = /-Hybrid$/i.test(rig.name || '') ? ' (Hybrid)' : '';
+                equipmentName = `${harness.name} + ${canopy.name} + Lineset#${rig.linesetNumber}${hybridSuffix}`;
+            } else {
+                equipmentName = rig.name;
             }
+        }
 
-            // Apply to live logbook instance
-            const logbook = window.logbook;
-            if (logbook) {
-                if (d.harnesses)  logbook.harnesses    = d.harnesses;
-                if (d.canopies)   logbook.canopies     = d.canopies;
-                if (d.rigs)       logbook.equipmentRigs = d.rigs;
-                if (d.settings) {
-                    // Strip internal _lastModified before applying to the live object
-                    const { _lastModified: _ts, ...cleanSettings } = d.settings;
-                    logbook.settings = cleanSettings;
-                }
-                if (d.locations)  logbook.locations    = d.locations;
+        return `
+            <div class="jump-item">
+                <div class="jump-header">
+                    <span class="jump-number">#${jump.jumpNumber}</span>
+                    <span class="jump-date">${date}</span>
+                    <button class="delete-jump-btn" onclick="logbook.deleteJump('${jump.id}')" title="Delete jump">❌</button>
+                </div>
+                <div class="jump-details">
+                    <div class="jump-location">📍 ${jump.location}</div>
+                    <div class="jump-equipment">🎒 ${equipmentName}</div>
+                    ${jump.notes ? `<div class="jump-notes">💭 ${jump.notes}</div>` : ''}
+                </div>
+            </div>
+        `;
+    }
 
-                logbook.updateEquipmentOptions();
-                logbook.updateLocationDatalist();
-                if (logbook.currentView === 'equipment') logbook.renderEquipmentView();
-                // Re-fill the form since the dropdown was rebuilt
-                logbook.preFillFormWithLastJump();
+    deleteJump(jumpId) {
+        if (!confirm('Are you sure you want to delete this jump? This action cannot be undone.')) {
+            return;
+        }
+        
+        // Find the jump to delete
+        const jumpIndex = this.jumps.findIndex(jump => jump.id.toString() === jumpId.toString());
+        if (jumpIndex === -1) {
+            this.showMessage('Jump not found', 'error');
+            return;
+        }
+        
+        const deletedJump = this.jumps[jumpIndex];
+        
+        // Update equipment jump count if equipment was selected
+        if (deletedJump.equipment) {
+            const equipment = this.equipmentRigs.find(eq => eq.id === deletedJump.equipment);
+            if (equipment && equipment.jumpCount > 0) {
+                equipment.jumpCount = equipment.jumpCount - 1;
+                this.saveComponentsToLocalStorage();
             }
+        }
 
-            console.log('Equipment loaded from sheet');
-            return { pulled: true, tombstones };
-        } catch (error) {
-            console.error('Failed to load equipment from sheet:', error);
-            return { pulled: false, tombstones: [] };
+        // Record deletion as a tombstone so other devices can sync the deletion.
+        // Tombstones are stored in settings (which sync bidirectionally via Equipment sheet).
+        if (deletedJump.timestamp) {
+            if (!Array.isArray(this.settings.deletedJumpTimestamps)) {
+                this.settings.deletedJumpTimestamps = [];
+            }
+            if (!this.settings.deletedJumpTimestamps.includes(deletedJump.timestamp)) {
+                this.settings.deletedJumpTimestamps.push(deletedJump.timestamp);
+            }
+            localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
+            this.markEquipmentModified();
+        }
+        
+        // Remove the jump
+        this.jumps.splice(jumpIndex, 1);
+        
+        // Renumber all jumps
+        this.renumberJumps();
+        
+        // Save to localStorage
+        this.saveToLocalStorage();
+        
+        // Update UI
+        this.updateStats();
+        this.renderJumpsList();
+        
+        // Re-render equipment view if currently displayed
+        if (this.currentView === 'equipment') {
+            this.renderEquipmentView();
+        }
+        
+        this.showMessage('Jump deleted successfully', 'success');
+        
+        // Sync the updated (renumbered) jump list to Google Sheets
+        if (navigator.onLine && window.SheetsAPI) {
+            window.SheetsAPI.syncAfterDelete(this.jumps);
         }
     }
     
-    /**
-     * Return true if the spreadsheet has a readable backupRigs sheet tab.
-     */
-    async hasBackupRigsSheet() {
-        if (!this.initialized) return false;
-
-        try {
-            const response = await fetch(this.webAppUrl + '?action=getBackupEquipment', {
-                method: 'GET',
-                redirect: 'follow'
-            });
-
-            if (!response.ok) return false;
-
-            const result = await response.json();
-            if (result.error) return false;
-
-            if (typeof result.hasBackupRigsSheet === 'boolean') {
-                return result.hasBackupRigsSheet;
-            }
-
-            return !!(result.data && Object.keys(result.data).length > 0);
-        } catch (error) {
-            console.warn('Could not verify backupRigs sheet:', error);
-            return false;
-        }
-    }
-
-    /**
-     * Restore all equipment from the "backupRigs" sheet tab.
-     * Overwrites local equipment and pushes restored data to the main Equipment sheet.
-     */
-    async restoreEquipmentFromBackup() {
-        if (!this.initialized) throw new Error('API not initialized');
-
-        const response = await fetch(this.webAppUrl + '?action=getBackupEquipment', {
-            method: 'GET',
-            redirect: 'follow'
+    renumberJumps() {
+        // Sort jumps chronologically, handling invalid dates and same-day ties
+        this.jumps.sort((a, b) => {
+            const da = Date.parse(a.date), db = Date.parse(b.date);
+            if (isNaN(da) && isNaN(db)) return 0;
+            if (isNaN(da)) return 1;  // invalid dates go to end
+            if (isNaN(db)) return -1;
+            if (da !== db) return da - db;
+            // Same date: secondary sort by creation timestamp
+            return Date.parse(a.timestamp) - Date.parse(b.timestamp);
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-        const result = await response.json();
-        if (result.error) throw new Error(result.error);
-
-        const d = result.data || {};
-        const hasData = d.harnesses || d.canopies || d.rigs;
-        if (!hasData) return false;
-
-        // Overwrite localStorage
-        if (d.harnesses)  localStorage.setItem('skydiving-harnesses',       JSON.stringify(d.harnesses));
-        if (d.canopies)   localStorage.setItem('skydiving-canopies',        JSON.stringify(d.canopies));
-        if (d.rigs)       localStorage.setItem('skydiving-equipment-rigs',  JSON.stringify(d.rigs));
-        if (d.settings)   localStorage.setItem('skydiving-settings',        JSON.stringify(d.settings));
-        if (d.locations)  localStorage.setItem('skydiving-locations',       JSON.stringify(d.locations));
-
-        // Apply to live logbook instance
-        const logbook = window.logbook;
-        if (logbook) {
-            if (d.harnesses)  logbook.harnesses     = d.harnesses;
-            if (d.canopies)   logbook.canopies      = d.canopies;
-            if (d.rigs)       logbook.equipmentRigs  = d.rigs;
-            if (d.settings)   logbook.settings       = d.settings;
-            if (d.locations)  logbook.locations       = d.locations;
-
-            logbook.updateEquipmentOptions();
-            logbook.updateLocationDatalist();
-            if (logbook.currentView === 'equipment') logbook.renderEquipmentView();
-            logbook.preFillFormWithLastJump();
-        }
-
-        // Push the restored data to the main Equipment sheet so it stays in sync
-        await this.syncEquipmentToSheet();
-
-        console.log('Equipment restored from backupRigs sheet');
-        return true;
-    }
-
-    // Called after a local jump delete + renumber.  Because all jump numbers
-    // shift, we re-upload the full current array as the source of truth.
-    // We also push equipment (which carries the tombstone list in settings) so
-    // the other device can pick up the deletion on its next sync.
-    async syncAfterDelete(jumps) {
-        if (!this.initialized || !navigator.onLine) return;
-
-        this._cancelPoll();
-        try {
-            this.updateSyncStatus('Syncing...');
-            localStorage.removeItem('skydiving-needs-sync');
-            await this.uploadAllJumps(jumps);
-            // Push tombstones (stored inside logbook.settings) to the Equipment sheet
-            // so other devices learn about this deletion on their next sync.
-            await this.syncEquipmentToSheet();
-            this.updateSyncStatus('Synced');
-            setTimeout(() => this.updateSyncStatus('Online'), 2000);
-        } catch (error) {
-            console.error('Failed to sync delete with sheet:', error);
-            this.updateSyncStatus('Sync failed');
-            setTimeout(() => this.updateSyncStatus('Online'), 3000);
-        } finally {
-            this._schedulePoll();
-        }
-    }
-
-    /** Schedule a background sync poll after `intervalMs` ms (default 2 min). */
-    _schedulePoll(intervalMs = 120000) {
-        this._cancelPoll();
-        if (!this.initialized) return;
-        this._pollTimer = setTimeout(() => {
-            if (navigator.onLine) {
-                console.log('[Poll] Auto-sync triggered');
-                this.syncWithSheet(); // reschedules itself on completion
-            } else {
-                this._schedulePoll(intervalMs); // offline — try again later
-            }
-        }, intervalMs);
-    }
-
-    /** Cancel any pending background poll. */
-    _cancelPoll() {
-        if (this._pollTimer !== null) {
-            clearTimeout(this._pollTimer);
-            this._pollTimer = null;
-        }
-    }
-
-    /**
-     * Show the conflict-resolution modal for a list of jump conflicts.
-     * Returns a Promise that resolves with [{ jumpNumber, chosen }] after the
-     * user selects which version to keep for each conflicting jump.
-     */
-    _showConflictDialog(conflicts) {
-        return new Promise((resolve) => {
-            const modal = document.getElementById('conflictModal');
-            const list  = document.getElementById('conflictList');
-            const btn   = document.getElementById('resolveConflictsBtn');
-
-            list.innerHTML = '';
-
-            conflicts.forEach(({ jumpNumber, local, sheet }) => {
-                const localTs = new Date(local.timestamp).toLocaleString();
-                const sheetTs = new Date(sheet.timestamp).toLocaleString();
-
-                const item = document.createElement('div');
-                item.className = 'conflict-item';
-                item.dataset.jumpNumber = String(jumpNumber);
-                item.innerHTML = `
-                    <h4>Jump #${jumpNumber}</h4>
-                    <div class="conflict-options">
-                        <div class="conflict-option selected" data-side="local">
-                            <label>This device</label>
-                            <div class="conflict-detail">${local.date} &middot; ${local.location || '&mdash;'}</div>
-                            ${local.notes ? `<div class="conflict-detail">${local.notes}</div>` : ''}
-                            <div class="conflict-ts">Saved ${localTs}</div>
-                        </div>
-                        <div class="conflict-option" data-side="sheet">
-                            <label>Other device</label>
-                            <div class="conflict-detail">${sheet.date} &middot; ${sheet.location || '&mdash;'}</div>
-                            ${sheet.notes ? `<div class="conflict-detail">${sheet.notes}</div>` : ''}
-                            <div class="conflict-ts">Saved ${sheetTs}</div>
-                        </div>
-                    </div>`;
-
-                item.querySelectorAll('.conflict-option').forEach(opt => {
-                    opt.addEventListener('click', () => {
-                        item.querySelectorAll('.conflict-option').forEach(o => o.classList.remove('selected'));
-                        opt.classList.add('selected');
-                    });
-                });
-
-                list.appendChild(item);
-            });
-
-            modal.style.display = 'block';
-
-            const onResolve = () => {
-                btn.removeEventListener('click', onResolve);
-                modal.style.display = 'none';
-
-                const resolutions = conflicts.map(({ jumpNumber, local, sheet }) => {
-                    const item     = list.querySelector(`[data-jump-number="${jumpNumber}"]`);
-                    const selected = item?.querySelector('.conflict-option.selected');
-                    const side     = selected?.dataset.side || 'local';
-                    return { jumpNumber, chosen: side === 'sheet' ? sheet : local };
-                });
-
-                resolve(resolutions);
-            };
-
-            btn.addEventListener('click', onResolve);
+        // Renumber jumps starting from the configured starting number
+        this.jumps.forEach((jump, index) => {
+            jump.jumpNumber = this.settings.startingJumpNumber + index;
         });
     }
 
-    async uploadAllJumps(jumps) {
-        if (!this.initialized) {
-            throw new Error('API not initialized');
+    async openSettingsModal() {
+        document.getElementById('startingJumpNumber').value = this.settings.startingJumpNumber;
+        document.getElementById('recentJumpsDays').value = this.settings.recentJumpsDays ?? 3;
+        document.getElementById('autoDetectDZ').checked = this.settings.autoDetectDZ ?? true;
+        document.getElementById('standardRedThreshold').value = this.settings.standardRedThreshold ?? 160;
+        document.getElementById('standardOrangeThreshold').value = this.settings.standardOrangeThreshold ?? 140;
+        document.getElementById('hybridRedThreshold').value = this.settings.hybridRedThreshold ?? 80;
+        document.getElementById('hybridOrangeThreshold').value = this.settings.hybridOrangeThreshold ?? 60;
+
+        const restoreBtn   = document.getElementById('restoreFromBackupBtn');
+        const restoreDesc  = document.getElementById('restoreFromBackupDesc');
+        const restoreTitle = document.getElementById('restoreFromBackupTitle');
+        restoreBtn.style.display   = 'none';
+        restoreDesc.style.display  = 'none';
+        restoreTitle.style.display = 'none';
+
+        if (navigator.onLine && window.SheetsAPI?.initialized) {
+            const hasBackupRigsSheet = await window.SheetsAPI.hasBackupRigsSheet();
+            const vis = hasBackupRigsSheet ? 'block' : 'none';
+            restoreBtn.style.display   = vis;
+            restoreDesc.style.display  = vis;
+            restoreTitle.style.display = vis;
+        }
+
+        document.getElementById('settingsModal').style.display = 'block';
+    }
+
+    closeModal() {
+        document.getElementById('settingsModal').style.display = 'none';
+    }
+
+    openSheetsModal() {
+        // Populate Google Sheets config fields from localStorage (or current API state)
+        const savedConfig = JSON.parse(localStorage.getItem('sheets-config') || '{}');
+        const webAppUrl = (window.SheetsAPI && window.SheetsAPI.webAppUrl) || savedConfig.webAppUrl || '';
+        const spreadsheetId = (window.SheetsAPI && window.SheetsAPI.spreadsheetId) || savedConfig.spreadsheetId || '';
+        document.getElementById('cfgWebAppUrl').value = webAppUrl;
+        document.getElementById('cfgSpreadsheetId').value = spreadsheetId;
+
+        // Show connection status
+        const statusEl = document.getElementById('sheetsConfigStatus');
+        if (window.SheetsAPI && window.SheetsAPI.initialized) {
+            statusEl.textContent = '✅ Connected to Google Sheets';
+            statusEl.style.color = '#2e7d32';
+        } else if (webAppUrl) {
+            statusEl.textContent = '⚠️ Configured but not connected — check values';
+            statusEl.style.color = '#e65100';
+        } else {
+            statusEl.textContent = 'ℹ️ Enter your Apps Script URL and Spreadsheet ID to enable sync';
+            statusEl.style.color = '#666';
+        }
+
+        document.getElementById('sheetsModal').style.display = 'block';
+    }
+
+    closeSheetsModal() {
+        document.getElementById('sheetsModal').style.display = 'none';
+    }
+
+    saveSheetsConfig() {
+        const webAppUrl = document.getElementById('cfgWebAppUrl').value.trim();
+        const spreadsheetId = document.getElementById('cfgSpreadsheetId').value.trim();
+
+        if (webAppUrl || spreadsheetId) {
+            const sheetsConfig = { webAppUrl, spreadsheetId };
+            localStorage.setItem('sheets-config', JSON.stringify(sheetsConfig));
+
+            // Re-initialize the Sheets API with the new values
+            if (window.SheetsAPI) {
+                window.SheetsAPI.reinitialize(webAppUrl, spreadsheetId);
+            }
+        }
+
+        this.closeSheetsModal();
+        this.showMessage('Google Sheets configuration saved!', 'success');
+    }
+
+    saveSettings() {
+        const startingJumpNumber = parseInt(document.getElementById('startingJumpNumber').value);
+        
+        if (!startingJumpNumber || startingJumpNumber < 1) {
+            this.showMessage('Please enter a valid starting jump number (1 or higher)', 'error');
+            return;
+        }
+
+        const recentJumpsDays = parseInt(document.getElementById('recentJumpsDays').value);
+        if (!recentJumpsDays || recentJumpsDays < 0) {
+            this.showMessage('Please enter a valid number of days (0 or higher)', 'error');
+            return;
+        }
+
+        const standardRedThreshold = parseInt(document.getElementById('standardRedThreshold').value);
+        const standardOrangeThreshold = parseInt(document.getElementById('standardOrangeThreshold').value);
+        const hybridRedThreshold = parseInt(document.getElementById('hybridRedThreshold').value);
+        const hybridOrangeThreshold = parseInt(document.getElementById('hybridOrangeThreshold').value);
+
+        if (!standardRedThreshold || standardRedThreshold < 1) {
+            this.showMessage('Please enter a valid standard red threshold (1 or higher)', 'error');
+            return;
+        }
+        if (!standardOrangeThreshold || standardOrangeThreshold < 1) {
+            this.showMessage('Please enter a valid standard orange threshold (1 or higher)', 'error');
+            return;
+        }
+        if (!hybridRedThreshold || hybridRedThreshold < 1) {
+            this.showMessage('Please enter a valid hybrid red threshold (1 or higher)', 'error');
+            return;
+        }
+        if (!hybridOrangeThreshold || hybridOrangeThreshold < 1) {
+            this.showMessage('Please enter a valid hybrid orange threshold (1 or higher)', 'error');
+            return;
+        }
+
+        this.settings.startingJumpNumber = startingJumpNumber;
+        this.settings.recentJumpsDays = recentJumpsDays;
+        this.settings.autoDetectDZ = document.getElementById('autoDetectDZ').checked;
+        this.settings.standardRedThreshold = standardRedThreshold;
+        this.settings.standardOrangeThreshold = standardOrangeThreshold;
+        this.settings.hybridRedThreshold = hybridRedThreshold;
+        this.settings.hybridOrangeThreshold = hybridOrangeThreshold;
+        localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
+        this.markEquipmentModified();
+        this.updateDetectLocationBtnVisibility();
+
+        // Mark equipment dirty so an offline save is not overwritten on next sync.
+        localStorage.setItem('skydiving-equipment-dirty', '1');
+
+        // Push settings to Google Sheets if online
+        if (navigator.onLine && window.SheetsAPI?.initialized) {
+            window.SheetsAPI.syncEquipmentToSheet();
         }
         
-        if (jumps.length === 0) {
+        this.closeModal();
+        this.showMessage('Settings saved successfully!', 'success');
+    }
+
+    async restoreEquipmentFromBackup() {
+        if (!confirm('This will overwrite ALL local equipment data (harnesses, canopies, linesets, rigs, locations) with the data from the backupRigs sheet. Continue?')) {
+            return;
+        }
+
+        if (!window.SheetsAPI || !window.SheetsAPI.initialized) {
+            this.showMessage('Google Sheets is not connected. Configure it first.', 'error');
+            return;
+        }
+
+        this.showMessage('Restoring equipment from backup...', 'success');
+
+        try {
+            const success = await window.SheetsAPI.restoreEquipmentFromBackup();
+            if (success) {
+                this.showMessage('Equipment restored from backup successfully!', 'success');
+                this.closeModal();
+            } else {
+                this.showMessage('No data found in backupRigs sheet.', 'error');
+            }
+        } catch (err) {
+            console.error('Restore from backup failed:', err);
+            this.showMessage('Restore failed: ' + err.message, 'error');
+        }
+    }
+
+    getCurrentUtcTimestamp() {
+        return new Date().toISOString();
+    }
+
+    markJumpsModified() {
+        localStorage.setItem('skydiving-jumps-last-modified-utc', this.getCurrentUtcTimestamp());
+    }
+
+    markEquipmentModified() {
+        localStorage.setItem('skydiving-equipment-last-modified-utc', this.getCurrentUtcTimestamp());
+    }
+
+    saveToLocalStorage() {
+        localStorage.setItem('skydiving-jumps', JSON.stringify(this.jumps));
+        this.markJumpsModified();
+        // Mark that there are local changes not yet pushed to the sheet
+        localStorage.setItem('skydiving-needs-sync', '1');
+    }
+
+    saveComponentsToLocalStorage() {
+        localStorage.setItem('skydiving-harnesses', JSON.stringify(this.harnesses));
+        localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
+        localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
+        localStorage.setItem('skydiving-locations', JSON.stringify(this.locations));
+        this.markEquipmentModified();
+        // Mark equipment as locally modified so the next sync pushes instead of pulls.
+        // Startup code (migration, jump-count init) must NOT call this method — it
+        // should write directly to localStorage to avoid falsely setting the dirty flag.
+        localStorage.setItem('skydiving-equipment-dirty', '1');
+        
+        // Push to Google Sheets if online
+        if (navigator.onLine && window.SheetsAPI?.initialized) {
+            window.SheetsAPI.syncEquipmentToSheet();
+        }
+    }
+    
+    // migrateOldEquipmentData() {
+    //     const oldEquipment = JSON.parse(localStorage.getItem('skydiving-equipment'));
+    //     if (oldEquipment && oldEquipment.length > 0 && this.equipmentRigs.length === 0) {
+    //         // Migrate old simple equipment to new rig format
+    //         oldEquipment.forEach(eq => {
+    //             this.equipmentRigs.push({
+    //                 id: eq.id,
+    //                 name: eq.name,
+    //                 harnessId: 'legacy',
+    //                 canopyId: 'legacy',
+    //                 linesetNumber: 1,
+    //                 previousJumps: 0,
+    //                 jumpCount: 0,
+    //                 archived: false
+    //             });
+    //         });
+            
+    //         // Add legacy components
+    //         if (!this.harnesses.find(r => r.id === 'legacy')) {
+    //             this.harnesses.push({ id: 'legacy', name: 'Legacy Harness' });
+    //         }
+    //         if (!this.canopies.find(c => c.id === 'legacy')) {
+    //             this.canopies.push({ id: 'legacy', name: 'Legacy Canopy' });
+    //         }
+            
+    //         // Save migration result directly — this is startup code that runs before
+    //         // the sheet sync.  Calling saveComponentsToLocalStorage() here would set
+    //         // the dirty flag and cause the sync to push stale data instead of pulling.
+    //         localStorage.setItem('skydiving-harnesses', JSON.stringify(this.harnesses));
+    //         localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
+    //         localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
+    //         localStorage.setItem('skydiving-locations', JSON.stringify(this.locations));
+    //         localStorage.removeItem('skydiving-equipment'); // Remove old data
+    //     }
+        
+    //     // Migrate existing equipment rigs to new format
+    //     let needsSave = false;
+    //     this.equipmentRigs.forEach(eq => {
+    //         // Migrate old startingJumpNumber → previousJumps (plain count of pre-app jumps)
+    //         if (eq.previousJumps === undefined) {
+    //             // startingJumpNumber was stored as the first jump number tracked, so
+    //             // pre-app count = startingJumpNumber - 1.  Default was 1 → 0 pre-app jumps.
+    //             const old = eq.startingJumpNumber;
+    //             eq.previousJumps = (old && old > 1) ? old - 1 : 0;
+    //             delete eq.startingJumpNumber;
+    //             needsSave = true;
+    //         }
+    //         if (eq.jumpCount === undefined) {
+    //             eq.jumpCount = 0;
+    //             needsSave = true;
+    //         }
+    //         // Migrate linesetId → linesetNumber
+    //         if (eq.linesetId && eq.linesetNumber === undefined) {
+    //             const oldLinesets = JSON.parse(localStorage.getItem('skydiving-linesets') || '[]');
+    //             const ls = oldLinesets.find(l => l.id === eq.linesetId);
+    //             const nameMatch = ls && ls.name.match(/Lineset\s*#?(\d+)/i);
+    //             eq.linesetNumber = nameMatch ? parseInt(nameMatch[1], 10) : 1;
+    //             delete eq.linesetId;
+    //             needsSave = true;
+    //         }
+    //         // Update names to auto-generated format if components exist
+    //         if (eq.harnessId && eq.canopyId && eq.linesetNumber) {
+    //             const harness = this.harnesses.find(r => r.id === eq.harnessId);
+    //             const canopy = this.canopies.find(c => c.id === eq.canopyId);
+    //             if (harness && canopy) {
+    //                 const hybridSuffix = /-Hybrid$/i.test(eq.name || '') ? '-Hybrid' : '';
+    //                 const autoName = `${harness.name}-${canopy.name}-Lineset#${eq.linesetNumber}${hybridSuffix}`;
+    //                 if (eq.name !== autoName) {
+    //                     eq.name = autoName;
+    //                     needsSave = true;
+    //                 }
+    //             }
+    //         }
+    //     });
+        
+    //     if (needsSave) {
+    //         // Save updated rigs directly — same reason: this is startup code and must
+    //         // not set the dirty flag or update the modification timestamp.
+    //         localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
+    //         // Clean up old linesets localStorage after migration
+    //         localStorage.removeItem('skydiving-linesets');
+    //     }
+    // }
+    
+    initializeEquipmentJumpCounts() {
+        // Count all logged jumps for each equipment rig (no jump-number filter;
+        // pre-app jumps are accounted for separately via eq.previousJumps).
+        let needsSave = false;
+        this.equipmentRigs.forEach(eq => {
+            const actualJumpCount = this.jumps.filter(jump => jump.equipment === eq.id).length;
+            
+            if (eq.jumpCount !== actualJumpCount) {
+                eq.jumpCount = actualJumpCount;
+                needsSave = true;
+            }
+        });
+        
+        if (needsSave) {
+            // Save only the rigs array.  Calling saveComponentsToLocalStorage() here
+            // would update skydiving-equipment-modified to "now", making the laptop
+            // appear newer than a phone that just edited equipment notes, which would
+            // cause the subsequent syncWithSheet() to skip the pull and overwrite the
+            // phone's changes with stale local data.
+            localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
+        }
+    }
+
+    showView(viewName) {
+        this.currentView = viewName;
+        
+        // Hide all views
+        document.querySelectorAll('.view').forEach(view => {
+            view.style.display = 'none';
+        });
+        
+        // Show selected view
+        document.getElementById(`${viewName}View`).style.display = 'block';
+        
+        // Update navigation buttons
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        document.getElementById(`${viewName}ViewBtn`).classList.add('active');
+        
+        // Load view-specific content
+        if (viewName === 'equipment') {
+            this.renderEquipmentView();
+        } else if (viewName === 'stats') {
+            this.renderStats();
+        } else if (viewName === 'jumps' && this.settings.autoDetectDZ) {
+            this.detectNearestLocation(false);
+        }
+    }
+    
+    showEquipmentSubView(subView) {
+        this.equipmentSubView = subView;
+        
+        // Update navigation buttons
+        document.querySelectorAll('.equipment-nav-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        document.querySelector(`[data-view="${subView}"]`).classList.add('active');
+        
+        // Update section title and buttons
+        const titleMap = {
+            'rigs': 'Equipment Rigs',
+            'harnesses':         'Harnesses',
+            'canopies':     'Canopies',
+            'locations':    'Drop Zones / Locations'
+        };
+        
+        document.getElementById('equipmentSectionTitle').textContent = titleMap[subView];
+        
+        // Show/hide appropriate buttons
+        document.getElementById('addEquipmentBtn').style.display  = subView === 'rigs' ? 'block' : 'none';
+        document.getElementById('addHarnessBtn').style.display        = subView === 'harnesses'         ? 'block' : 'none';
+        document.getElementById('addCanopyBtn').style.display     = subView === 'canopies'     ? 'block' : 'none';
+        document.getElementById('addLocationBtn').style.display   = subView === 'locations'    ? 'block' : 'none';
+        
+        this.renderEquipmentView();
+    }
+    
+    renderEquipmentView() {
+        switch(this.equipmentSubView) {
+            case 'rigs': this.renderEquipmentRigs(); break;
+            case 'harnesses':         this.renderComponents('harnesses');      break;
+            case 'canopies':     this.renderComponents('canopies');  break;
+            case 'locations':    this.renderComponents('locations'); break;
+        }
+    }
+
+    updateEquipmentOptions() {
+        const select = document.getElementById('equipment');
+        select.innerHTML = '<option value="">Select Equipment</option>';
+        
+        // Only show non-archived rigs
+        const activeRigs = this.equipmentRigs.filter(eq => !eq.archived);
+        
+        activeRigs.forEach(eq => {
+            const option = document.createElement('option');
+            option.value = eq.id;
+            option.textContent = eq.name; // Use the auto-generated name
+            select.appendChild(option);
+        });
+    }
+
+    renderEquipmentRigs() {
+        const container = document.getElementById('equipmentList');
+        
+        if (this.equipmentRigs.length === 0) {
+            container.innerHTML = '<p class="no-items">No equipment rigs created yet.</p>';
             return;
         }
         
-        this.updateSyncStatus('Uploading jumps...');
+        const sorted = [...this.equipmentRigs].sort((a, b) => !!a.archived - !!b.archived);
+
+        container.innerHTML = sorted.map(eq => {
+            const harness = this.harnesses.find(r => r.id === eq.harnessId);
+            const canopy = this.canopies.find(c => c.id === eq.canopyId);
+            
+            let displayName = eq.name;
+            let components = '';
+            let jumpInfo = '';
+            if (harness && canopy) {
+                // Use the stored name (auto-generated)
+                displayName = eq.name;
+                components = `<div class="equipment-components">${harness.name} | ${canopy.name} | Lineset#${eq.linesetNumber || 1}</div>`;
+                const logged = eq.jumpCount || 0;
+                const preApp = eq.previousJumps || 0;
+                const total = logged + preApp;
+                jumpInfo = `<div class="jump-info">Logged: ${logged} | Pre-app: ${preApp} | Total: ${total}</div>`;
+            }
+            const rigNotes = eq.notes ? `<div class="component-notes">\uD83D\uDCDD ${eq.notes}</div>` : '';
+            
+            return `
+                <div class="equipment-item ${eq.archived ? 'archived' : ''}">
+                    <div class="equipment-info">
+                        <span class="equipment-name">${displayName}</span>
+                        ${components}
+                        ${jumpInfo}
+                        ${rigNotes}
+                        ${eq.archived ? '<span class="archived-badge">Archived</span>' : ''}
+                    </div>
+                    <div class="equipment-actions">
+                        <button onclick="window.logbook.editEquipment('${eq.id}')" class="btn-edit">Edit</button>
+                        <button onclick="window.logbook.toggleArchiveEquipment('${eq.id}')" class="btn-toggle">
+                            ${eq.archived ? 'Unarchive' : 'Archive'}
+                        </button>
+                        <button onclick="window.logbook.deleteEquipment('${eq.id}')" class="btn-delete">Delete</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    autoFillRigNotes() {
+        const harnessId = document.getElementById('equipmentHarness').value;
+        const canopyId  = document.getElementById('equipmentCanopy').value;
+        document.getElementById('equipmentNotes').value = this.composeRigNotes(harnessId, canopyId);
+    }
+
+    composeRigNotes(harnessId, canopyId) {
+        const harness = this.harnesses.find(h => h.id === harnessId);
+        const canopy  = this.canopies.find(c => c.id === canopyId);
+        const parts = [
+            harness?.notes ? `H: ${harness.notes}` : '',
+            canopy?.notes  ? `C: ${canopy.notes}`  : ''
+        ].filter(Boolean);
+        return parts.join('\n');
+    }
+
+    /**
+     * After a harness or canopy is saved, rebuild the stored notes field
+     * of every rig that uses it from the (now updated) component notes.
+     */
+    propagateComponentNotesToRigs() {
+        this.equipmentRigs.forEach(eq => {
+            eq.notes = this.composeRigNotes(eq.harnessId, eq.canopyId);
+        });
+    }
+
+    autoFillLinesetNumber() {
+        const canopyId = document.getElementById('equipmentCanopy').value;
+        if (!canopyId) {
+            document.getElementById('equipmentLinesetNumber').value = 1;
+            return;
+        }
+        const rigsWithCanopy = this.equipmentRigs.filter(eq => eq.canopyId === canopyId);
+        const maxLineset = rigsWithCanopy.length > 0
+            ? Math.max(...rigsWithCanopy.map(eq => eq.linesetNumber || 1))
+            : 0;
+        document.getElementById('equipmentLinesetNumber').value = maxLineset + 1;
+    }
+
+    addEquipment() {
+        document.getElementById('equipmentForm').reset();
+        document.getElementById('equipmentId').value = '';
+        document.getElementById('equipmentStartingJumpNumber').value = 0;
+        document.getElementById('equipmentLinesetNumber').value = 1;
+        document.getElementById('equipmentNotes').value = '';
+        this.populateComponentSelects();
+        this.autoFillRigNotes();
+        document.getElementById('equipmentModal').style.display = 'block';
+    }
+    
+    populateComponentSelects() {
+        // Populate harness select (active only)
+        const harnessSelect = document.getElementById('equipmentHarness');
+        harnessSelect.innerHTML = '<option value="">Select Harness</option>';
+        this.harnesses.filter(h => !h.archived).forEach(harness => {
+            const option = document.createElement('option');
+            option.value = harness.id;
+            option.textContent = harness.name;
+            harnessSelect.appendChild(option);
+        });
         
-        // Prepare the data for upload
-        const jumpData = jumps.map(jump => {
-            // Get equipment name from rig
-            let equipmentName = jump.equipment;
-            if (window.logbook) {
-                const rig = window.logbook.equipmentRigs.find(eq => eq.id === jump.equipment);
-                if (rig) {
-                    equipmentName = rig.name;
+        // Populate canopy select (active only)
+        const canopySelect = document.getElementById('equipmentCanopy');
+        canopySelect.innerHTML = '<option value="">Select Canopy</option>';
+        this.canopies.filter(c => !c.archived).forEach(canopy => {
+            const option = document.createElement('option');
+            option.value = canopy.id;
+            option.textContent = canopy.name;
+            canopySelect.appendChild(option);
+        });
+    }
+
+    editEquipment(id) {
+        const equipment = this.equipmentRigs.find(eq => eq.id === id);
+        if (equipment) {
+            document.getElementById('equipmentId').value = equipment.id;
+            document.getElementById('equipmentStartingJumpNumber').value = equipment.previousJumps || 0;
+            this.populateComponentSelects();
+            
+            // Set selected values
+            document.getElementById('equipmentHarness').value = equipment.harnessId || '';
+            document.getElementById('equipmentCanopy').value = equipment.canopyId || '';
+            document.getElementById('equipmentLinesetNumber').value = equipment.linesetNumber || 1;
+            document.getElementById('equipmentHybridCheck').checked = /-Hybrid$/i.test(equipment.name || '');
+            this.autoFillRigNotes();
+            
+            document.getElementById('equipmentModal').style.display = 'block';
+        }
+    }
+
+    saveEquipment() {
+        const id = document.getElementById('equipmentId').value;
+        const harnessId = document.getElementById('equipmentHarness').value;
+        const canopyId = document.getElementById('equipmentCanopy').value;
+        const linesetNumber = Math.max(1, parseInt(document.getElementById('equipmentLinesetNumber').value) || 1);
+        const previousJumps = Math.max(0, parseInt(document.getElementById('equipmentStartingJumpNumber').value) || 0);
+        const notes = this.composeRigNotes(harnessId, canopyId);
+        
+        if (!harnessId || !canopyId) {
+            this.showMessage('Please select harness and canopy', 'error');
+            return;
+        }
+        
+        // Auto-generate name from components
+        const harness = this.harnesses.find(r => r.id === harnessId);
+        const canopy = this.canopies.find(c => c.id === canopyId);
+        const isHybrid = document.getElementById('equipmentHybridCheck').checked;
+        let name = `${harness.name}-${canopy.name}-Lineset#${linesetNumber}`;
+        if (isHybrid) name += '-Hybrid';
+        
+        if (id) {
+            // Edit existing
+            const equipment = this.equipmentRigs.find(eq => eq.id === id);
+            if (equipment) {
+                equipment.name = name;
+                equipment.harnessId = harnessId;
+                equipment.canopyId = canopyId;
+                equipment.linesetNumber = linesetNumber;
+                equipment.previousJumps = previousJumps;
+                equipment.notes = notes;
+            }
+        } else {
+            // Add new
+            const newId = 'eq_' + Date.now();
+            this.equipmentRigs.push({
+                id: newId,
+                name: name,
+                harnessId: harnessId,
+                canopyId: canopyId,
+                linesetNumber: linesetNumber,
+                previousJumps: previousJumps,
+                jumpCount: 0,
+                archived: false,
+                notes: notes
+            });
+        }
+        
+        this.saveComponentsToLocalStorage();
+        this.updateEquipmentOptions();
+        this.renderEquipmentView();
+        this.closeEquipmentModal();
+        this.showMessage('Equipment saved successfully!', 'success');
+    }
+
+    deleteEquipment(id) {
+        if (confirm('Are you sure you want to delete this equipment rig?')) {
+            // Check if equipment is used in any jumps
+            const usedInJumps = this.jumps.some(jump => jump.equipment === id);
+            if (usedInJumps) {
+                this.showMessage('Cannot delete equipment that has been used in jumps. Archive it instead.', 'error');
+                return;
+            }
+            
+            this.equipmentRigs = this.equipmentRigs.filter(eq => eq.id !== id);
+            this.saveComponentsToLocalStorage();
+            this.updateEquipmentOptions();
+            this.renderEquipmentView();
+            this.showMessage('Equipment deleted successfully!', 'success');
+        }
+    }
+    
+    toggleArchiveEquipment(id) {
+        const equipment = this.equipmentRigs.find(eq => eq.id === id);
+        if (equipment) {
+            equipment.archived = !equipment.archived;
+            this.saveComponentsToLocalStorage();
+            this.updateEquipmentOptions();
+            this.renderEquipmentView();
+            this.showMessage(`Equipment ${equipment.archived ? 'archived' : 'unarchived'} successfully!`, 'success');
+        }
+    }
+
+    _singularize(plural) {
+        const map = { harnesses: 'harness', canopies: 'canopy', linesets: 'lineset', locations: 'location' };
+        return map[plural] || plural.slice(0, -1);
+    }
+
+    addComponent(type) {
+        document.getElementById('componentForm').reset();
+        document.getElementById('componentId').value = '';
+        document.getElementById('componentType').value = type;
+        document.getElementById('componentNotes').value = '';
+        document.getElementById('componentModalTitle').textContent = `Add ${type.charAt(0).toUpperCase() + type.slice(1)}`;
+        // Show/hide GPS coords section for locations
+        const isLocation = type === 'location';
+        document.getElementById('locationCoordsSection').style.display = isLocation ? 'block' : 'none';
+        if (isLocation) {
+            document.getElementById('componentLat').value = '';
+            document.getElementById('componentLng').value = '';
+            const hint = document.getElementById('coordsHint');
+            hint.textContent = 'Leave blank to auto-geocode from the name.';
+            hint.style.color = '#888';
+        }
+        document.getElementById('componentModal').style.display = 'block';
+    }
+
+    saveComponent() {
+        const id = document.getElementById('componentId').value;
+        const name = document.getElementById('componentName').value.trim();
+        const type = document.getElementById('componentType').value;
+        
+        if (!name) {
+            this.showMessage('Please enter component name', 'error');
+            return;
+        }
+        const notes = document.getElementById('componentNotes').value.trim();
+
+        // Read manual GPS coords if this is a location and the fields have values
+        let manualLat = null, manualLng = null;
+        if (type === 'location') {
+            const latVal = document.getElementById('componentLat').value;
+            const lngVal = document.getElementById('componentLng').value;
+            if (latVal !== '' && lngVal !== '') {
+                const parsedLat = parseFloat(latVal);
+                const parsedLng = parseFloat(lngVal);
+                if (!isNaN(parsedLat) && !isNaN(parsedLng)
+                        && parsedLat >= -90 && parsedLat <= 90
+                        && parsedLng >= -180 && parsedLng <= 180) {
+                    manualLat = parsedLat;
+                    manualLng = parsedLng;
+                } else {
+                    this.showMessage('Invalid coordinates — latitude must be −90…90, longitude −180…180', 'error');
+                    return;
                 }
             }
-            
-            return {
-                jumpNumber: jump.jumpNumber,
-                date: jump.date,
-                location: jump.location,
-                equipment: equipmentName,
-                equipmentId: jump.equipment,  // preserve rig ID for round-trip
-                notes: jump.notes,
-                timestamp: jump.timestamp
-            };
-        });
-        
-        const response = await fetch(this.webAppUrl, {
-            method: 'POST',
-            // Use text/plain to avoid CORS preflight (simple request)
-            headers: {
-                'Content-Type': 'text/plain',
-            },
-            redirect: 'follow',
-            body: JSON.stringify({ action: 'uploadJumps', data: jumpData })
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
         }
         
-        const result = await response.json();
-        if (result.error) {
-            throw new Error(result.error);
+        // Get the correct collection name for each type
+        let collectionName;
+        switch(type) {
+            case 'harness':      collectionName = 'harnesses';      break;
+            case 'canopy':   collectionName = 'canopies';  break;
+            case 'location': collectionName = 'locations'; break;
+            default:
+                this.showMessage('Invalid component type', 'error');
+                return;
         }
         
-        console.log(`Uploaded ${jumps.length} jumps to Google Sheets`);
-        return result;
-    }
-
-    updateSyncStatus(status) {
-        const syncElement = document.getElementById('syncStatus');
-        const syncBtn = document.getElementById('syncBtn');
-        if (syncElement) {
-            syncElement.textContent = status;
-            
-            // Update classes based on status
-            syncElement.className = 'sync-status';
-            if (status === 'Syncing...' || status === 'Uploading jumps...') {
-                syncElement.classList.add('syncing');
-            } else if (status === 'Synced' || status === 'Online' || status === 'Ready') {
-                syncElement.classList.add('success');
-            } else if (status.includes('failed') || status.includes('error')) {
-                syncElement.classList.add('error');
+        const collection = this[collectionName];
+        
+        if (id) {
+            // Edit existing
+            const component = collection.find(c => c.id === id);
+            if (component) {
+                const nameChanged = type === 'location' && component.name !== name;
+                component.name = name;
+                component.notes = notes;
+                if (type === 'location') {
+                    if (manualLat !== null) {
+                        // Manual coords override everything
+                        component.lat = manualLat;
+                        component.lng = manualLng;
+                    } else {
+                        if (nameChanged) { component.lat = null; component.lng = null; }
+                        if (component.lat == null) this.geocodeLocation(component);
+                    }
+                }
             }
-        }
-        // Spin the sync button while syncing
-        if (syncBtn) {
-            if (status === 'Syncing...' || status === 'Uploading jumps...') {
-                syncBtn.classList.add('syncing');
+        } else {
+            // Add new
+            const newId = type + '_' + Date.now();
+            const newComponent = { id: newId, name: name, notes: notes };
+            if (type === 'location') {
+                if (manualLat !== null) {
+                    newComponent.lat = manualLat;
+                    newComponent.lng = manualLng;
+                } else {
+                    newComponent.lat = null;
+                    newComponent.lng = null;
+                    this.geocodeLocation(newComponent);
+                }
+                collection.push(newComponent);
             } else {
-                syncBtn.classList.remove('syncing');
+                collection.push(newComponent);
             }
+        }
+        
+        // Propagate updated component notes to all affected rigs
+        if (type === 'harness' || type === 'canopy') {
+            this.propagateComponentNotesToRigs();
+        }
+        this.saveComponentsToLocalStorage();
+        this.renderEquipmentView();
+        this.closeComponentModal();
+        // Refresh autocomplete if a location was saved
+        if (type === 'location') this.updateLocationDatalist();
+        if (navigator.onLine && window.SheetsAPI) window.SheetsAPI.syncEquipmentToSheet();
+        this.showMessage(`${type.charAt(0).toUpperCase() + type.slice(1)} saved successfully!`, 'success');
+    }
+    
+    updateLocationDatalist() {
+        // No-op: replaced by custom autocomplete dropdown
+    }
+
+    setupLocationAutocomplete() {
+        const input = document.getElementById('location');
+        const dropdown = document.getElementById('locationDropdown');
+        if (!input || !dropdown) return;
+
+        let activeIndex = -1;
+
+        const showDropdown = () => {
+            const query = input.value.trim().toLowerCase();
+            const matches = this.locations.filter(loc =>
+                loc.name.toLowerCase().includes(query)
+            );
+
+            if (matches.length === 0) {
+                dropdown.classList.remove('open');
+                return;
+            }
+
+            dropdown.innerHTML = matches.map((loc, i) => {
+                let display = loc.name;
+                if (query) {
+                    const idx = loc.name.toLowerCase().indexOf(query);
+                    if (idx !== -1) {
+                        display = loc.name.slice(0, idx)
+                            + '<span class="match">' + loc.name.slice(idx, idx + query.length) + '</span>'
+                            + loc.name.slice(idx + query.length);
+                    }
+                }
+                return `<div class="autocomplete-option" data-index="${i}" data-value="${loc.name}">${display}</div>`;
+            }).join('');
+
+            activeIndex = -1;
+            dropdown.classList.add('open');
+        };
+
+        const selectOption = (value) => {
+            input.value = value;
+            dropdown.classList.remove('open');
+            activeIndex = -1;
+        };
+
+        input.addEventListener('focus', showDropdown);
+        input.addEventListener('input', showDropdown);
+
+        input.addEventListener('keydown', (e) => {
+            const options = dropdown.querySelectorAll('.autocomplete-option');
+            if (!dropdown.classList.contains('open') || options.length === 0) return;
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                activeIndex = Math.min(activeIndex + 1, options.length - 1);
+                options.forEach((o, i) => o.classList.toggle('active', i === activeIndex));
+                options[activeIndex].scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                activeIndex = Math.max(activeIndex - 1, 0);
+                options.forEach((o, i) => o.classList.toggle('active', i === activeIndex));
+                options[activeIndex].scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'Enter' && activeIndex >= 0) {
+                e.preventDefault();
+                selectOption(options[activeIndex].dataset.value);
+            } else if (e.key === 'Escape') {
+                dropdown.classList.remove('open');
+            }
+        });
+
+        dropdown.addEventListener('click', (e) => {
+            const option = e.target.closest('.autocomplete-option');
+            if (option) selectOption(option.dataset.value);
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.location-autocomplete')) {
+                dropdown.classList.remove('open');
+            }
+        });
+    }
+
+    // ── Geolocation helpers ─────────────────────────────────────────────────
+
+    /** Haversine distance between two lat/lng points, returns km. */
+    haversineKm(lat1, lng1, lat2, lng2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2
+            + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    /**
+     * Geocode a single location by name using OpenStreetMap Nominatim.
+     * Updates location.lat / .lng in-place and persists to storage.
+     */
+    async geocodeLocation(location) {
+        if (!navigator.onLine) return;
+        try {
+            const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location.name)}&format=json&limit=1`;
+            const res = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data.length) return;
+            location.lat = parseFloat(data[0].lat);
+            location.lng = parseFloat(data[0].lon);
+            this.saveComponentsToLocalStorage();
+        } catch (_) {
+            // Network error or rate-limited — silent fail
         }
     }
 
-    // Helper method to create setup instructions
-    generateSetupInstructions() {
-        return `
-Google Sheets Setup Instructions (Apps Script Method):
+    /**
+     * Background-geocodes all locations that are missing coordinates.
+     * Staggered at 1.2 s per request to respect Nominatim's usage policy.
+     */
+    geocodeAllLocations() {
+        if (!navigator.onLine) return;
+        const ungeocoded = this.locations.filter(l => l.lat == null);
+        ungeocoded.forEach((loc, i) => {
+            setTimeout(() => this.geocodeLocation(loc), i * 1200);
+        });
+    }
 
-1. Create a new Google Spreadsheet
-2. Rename the first sheet to "Jumps"
-3. Add headers in row 1: Jump Number, Date, Location, Equipment, Notes, Timestamp
-4. Get your Spreadsheet ID from the URL (the long string between /d/ and /edit)
-5. Go to Extensions → Apps Script in your spreadsheet
-6. Copy the code from config/apps-script.js into the script editor
-7. Deploy as Web app with "Anyone" access
-8. Create config/sheets-config.json with:
-   {
-     "webAppUrl": "your-apps-script-web-app-url",
-     "spreadsheetId": "your-spreadsheet-id"
-   }
+    /**
+     * Ask for the user's current position and pre-fill the location field
+     * with the nearest known dropzone that has stored coordinates.
+     *
+     * @param {boolean} forceOverwrite – if true, overwrite even if the field
+     *   already has a value (used by the manual button); if false (auto-mode)
+     *   only fill when the field is empty or holds the last-jump value.
+     */
+    async detectNearestLocation(forceOverwrite = false) {
+        if (!navigator.geolocation) return;
+        const locationsWithCoords = this.locations.filter(l => l.lat != null && l.lng != null);
+        if (locationsWithCoords.length === 0) return;
 
-For detailed instructions, see config/README.md
+        const input = document.getElementById('location');
+        const hint  = document.getElementById('locationGeoHint');
+        if (!input) return;
+
+        // In auto-mode only proceed if field is empty
+        if (!forceOverwrite && input.value.trim() !== '') return;
+
+        try {
+            const pos = await new Promise((resolve, reject) =>
+                navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000, maximumAge: 60000 })
+            );
+            const { latitude, longitude } = pos.coords;
+
+            let nearest = null, minDist = Infinity;
+            for (const loc of locationsWithCoords) {
+                const d = this.haversineKm(latitude, longitude, loc.lat, loc.lng);
+                if (d < minDist) { minDist = d; nearest = loc; }
+            }
+
+            if (nearest) {
+                input.value = nearest.name;
+                if (hint) {
+                    hint.textContent = `📍 Nearest: ${nearest.name} (${Math.round(minDist)} km)`;
+                    hint.style.display = 'block';
+                    // Fade out the hint after 6 seconds
+                    clearTimeout(this._geoHintTimer);
+                    this._geoHintTimer = setTimeout(() => { if (hint) hint.style.display = 'none'; }, 6000);
+                }
+            }
+        } catch (_) {
+            // Permission denied or timeout — silent fail
+        }
+    }
+
+    /**
+     * Fires navigator.geolocation and fills the lat/lng inputs in the
+     * component modal (used by the "Use current GPS position" button).
+     */
+    async setComponentCoordsFromGPS() {
+        if (!navigator.geolocation) {
+            this.showMessage('Geolocation is not supported by your browser', 'error');
+            return;
+        }
+        const hint = document.getElementById('coordsHint');
+        const btn  = document.getElementById('useCurrentLocationBtn');
+        hint.textContent = 'Getting position…';
+        hint.style.color = '#888';
+        btn.disabled = true;
+        try {
+            const pos = await new Promise((resolve, reject) =>
+                navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 })
+            );
+            document.getElementById('componentLat').value = pos.coords.latitude.toFixed(6);
+            document.getElementById('componentLng').value = pos.coords.longitude.toFixed(6);
+            hint.textContent = `✅ Captured (±${Math.round(pos.coords.accuracy)} m accuracy)`;
+            hint.style.color = '#2e7d32';
+        } catch (err) {
+            hint.textContent = err.code === 1 ? '⚠️ Location permission denied' : '⚠️ Could not get position — try again';
+            hint.style.color = '#c62828';
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    /** Show the manual detect button only when auto-detect is disabled. */
+    updateDetectLocationBtnVisibility() {
+        const btn = document.getElementById('detectLocationBtn');
+        if (btn) btn.style.display = this.settings.autoDetectDZ ? 'none' : 'inline-flex';
+    }
+
+    renderComponents(type) {
+        const container = document.getElementById('equipmentList');
+        const collection = this[type];
+        
+        if (collection.length === 0) {
+            container.innerHTML = `<p class="no-items">No ${type} added yet.</p>`;
+            return;
+        }
+
+        // Active first, then archived
+        const sorted = [...collection].sort((a, b) => !!a.archived - !!b.archived);
+        
+        container.innerHTML = sorted.map(component => `
+            <div class="equipment-item ${component.archived ? 'archived' : ''}">
+                <div class="equipment-info">
+                    <span class="equipment-name">${component.name}</span>
+                    ${component.notes ? `<div class="component-notes">\uD83D\uDCDD ${component.notes}</div>` : ''}
+                    ${component.archived ? '<span class="archived-badge">Archived</span>' : ''}
+                </div>
+                <div class="equipment-actions">
+                    <button onclick="window.logbook.editComponent('${component.id}', '${type}')" class="btn-edit">Edit</button>
+                    <button onclick="window.logbook.toggleArchiveComponent('${component.id}', '${type}')" class="btn-toggle">
+                        ${component.archived ? 'Unarchive' : 'Archive'}
+                    </button>
+                    <button onclick="window.logbook.deleteComponent('${component.id}', '${type}')" class="btn-delete">Delete</button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    toggleArchiveComponent(id, type) {
+        const collection = this[type];
+        const component = collection.find(c => c.id === id);
+        if (component) {
+            component.archived = !component.archived;
+            this.saveComponentsToLocalStorage();
+            this.renderEquipmentView();
+            const typeSingular = this._singularize(type);
+            this.showMessage(`${typeSingular.charAt(0).toUpperCase() + typeSingular.slice(1)} ${component.archived ? 'archived' : 'unarchived'} successfully!`, 'success');
+        }
+    }
+    
+    editComponent(id, type) {
+        const collection = this[type];
+        const component = collection.find(c => c.id === id);
+        if (component) {
+            const singular = this._singularize(type);
+            document.getElementById('componentId').value = component.id;
+            document.getElementById('componentName').value = component.name;
+            document.getElementById('componentNotes').value = component.notes || '';
+            document.getElementById('componentType').value = singular;
+            document.getElementById('componentModalTitle').textContent = `Edit ${singular.charAt(0).toUpperCase() + singular.slice(1)}`;
+            // Show/hide GPS coords section for locations
+            const isLocation = singular === 'location';
+            document.getElementById('locationCoordsSection').style.display = isLocation ? 'block' : 'none';
+            if (isLocation) {
+                document.getElementById('componentLat').value = component.lat != null ? component.lat : '';
+                document.getElementById('componentLng').value = component.lng != null ? component.lng : '';
+                const hint = document.getElementById('coordsHint');
+                if (component.lat != null) {
+                    hint.textContent = `Saved: ${component.lat.toFixed(5)}, ${component.lng.toFixed(5)}`;
+                    hint.style.color = '#2e7d32';
+                } else {
+                    hint.textContent = 'No coordinates saved yet — leave blank to auto-geocode from name.';
+                    hint.style.color = '#888';
+                }
+            }
+            document.getElementById('componentModal').style.display = 'block';
+        }
+    }
+    
+    deleteComponent(id, type) {
+        const typeSingular = this._singularize(type);
+        if (confirm(`Are you sure you want to delete this ${typeSingular}?`)) {
+            // Check if component is used in any equipment rigs
+            const usedInEquipment = this.equipmentRigs.some(eq => 
+                eq.harnessId === id || eq.canopyId === id
+            );
+            if (usedInEquipment) {
+                this.showMessage(`Cannot delete ${typeSingular} that is used in equipment rigs`, 'error');
+                return;
+            }
+            
+            const collection = this[type];
+            const index = collection.findIndex(c => c.id === id);
+            if (index !== -1) {
+                collection.splice(index, 1);
+                this.saveComponentsToLocalStorage();
+                this.renderEquipmentView();
+                if (type === 'locations') this.updateLocationDatalist();
+                if (navigator.onLine && window.SheetsAPI) window.SheetsAPI.syncEquipmentToSheet();
+                this.showMessage(`${typeSingular.charAt(0).toUpperCase() + typeSingular.slice(1)} deleted successfully!`, 'success');
+            }
+        }
+    }
+    
+    closeComponentModal() {
+        document.getElementById('componentModal').style.display = 'none';
+    }
+    
+    closeEquipmentModal() {
+        document.getElementById('equipmentModal').style.display = 'none';
+    }
+
+    renderStats() {
+        const container = document.getElementById('statsContent');
+        
+        if (this.jumps.length === 0) {
+            container.innerHTML = '<p class="no-items">No jumps logged yet.</p>';
+            return;
+        }
+        
+        // Calculate equipment rig statistics
+        const equipmentStats = this.equipmentRigs.map(eq => {
+            const loggedJumpsCount = this.jumps.filter(jump => jump.equipment === eq.id).length;
+            const totalCount = loggedJumpsCount + (eq.previousJumps || 0);
+            let name = eq.name;
+            const harness = this.harnesses.find(r => r.id === eq.harnessId);
+            const canopy = this.canopies.find(c => c.id === eq.canopyId);
+            if (harness && canopy) {
+                const hybridSuffix = /-Hybrid$/i.test(eq.name || '') ? ' (Hybrid)' : '';
+                name = `${harness.name} + ${canopy.name} + Lineset#${eq.linesetNumber || 1}${hybridSuffix}`;
+            }
+            return { name, count: totalCount, logged: loggedJumpsCount, preApp: eq.previousJumps || 0, archived: eq.archived, hybrid: /-Hybrid$/i.test(eq.name || '') };
+        });
+        
+        // Separate active and archived equipment, then sort each group
+        const activeStats = equipmentStats
+            .filter(stat => !stat.archived && stat.count > 0)
+            .sort((a, b) => b.count - a.count);
+            
+        const archivedStats = equipmentStats
+            .filter(stat => stat.archived)
+            .sort((a, b) => b.count - a.count);
+            
+        // Combine: active first, then archived only if toggled on
+        const sortedEquipmentStats = this.showArchivedStats
+            ? [...activeStats, ...archivedStats]
+            : activeStats;
+        
+        // Calculate component-level statistics
+        const harnessStats = {};
+        const canopyStats = {};
+        
+        // Count logged jumps for each component
+        this.jumps.forEach(jump => {
+            const rig = this.equipmentRigs.find(eq => eq.id === jump.equipment);
+            if (rig) {
+                const harness = this.harnesses.find(r => r.id === rig.harnessId);
+                if (harness) harnessStats[harness.name] = (harnessStats[harness.name] || 0) + 1;
+                
+                const canopy = this.canopies.find(c => c.id === rig.canopyId);
+                if (canopy) canopyStats[canopy.name] = (canopyStats[canopy.name] || 0) + 1;
+            }
+        });
+        
+        // Add pre-app jump counts for each equipment rig
+        this.equipmentRigs.forEach(eq => {
+            const preApp = eq.previousJumps || 0;
+            if (preApp > 0) {
+                const harness = this.harnesses.find(r => r.id === eq.harnessId);
+                if (harness) harnessStats[harness.name] = (harnessStats[harness.name] || 0) + preApp;
+                
+                const canopy = this.canopies.find(c => c.id === eq.canopyId);
+                if (canopy) canopyStats[canopy.name] = (canopyStats[canopy.name] || 0) + preApp;
+            }
+        });
+        
+        const hasArchived = archivedStats.length > 0;
+        const archivedBtnLabel = this.showArchivedStats ? 'Hide Archived' : `Show Archived (${archivedStats.length})`;
+        const archivedToggleBtn = hasArchived
+            ? `<button class="btn-secondary btn-sm" onclick="window.logbook.toggleArchivedStats()">${archivedBtnLabel}</button>`
+            : '';
+
+        let html = `
+            <div class="stats-section">
+                <div class="stats-section-header">
+                    <h3>Equipment Rigs</h3>
+                    ${archivedToggleBtn}
+                </div>
+                <div class="stats-list">
         `;
+        
+        if (sortedEquipmentStats.length > 0) {
+            sortedEquipmentStats.forEach(stat => {
+                const redThreshold = stat.hybrid ? this.settings.hybridRedThreshold : this.settings.standardRedThreshold;
+                const orangeThreshold = stat.hybrid ? this.settings.hybridOrangeThreshold : this.settings.standardOrangeThreshold;
+                const percentage = Math.min((stat.count / redThreshold) * 100, 100);
+                let barColorClass = '';
+                if (stat.count >= redThreshold) {
+                    barColorClass = 'stat-fill-red';
+                } else if (stat.count >= orangeThreshold) {
+                    barColorClass = 'stat-fill-orange';
+                }
+                const breakdown = stat.preApp > 0
+                    ? `${stat.count} total (${stat.logged} logged + ${stat.preApp} pre-app)`
+                    : `${stat.count} jumps`;
+                html += `
+                    <div class="stat-item${stat.archived ? ' archived' : ''}">
+                        <div class="stat-info">
+                            <span class="stat-name">${stat.name} ${stat.archived ? '(Archived)' : ''}</span>
+                            <span class="stat-count">${breakdown}</span>
+                        </div>
+                        <div class="stat-bar">
+                            <div class="stat-fill ${barColorClass}" style="width: ${percentage}%"></div>
+                        </div>
+                    </div>
+                `;
+            });
+        } else {
+            html += '<p class="no-items">No equipment statistics available.</p>';
+        }
+        
+        html += '</div></div>';
+        
+        // Add canopy statistics
+        html += this.renderComponentStats('Canopies', canopyStats);
+        
+        // Add harness statistics
+        html += this.renderComponentStats('Harnesses', harnessStats);
+        
+        container.innerHTML = html;
+    }
+    
+    toggleArchivedStats() {
+        this.showArchivedStats = !this.showArchivedStats;
+        this.renderStats();
+    }
+
+    renderComponentStats(title, statsObject) {
+        const statsArray = Object.entries(statsObject)
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count);
+            
+        let html = `
+            <div class="stats-section">
+                <h3>${title}</h3>
+                <div class="stats-list">
+        `;
+        
+        if (statsArray.length > 0) {
+            const maxCount = Math.max(...statsArray.map(s => s.count));
+            statsArray.forEach(stat => {
+                const percentage = (stat.count / maxCount) * 100;
+                html += `
+                    <div class="stat-item">
+                        <div class="stat-info">
+                            <span class="stat-name">${stat.name}</span>
+                            <span class="stat-count">${stat.count} jumps</span>
+                        </div>
+                        <div class="stat-bar">
+                            <div class="stat-fill" style="width: ${percentage}%"></div>
+                        </div>
+                    </div>
+                `;
+            });
+        } else {
+            html += `<p class="no-items">No ${title.toLowerCase()} statistics available.</p>`;
+        }
+        
+        html += '</div></div>';
+        return html;
+    }
+
+    hasExportableData() {
+        return this.jumps.length > 0
+            || this.equipmentRigs.length > 0
+            || this.harnesses.length > 0
+            || this.canopies.length > 0;
+    }
+
+    buildExportPayload() {
+        return {
+            exportedAt: new Date().toISOString(),
+            version: 1,
+            data: {
+                jumps: this.jumps,
+                equipmentRigs: this.equipmentRigs,
+                harnesses: this.harnesses,
+                canopies: this.canopies,
+                locations: this.locations,
+                settings: this.settings
+            }
+        };
+    }
+
+    buildExportFilename() {
+        return `skydiving-logbook-backup-${new Date().toISOString().split('T')[0]}.json`;
+    }
+
+    exportData() {
+        if (!this.hasExportableData()) {
+            this.showMessage('No data to export', 'error');
+            return;
+        }
+
+        const exportPayload = this.buildExportPayload();
+
+        const jsonContent = JSON.stringify(exportPayload, null, 2);
+        const blob = new Blob([jsonContent], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = this.buildExportFilename();
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        this.showMessage('Data exported successfully!', 'success');
+    }
+
+    async shareDataViaEmail() {
+        if (!this.hasExportableData()) {
+            this.showMessage('No data to share', 'error');
+            return;
+        }
+
+        const exportPayload = this.buildExportPayload();
+        const file = new File(
+            [JSON.stringify(exportPayload, null, 2)],
+            this.buildExportFilename(),
+            { type: 'application/json' }
+        );
+
+        if (!navigator.share) {
+            this.exportData();
+            this.showMessage('Sharing not supported on this device. Backup downloaded instead.', 'info');
+            return;
+        }
+
+        if (navigator.canShare && !navigator.canShare({ files: [file] })) {
+            this.exportData();
+            this.showMessage('File sharing not supported here. Backup downloaded instead.', 'info');
+            return;
+        }
+
+        try {
+            await navigator.share({
+                title: 'Skydiving Logbook Backup',
+                text: 'Backup JSON attached',
+                files: [file]
+            });
+            this.showMessage('Share sheet opened.', 'success');
+        } catch (error) {
+            if (error?.name === 'AbortError') {
+                return;
+            }
+            console.error('Share failed:', error);
+            this.exportData();
+            this.showMessage('Could not share file. Backup downloaded instead.', 'error');
+        }
+    }
+
+    async importData(event) {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        try {
+            const text = await file.text();
+            const parsed = JSON.parse(text);
+            const payload = parsed?.data ? parsed.data : parsed;
+
+            if (!payload || typeof payload !== 'object') {
+                this.showMessage('Invalid import file format', 'error');
+                return;
+            }
+
+            const hasAnySupportedData =
+                Array.isArray(payload.jumps)
+                || Array.isArray(payload.equipmentRigs)
+                || Array.isArray(payload.harnesses)
+                || Array.isArray(payload.canopies)
+                || Array.isArray(payload.locations)
+                || (payload.settings && typeof payload.settings === 'object');
+
+            if (!hasAnySupportedData) {
+                this.showMessage('Import file has no supported data', 'error');
+                return;
+            }
+
+            const confirmed = confirm('Importing will overwrite local jumps and equipment data. Continue?');
+            if (!confirmed) return;
+
+            this.jumps = Array.isArray(payload.jumps) ? payload.jumps : [];
+            this.equipmentRigs = Array.isArray(payload.equipmentRigs) ? payload.equipmentRigs : [];
+            this.harnesses = Array.isArray(payload.harnesses) ? payload.harnesses : [];
+            this.canopies = Array.isArray(payload.canopies) ? payload.canopies : [];
+            this.locations = Array.isArray(payload.locations) ? payload.locations : [];
+
+            if (payload.settings && typeof payload.settings === 'object') {
+                this.settings = {
+                    ...this.settings,
+                    ...payload.settings
+                };
+            }
+
+            if (this.settings.recentJumpsDays === undefined) {
+                this.settings.recentJumpsDays = 3;
+            }
+
+            this.initializeEquipmentJumpCounts();
+            this.saveToLocalStorage();
+            this.saveComponentsToLocalStorage();
+            localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
+            this.markEquipmentModified();
+
+            this.updateEquipmentOptions();
+            this.renderJumpsList();
+            this.updateStats();
+            this.renderEquipmentView();
+            this.renderStats();
+
+            this.showMessage('Data imported successfully!', 'success');
+        } catch (error) {
+            console.error('Import failed:', error);
+            this.showMessage('Import failed: invalid JSON file', 'error');
+        } finally {
+            event.target.value = '';
+        }
+    }
+
+    updateOnlineStatus() {
+        const syncStatus = document.getElementById('syncStatus');
+        if (navigator.onLine) {
+            syncStatus.textContent = 'Online';
+            syncStatus.className = 'sync-status success';
+            this.hideOfflineIndicator();
+        } else {
+            syncStatus.textContent = 'Offline';
+            syncStatus.className = 'sync-status error';
+            this.showOfflineIndicator();
+        }
+    }
+
+    showOfflineIndicator() {
+        let indicator = document.querySelector('.offline-indicator');
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.className = 'offline-indicator';
+            indicator.textContent = '📡 You are offline. Data will sync when connection is restored.';
+            document.body.insertBefore(indicator, document.querySelector('.container'));
+        }
+        indicator.classList.remove('hidden');
+    }
+
+    hideOfflineIndicator() {
+        const indicator = document.querySelector('.offline-indicator');
+        if (indicator) {
+            indicator.classList.add('hidden');
+        }
+    }
+
+    showMessage(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+
+        document.body.appendChild(toast);
+        
+        // Fade in (next frame so the transition fires)
+        requestAnimationFrame(() => toast.classList.add('toast-visible'));
+        
+        // Fade out and remove
+        setTimeout(() => {
+            toast.classList.remove('toast-visible');
+            toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+        }, 3000);
     }
 }
 
-// Initialize Sheets API
-window.SheetsAPI = new SheetsAPI();
-
-// Wire up the sync button in the header
+// Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    const syncBtn = document.getElementById('syncBtn');
-    if (syncBtn) {
-        syncBtn.onclick = () => window.SheetsAPI.syncWithSheet();
-    }
+    window.logbook = new SkydivingLogbook();
 });
+
+// Service Worker registration for offline functionality
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+            .then((registration) => {
+                console.log('SW registered: ', registration);
+                // Check for SW updates periodically (every 30 min)
+                setInterval(() => registration.update(), 30 * 60 * 1000);
+            })
+            .catch((registrationError) => {
+                console.log('SW registration failed: ', registrationError);
+            });
+    });
+}
