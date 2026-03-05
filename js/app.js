@@ -747,6 +747,9 @@ class SkydivingLogbook {
         localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
         this.updateDetectLocationBtnVisibility();
 
+        // Mark equipment dirty so an offline save is not overwritten on next sync.
+        localStorage.setItem('skydiving-equipment-dirty', '1');
+
         // Push settings to Google Sheets if online
         if (navigator.onLine && window.SheetsAPI?.initialized) {
             window.SheetsAPI.syncEquipmentToSheet();
@@ -793,8 +796,10 @@ class SkydivingLogbook {
         localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
         localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
         localStorage.setItem('skydiving-locations', JSON.stringify(this.locations));
-        // Stamp the modification time so the other device knows to pull this version
-        localStorage.setItem('skydiving-equipment-modified', new Date().toISOString());
+        // Mark equipment as locally modified so the next sync pushes instead of pulls.
+        // Startup code (migration, jump-count init) must NOT call this method — it
+        // should write directly to localStorage to avoid falsely setting the dirty flag.
+        localStorage.setItem('skydiving-equipment-dirty', '1');
         
         // Push to Google Sheets if online
         if (navigator.onLine && window.SheetsAPI?.initialized) {
@@ -827,7 +832,13 @@ class SkydivingLogbook {
                 this.canopies.push({ id: 'legacy', name: 'Legacy Canopy' });
             }
             
-            this.saveComponentsToLocalStorage();
+            // Save migration result directly — this is startup code that runs before
+            // the sheet sync.  Calling saveComponentsToLocalStorage() here would set
+            // the dirty flag and cause the sync to push stale data instead of pulling.
+            localStorage.setItem('skydiving-harnesses', JSON.stringify(this.harnesses));
+            localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
+            localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
+            localStorage.setItem('skydiving-locations', JSON.stringify(this.locations));
             localStorage.removeItem('skydiving-equipment'); // Remove old data
         }
         
@@ -872,7 +883,9 @@ class SkydivingLogbook {
         });
         
         if (needsSave) {
-            this.saveComponentsToLocalStorage();
+            // Save updated rigs directly — same reason: this is startup code and must
+            // not set the dirty flag or update the modification timestamp.
+            localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
             // Clean up old linesets localStorage after migration
             localStorage.removeItem('skydiving-linesets');
         }

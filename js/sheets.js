@@ -315,15 +315,10 @@ class SheetsAPI {
             ? logbook.equipmentRigs
             : undefined;
 
-        // Embed a lastModified timestamp in the settings row so other devices
-        // can compare on pull — no Apps Script changes required.
-        const equipModified = new Date().toISOString();
-        localStorage.setItem('skydiving-equipment-modified', equipModified);
-
         const payload = {
             harnesses:    logbook.harnesses,
             canopies:     logbook.canopies,
-            settings:     { ...logbook.settings, _lastModified: equipModified },
+            settings:     logbook.settings,
             locations:    logbook.locations
         };
         if (rigsToSend) payload.rigs = rigsToSend;
@@ -341,6 +336,8 @@ class SheetsAPI {
             const result = await response.json();
             if (result.error) throw new Error(result.error);
 
+            // Clear the dirty flag — local and sheet are now in sync.
+            localStorage.removeItem('skydiving-equipment-dirty');
             console.log('Equipment synced to sheet');
         } catch (error) {
             console.error('Failed to sync equipment to sheet:', error);
@@ -371,13 +368,12 @@ class SheetsAPI {
             const hasData = d.harnesses || d.canopies || d.rigs;
             if (!hasData) return false;
 
-            // Compare lastModified timestamps (embedded in the settings row by
-            // syncEquipmentToSheet). If local is newer, skip the pull so we don't
-            // overwrite the user's unsynchronised changes.
-            const sheetModified = d.settings?._lastModified || '';
-            const localModified = localStorage.getItem('skydiving-equipment-modified') || '';
-            if (sheetModified && localModified && localModified > sheetModified) {
-                console.log('[Sync] Local equipment is newer than sheet — skipping pull');
+            // If this device has unsaved local edits, skip the pull to avoid
+            // overwriting them.  The dirty flag is set only by genuine user actions
+            // (saveComponentsToLocalStorage / saveSettings) and cleared only after a
+            // successful push — startup code never touches it.
+            if (localStorage.getItem('skydiving-equipment-dirty') === '1') {
+                console.log('[Sync] Local equipment has unsaved changes — skipping pull');
                 return false;
             }
 
@@ -386,11 +382,10 @@ class SheetsAPI {
             if (d.rigs)       localStorage.setItem('skydiving-equipment-rigs',  JSON.stringify(d.rigs));
             if (d.locations)  localStorage.setItem('skydiving-locations',       JSON.stringify(d.locations));
 
-            // Strip the internal _lastModified key before persisting settings locally
+            // Strip the internal _lastModified key (legacy) before persisting settings
             if (d.settings) {
-                const { _lastModified: sheetTs, ...cleanSettings } = d.settings;
+                const { _lastModified: _ts, ...cleanSettings } = d.settings;
                 localStorage.setItem('skydiving-settings', JSON.stringify(cleanSettings));
-                if (sheetTs) localStorage.setItem('skydiving-equipment-modified', sheetTs);
             }
 
             // Apply to live logbook instance
