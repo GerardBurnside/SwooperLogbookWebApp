@@ -182,104 +182,98 @@ class SheetsAPI {
         this.updateSyncStatus('Syncing...');
 
         try {
-            // ── Equipment sync (lastModified-based direction) ─────────────────────────
-            // syncEquipmentFromSheet compares timestamps internally and returns false
-            // when local data is newer — in that case we push instead.
+            // ── Equipment sync ────────────────────────────────────────────────────────
+            // Capture local tombstones BEFORE equipment sync may overwrite settings.
             const logbook = window.logbook;
+            const localTombstones = Array.isArray(logbook?.settings?.deletedJumpTimestamps)
+                ? logbook.settings.deletedJumpTimestamps
+                : [];
+
             const localRigsEmpty = !logbook || !logbook.equipmentRigs || logbook.equipmentRigs.length === 0;
 
-            if (localRigsEmpty) {
-                // Fresh device — pull first to recover data, then push so sheet has IDs
-                console.log('[Sync] Local rigs empty — pulling equipment from sheet...');
-                const pulled = await this.syncEquipmentFromSheet();
-                if (!pulled) await this.syncEquipmentToSheet();
-            } else {
-                // Let syncEquipmentFromSheet decide direction based on lastModified
-                const pulled = await this.syncEquipmentFromSheet();
-                if (!pulled) {
-                    console.log('[Sync] Local equipment is newer — pushing to sheet...');
-                    await this.syncEquipmentToSheet();
-                }
+            // syncEquipmentFromSheet now always returns { pulled, tombstones }
+            const equip = await this.syncEquipmentFromSheet();
+            const sheetTombstones = equip.tombstones || [];
+
+            if (localRigsEmpty && !equip.pulled) {
+                // Fresh device with empty rigs and nothing on sheet yet — push defaults
+                console.log('[Sync] Local rigs empty — pushing defaults to sheet...');
+                // Will be pushed at the end of this sync
+            }
+            // If not pulled (equipment dirty or nothing on sheet), push happens at end.
+
+            // ── Union tombstones from both devices ────────────────────────────────────
+            // Use a Set to deduplicate, then write back so both local and sheet stay
+            // in sync with the full deletion history.
+            const allTombstones = [...new Set([...localTombstones, ...sheetTombstones])];
+            const tombstoneSet  = new Set(allTombstones);
+
+            // Persist unified tombstone list.  logbook.settings may have been replaced
+            // by the equipment pull above, so we update the live object in place.
+            if (logbook) {
+                logbook.settings.deletedJumpTimestamps = allTombstones;
+                localStorage.setItem('skydiving-settings', JSON.stringify(logbook.settings));
             }
 
-            // ── Jump sync (merge by jumpNumber) ──────────────────────────────────────
+            // ── Jump sync (merge by timestamp) ────────────────────────────────────────
             const localJumps = JSON.parse(localStorage.getItem('skydiving-jumps')) || [];
             const sheetJumps = await this.getAllJumps();
 
-            if (localJumps.length === 0 && sheetJumps.length === 0) {
-                // Nothing to sync
-            } else if (localJumps.length > 0 && sheetJumps.length === 0) {
-                // Sheet is empty — push everything up
-                await this.uploadAllJumps(localJumps);
-            } else {
-                // Merge: align by jumpNumber, surface conflicts
-                const localMap  = new Map(localJumps.map(j => [j.jumpNumber, j]));
-                const sheetMap  = new Map(sheetJumps.map(j => [j.jumpNumber, j]));
-                const allNums   = new Set([...localMap.keys(), ...sheetMap.keys()]);
+            // Remove tombstoned jumps from both sources
+            const validLocal = localJumps.filter(j => j.timestamp && !tombstoneSet.has(j.timestamp));
+            const validSheet = sheetJumps.filter(j => j.timestamp && !tombstoneSet.has(j.timestamp));
 
-                const conflicts = [];
-                const mergedMap = new Map();
+            // Merge by timestamp (union). Local overwrites sheet for the same timestamp
+            // so that field edits made on this device are preserved.
+            const byTimestamp = new Map();
+            for (const j of validSheet) byTimestamp.set(j.timestamp, j);
+            for (const j of validLocal)  byTimestamp.set(j.timestamp, j); // local wins
 
-                for (const num of allNums) {
-                    const local = localMap.get(num);
-                    const sheet = sheetMap.get(num);
+            // Sort chronologically (stable: same date → by creation timestamp)
+            const finalJumps = Array.from(byTimestamp.values()).sort((a, b) => {
+                const da = Date.parse(a.date), db = Date.parse(b.date);
+                if (isNaN(da) && isNaN(db)) return 0;
+                if (isNaN(da)) return 1;
+                if (isNaN(db)) return -1;
+                if (da !== db) return da - db;
+                return Date.parse(a.timestamp) - Date.parse(b.timestamp);
+            });
 
-                    if (!local) {
-                        mergedMap.set(num, sheet);           // only on sheet
-                    } else if (!sheet) {
-                        mergedMap.set(num, local);           // only local
-                    } else if (local.timestamp === sheet.timestamp) {
-                        // Same creation timestamp.  The timestamp never changes after
-                        // a jump is first logged, so two records with matching timestamps
-                        // may still differ if notes/location/etc. were edited on another
-                        // device.  In that case the sheet version is the authoritative
-                        // one (it was explicitly synced from the editing device).
-                        const sameContent = (local.notes    || '') === (sheet.notes    || '')
-                                         && (local.location || '') === (sheet.location || '')
-                                         && (local.date     || '') === (sheet.date     || '');
-                        mergedMap.set(num, sameContent ? local : sheet);
-                    } else {
-                        // Same jump number, different content — ask user
-                        conflicts.push({ jumpNumber: num, local, sheet });
-                        mergedMap.set(num, local);           // tentative until dialog resolves
-                    }
+            // Renumber from the configured starting number
+            const startNum = logbook?.settings?.startingJumpNumber || 1;
+            finalJumps.forEach((j, i) => { j.jumpNumber = startNum + i; });
+
+            // Persist merged list locally
+            localStorage.setItem('skydiving-jumps', JSON.stringify(finalJumps));
+
+            // Apply to live app state
+            if (logbook) {
+                logbook.jumps = finalJumps;
+                if (finalJumps.length > 0) {
+                    logbook.settings.startingJumpNumber = finalJumps[0].jumpNumber;
+                    localStorage.setItem('skydiving-settings', JSON.stringify(logbook.settings));
                 }
-
-                if (conflicts.length > 0) {
-                    const resolutions = await this._showConflictDialog(conflicts);
-                    resolutions.forEach(({ jumpNumber, chosen }) => mergedMap.set(jumpNumber, chosen));
-                }
-
-                // Sort and renumber sequentially from the base jump number
-                const finalJumps = Array.from(mergedMap.values())
-                    .sort((a, b) => a.jumpNumber - b.jumpNumber);
-                const base = finalJumps.length > 0 ? finalJumps[0].jumpNumber : 1;
-                finalJumps.forEach((j, i) => { j.jumpNumber = base + i; });
-
-                // Persist merged list
-                localStorage.setItem('skydiving-jumps', JSON.stringify(finalJumps));
-
-                // Apply to live app state
-                if (window.logbook) {
-                    window.logbook.jumps = finalJumps;
-                    if (finalJumps.length > 0) {
-                        window.logbook.settings.startingJumpNumber = finalJumps[0].jumpNumber;
-                        localStorage.setItem('skydiving-settings', JSON.stringify(window.logbook.settings));
-                    }
-                    window.logbook.initializeEquipmentJumpCounts();
-                    window.logbook.updateStats();
-                    window.logbook.renderJumpsList();
-                    window.logbook.preFillFormWithLastJump();
-                }
-
-                // Upload the merged result if anything changed
-                const uploadNeeded = conflicts.length > 0
-                    || finalJumps.length !== sheetJumps.length
-                    || localStorage.getItem('skydiving-needs-sync') === '1';
-                if (uploadNeeded) await this.uploadAllJumps(finalJumps);
+                logbook.initializeEquipmentJumpCounts();
+                logbook.updateStats();
+                logbook.renderJumpsList();
+                logbook.preFillFormWithLastJump();
             }
 
-            // Push equipment once more to capture any jump-count recalculations
+            // ── Upload if anything changed ─────────────────────────────────────────────
+            // Upload when: tombstoned items are still in the raw sheet, new local jumps
+            // exist, jump order/count differs, or the dirty flag is set.
+            const sheetHasTombstoned  = sheetJumps.some(j => tombstoneSet.has(j.timestamp));
+            const countDiffers        = finalJumps.length !== validSheet.length;
+            const orderDiffers        = validSheet.some(
+                (j, i) => finalJumps[i]?.timestamp !== j.timestamp);
+            const dirtyFlag           = localStorage.getItem('skydiving-needs-sync') === '1';
+
+            if (sheetHasTombstoned || countDiffers || orderDiffers || dirtyFlag) {
+                await this.uploadAllJumps(finalJumps);
+            }
+
+            // Push equipment once more to capture jump-count recalculations AND the
+            // unified tombstone list (stored inside logbook.settings).
             await this.syncEquipmentToSheet();
 
             // Clear the dirty flag
@@ -349,7 +343,7 @@ class SheetsAPI {
      * Returns true if usable data was fetched, false otherwise.
      */
     async syncEquipmentFromSheet() {
-        if (!this.initialized) return false;
+        if (!this.initialized) return { pulled: false, tombstones: [] };
 
         try {
             const response = await fetch(this.webAppUrl + '?action=getEquipment', {
@@ -364,9 +358,16 @@ class SheetsAPI {
 
             const d = result.data || {};
 
+            // Always extract tombstones from sheet settings regardless of dirty flag.
+            // This lets the jump-merge phase discover deletions from other devices even
+            // when local equipment edits are pending.
+            const tombstones = Array.isArray(d.settings?.deletedJumpTimestamps)
+                ? d.settings.deletedJumpTimestamps
+                : [];
+
             // Only apply if the sheet actually contains data
             const hasData = d.harnesses || d.canopies || d.rigs;
-            if (!hasData) return false;
+            if (!hasData) return { pulled: false, tombstones };
 
             // If this device has unsaved local edits, skip the pull to avoid
             // overwriting them.  The dirty flag is set only by genuine user actions
@@ -374,7 +375,7 @@ class SheetsAPI {
             // successful push — startup code never touches it.
             if (localStorage.getItem('skydiving-equipment-dirty') === '1') {
                 console.log('[Sync] Local equipment has unsaved changes — skipping pull');
-                return false;
+                return { pulled: false, tombstones };
             }
 
             if (d.harnesses)  localStorage.setItem('skydiving-harnesses',       JSON.stringify(d.harnesses));
@@ -409,10 +410,10 @@ class SheetsAPI {
             }
 
             console.log('Equipment loaded from sheet');
-            return true;
+            return { pulled: true, tombstones };
         } catch (error) {
             console.error('Failed to load equipment from sheet:', error);
-            return false;
+            return { pulled: false, tombstones: [] };
         }
     }
     
@@ -496,6 +497,8 @@ class SheetsAPI {
 
     // Called after a local jump delete + renumber.  Because all jump numbers
     // shift, we re-upload the full current array as the source of truth.
+    // We also push equipment (which carries the tombstone list in settings) so
+    // the other device can pick up the deletion on its next sync.
     async syncAfterDelete(jumps) {
         if (!this.initialized || !navigator.onLine) return;
 
@@ -504,6 +507,9 @@ class SheetsAPI {
             this.updateSyncStatus('Syncing...');
             localStorage.removeItem('skydiving-needs-sync');
             await this.uploadAllJumps(jumps);
+            // Push tombstones (stored inside logbook.settings) to the Equipment sheet
+            // so other devices learn about this deletion on their next sync.
+            await this.syncEquipmentToSheet();
             this.updateSyncStatus('Synced');
             setTimeout(() => this.updateSyncStatus('Online'), 2000);
         } catch (error) {

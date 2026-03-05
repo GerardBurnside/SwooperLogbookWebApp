@@ -587,6 +587,18 @@ class SkydivingLogbook {
                 this.saveComponentsToLocalStorage();
             }
         }
+
+        // Record deletion as a tombstone so other devices can sync the deletion.
+        // Tombstones are stored in settings (which sync bidirectionally via Equipment sheet).
+        if (deletedJump.timestamp) {
+            if (!Array.isArray(this.settings.deletedJumpTimestamps)) {
+                this.settings.deletedJumpTimestamps = [];
+            }
+            if (!this.settings.deletedJumpTimestamps.includes(deletedJump.timestamp)) {
+                this.settings.deletedJumpTimestamps.push(deletedJump.timestamp);
+            }
+            localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
+        }
         
         // Remove the jump
         this.jumps.splice(jumpIndex, 1);
@@ -615,9 +627,17 @@ class SkydivingLogbook {
     }
     
     renumberJumps() {
-        // Sort jumps by date to maintain chronological order when renumbering
-        this.jumps.sort((a, b) => new Date(a.date) - new Date(b.date));
-        
+        // Sort jumps chronologically, handling invalid dates and same-day ties
+        this.jumps.sort((a, b) => {
+            const da = Date.parse(a.date), db = Date.parse(b.date);
+            if (isNaN(da) && isNaN(db)) return 0;
+            if (isNaN(da)) return 1;  // invalid dates go to end
+            if (isNaN(db)) return -1;
+            if (da !== db) return da - db;
+            // Same date: secondary sort by creation timestamp
+            return Date.parse(a.timestamp) - Date.parse(b.timestamp);
+        });
+
         // Renumber jumps starting from the configured starting number
         this.jumps.forEach((jump, index) => {
             jump.jumpNumber = this.settings.startingJumpNumber + index;
