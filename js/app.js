@@ -55,7 +55,7 @@ class SkydivingLogbook {
         });
         
         // Migrate old equipment data if needed
-        this.migrateOldEquipmentData();
+        // this.migrateOldEquipmentData();
         
         // Initialize jump counts for equipment rigs
         this.initializeEquipmentJumpCounts();
@@ -827,89 +827,89 @@ class SkydivingLogbook {
         }
     }
     
-    migrateOldEquipmentData() {
-        const oldEquipment = JSON.parse(localStorage.getItem('skydiving-equipment'));
-        if (oldEquipment && oldEquipment.length > 0 && this.equipmentRigs.length === 0) {
-            // Migrate old simple equipment to new rig format
-            oldEquipment.forEach(eq => {
-                this.equipmentRigs.push({
-                    id: eq.id,
-                    name: eq.name,
-                    harnessId: 'legacy',
-                    canopyId: 'legacy',
-                    linesetNumber: 1,
-                    previousJumps: 0,
-                    jumpCount: 0,
-                    archived: false
-                });
-            });
+    // migrateOldEquipmentData() {
+    //     const oldEquipment = JSON.parse(localStorage.getItem('skydiving-equipment'));
+    //     if (oldEquipment && oldEquipment.length > 0 && this.equipmentRigs.length === 0) {
+    //         // Migrate old simple equipment to new rig format
+    //         oldEquipment.forEach(eq => {
+    //             this.equipmentRigs.push({
+    //                 id: eq.id,
+    //                 name: eq.name,
+    //                 harnessId: 'legacy',
+    //                 canopyId: 'legacy',
+    //                 linesetNumber: 1,
+    //                 previousJumps: 0,
+    //                 jumpCount: 0,
+    //                 archived: false
+    //             });
+    //         });
             
-            // Add legacy components
-            if (!this.harnesses.find(r => r.id === 'legacy')) {
-                this.harnesses.push({ id: 'legacy', name: 'Legacy Harness' });
-            }
-            if (!this.canopies.find(c => c.id === 'legacy')) {
-                this.canopies.push({ id: 'legacy', name: 'Legacy Canopy' });
-            }
+    //         // Add legacy components
+    //         if (!this.harnesses.find(r => r.id === 'legacy')) {
+    //             this.harnesses.push({ id: 'legacy', name: 'Legacy Harness' });
+    //         }
+    //         if (!this.canopies.find(c => c.id === 'legacy')) {
+    //             this.canopies.push({ id: 'legacy', name: 'Legacy Canopy' });
+    //         }
             
-            // Save migration result directly — this is startup code that runs before
-            // the sheet sync.  Calling saveComponentsToLocalStorage() here would set
-            // the dirty flag and cause the sync to push stale data instead of pulling.
-            localStorage.setItem('skydiving-harnesses', JSON.stringify(this.harnesses));
-            localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
-            localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
-            localStorage.setItem('skydiving-locations', JSON.stringify(this.locations));
-            localStorage.removeItem('skydiving-equipment'); // Remove old data
-        }
+    //         // Save migration result directly — this is startup code that runs before
+    //         // the sheet sync.  Calling saveComponentsToLocalStorage() here would set
+    //         // the dirty flag and cause the sync to push stale data instead of pulling.
+    //         localStorage.setItem('skydiving-harnesses', JSON.stringify(this.harnesses));
+    //         localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
+    //         localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
+    //         localStorage.setItem('skydiving-locations', JSON.stringify(this.locations));
+    //         localStorage.removeItem('skydiving-equipment'); // Remove old data
+    //     }
         
-        // Migrate existing equipment rigs to new format
-        let needsSave = false;
-        this.equipmentRigs.forEach(eq => {
-            // Migrate old startingJumpNumber → previousJumps (plain count of pre-app jumps)
-            if (eq.previousJumps === undefined) {
-                // startingJumpNumber was stored as the first jump number tracked, so
-                // pre-app count = startingJumpNumber - 1.  Default was 1 → 0 pre-app jumps.
-                const old = eq.startingJumpNumber;
-                eq.previousJumps = (old && old > 1) ? old - 1 : 0;
-                delete eq.startingJumpNumber;
-                needsSave = true;
-            }
-            if (eq.jumpCount === undefined) {
-                eq.jumpCount = 0;
-                needsSave = true;
-            }
-            // Migrate linesetId → linesetNumber
-            if (eq.linesetId && eq.linesetNumber === undefined) {
-                const oldLinesets = JSON.parse(localStorage.getItem('skydiving-linesets') || '[]');
-                const ls = oldLinesets.find(l => l.id === eq.linesetId);
-                const nameMatch = ls && ls.name.match(/Lineset\s*#?(\d+)/i);
-                eq.linesetNumber = nameMatch ? parseInt(nameMatch[1], 10) : 1;
-                delete eq.linesetId;
-                needsSave = true;
-            }
-            // Update names to auto-generated format if components exist
-            if (eq.harnessId && eq.canopyId && eq.linesetNumber) {
-                const harness = this.harnesses.find(r => r.id === eq.harnessId);
-                const canopy = this.canopies.find(c => c.id === eq.canopyId);
-                if (harness && canopy) {
-                    const hybridSuffix = /-Hybrid$/i.test(eq.name || '') ? '-Hybrid' : '';
-                    const autoName = `${harness.name}-${canopy.name}-Lineset#${eq.linesetNumber}${hybridSuffix}`;
-                    if (eq.name !== autoName) {
-                        eq.name = autoName;
-                        needsSave = true;
-                    }
-                }
-            }
-        });
+    //     // Migrate existing equipment rigs to new format
+    //     let needsSave = false;
+    //     this.equipmentRigs.forEach(eq => {
+    //         // Migrate old startingJumpNumber → previousJumps (plain count of pre-app jumps)
+    //         if (eq.previousJumps === undefined) {
+    //             // startingJumpNumber was stored as the first jump number tracked, so
+    //             // pre-app count = startingJumpNumber - 1.  Default was 1 → 0 pre-app jumps.
+    //             const old = eq.startingJumpNumber;
+    //             eq.previousJumps = (old && old > 1) ? old - 1 : 0;
+    //             delete eq.startingJumpNumber;
+    //             needsSave = true;
+    //         }
+    //         if (eq.jumpCount === undefined) {
+    //             eq.jumpCount = 0;
+    //             needsSave = true;
+    //         }
+    //         // Migrate linesetId → linesetNumber
+    //         if (eq.linesetId && eq.linesetNumber === undefined) {
+    //             const oldLinesets = JSON.parse(localStorage.getItem('skydiving-linesets') || '[]');
+    //             const ls = oldLinesets.find(l => l.id === eq.linesetId);
+    //             const nameMatch = ls && ls.name.match(/Lineset\s*#?(\d+)/i);
+    //             eq.linesetNumber = nameMatch ? parseInt(nameMatch[1], 10) : 1;
+    //             delete eq.linesetId;
+    //             needsSave = true;
+    //         }
+    //         // Update names to auto-generated format if components exist
+    //         if (eq.harnessId && eq.canopyId && eq.linesetNumber) {
+    //             const harness = this.harnesses.find(r => r.id === eq.harnessId);
+    //             const canopy = this.canopies.find(c => c.id === eq.canopyId);
+    //             if (harness && canopy) {
+    //                 const hybridSuffix = /-Hybrid$/i.test(eq.name || '') ? '-Hybrid' : '';
+    //                 const autoName = `${harness.name}-${canopy.name}-Lineset#${eq.linesetNumber}${hybridSuffix}`;
+    //                 if (eq.name !== autoName) {
+    //                     eq.name = autoName;
+    //                     needsSave = true;
+    //                 }
+    //             }
+    //         }
+    //     });
         
-        if (needsSave) {
-            // Save updated rigs directly — same reason: this is startup code and must
-            // not set the dirty flag or update the modification timestamp.
-            localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
-            // Clean up old linesets localStorage after migration
-            localStorage.removeItem('skydiving-linesets');
-        }
-    }
+    //     if (needsSave) {
+    //         // Save updated rigs directly — same reason: this is startup code and must
+    //         // not set the dirty flag or update the modification timestamp.
+    //         localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
+    //         // Clean up old linesets localStorage after migration
+    //         localStorage.removeItem('skydiving-linesets');
+    //     }
+    // }
     
     initializeEquipmentJumpCounts() {
         // Count all logged jumps for each equipment rig (no jump-number filter;
@@ -925,8 +925,7 @@ class SkydivingLogbook {
         });
         
         if (needsSave) {
-            // Save only the rigs array — jump counts are computed/derived values,
-            // not user-initiated edits.  Calling saveComponentsToLocalStorage() here
+            // Save only the rigs array.  Calling saveComponentsToLocalStorage() here
             // would update skydiving-equipment-modified to "now", making the laptop
             // appear newer than a phone that just edited equipment notes, which would
             // cause the subsequent syncWithSheet() to skip the pull and overwrite the
