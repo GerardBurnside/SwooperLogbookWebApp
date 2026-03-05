@@ -225,7 +225,29 @@
                     <small style="color:#888; font-size:12px;">Uses your device location + OpenStreetMap to suggest the closest known dropzone. Disable to use the 📍 button manually instead.</small>
                 </div>
 
-                <button id="saveSettings" class="btn-primary">Save Settings</button>
+                <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
+                <h3 style="margin-bottom: 8px;">Statistics Bar Thresholds</h3>
+                <small style="color:#888; font-size:12px; display:block; margin-bottom:12px;">Jump counts at which the equipment progress bar turns orange or red. Red should be higher than orange.</small>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                    <div class="form-group" style="margin:0;">
+                        <label for="standardOrangeThreshold">Standard — orange</label>
+                        <input type="number" id="standardOrangeThreshold" min="1" placeholder="e.g. 140">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="standardRedThreshold">Standard — red</label>
+                        <input type="number" id="standardRedThreshold" min="1" placeholder="e.g. 160">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="hybridOrangeThreshold">Hybrid — orange</label>
+                        <input type="number" id="hybridOrangeThreshold" min="1" placeholder="e.g. 60">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="hybridRedThreshold">Hybrid — red</label>
+                        <input type="number" id="hybridRedThreshold" min="1" placeholder="e.g. 80">
+                    </div>
+                </div>
+
+                <button id="saveSettings" class="btn-primary" style="margin-top:16px;">Save Settings</button>
 
                 <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
                 <button id="googleSheetsIntegrationBtn" class="btn-secondary" style="width:100%;">Google Sheet Integration</button>

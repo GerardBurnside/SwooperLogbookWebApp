@@ -5,7 +5,11 @@ class SkydivingLogbook {
         this.settings = JSON.parse(localStorage.getItem('skydiving-settings')) || {
             startingJumpNumber: 1,
             recentJumpsDays: 3,
-            autoDetectDZ: true
+            autoDetectDZ: true,
+            standardRedThreshold: 160,
+            standardOrangeThreshold: 140,
+            hybridRedThreshold: 80,
+            hybridOrangeThreshold: 60
         };
         // Backfill for existing saved settings that predate these fields
         if (this.settings.recentJumpsDays === undefined) {
@@ -13,6 +17,18 @@ class SkydivingLogbook {
         }
         if (this.settings.autoDetectDZ === undefined) {
             this.settings.autoDetectDZ = true;
+        }
+        if (this.settings.standardRedThreshold === undefined) {
+            this.settings.standardRedThreshold = 160;
+        }
+        if (this.settings.standardOrangeThreshold === undefined) {
+            this.settings.standardOrangeThreshold = 140;
+        }
+        if (this.settings.hybridRedThreshold === undefined) {
+            this.settings.hybridRedThreshold = 80;
+        }
+        if (this.settings.hybridOrangeThreshold === undefined) {
+            this.settings.hybridOrangeThreshold = 60;
         }
         
         // Component-based equipment system
@@ -612,6 +628,10 @@ class SkydivingLogbook {
         document.getElementById('startingJumpNumber').value = this.settings.startingJumpNumber;
         document.getElementById('recentJumpsDays').value = this.settings.recentJumpsDays ?? 3;
         document.getElementById('autoDetectDZ').checked = this.settings.autoDetectDZ ?? true;
+        document.getElementById('standardRedThreshold').value = this.settings.standardRedThreshold ?? 160;
+        document.getElementById('standardOrangeThreshold').value = this.settings.standardOrangeThreshold ?? 140;
+        document.getElementById('hybridRedThreshold').value = this.settings.hybridRedThreshold ?? 80;
+        document.getElementById('hybridOrangeThreshold').value = this.settings.hybridOrangeThreshold ?? 60;
 
         const restoreBtn   = document.getElementById('restoreFromBackupBtn');
         const restoreDesc  = document.getElementById('restoreFromBackupDesc');
@@ -695,9 +715,35 @@ class SkydivingLogbook {
             return;
         }
 
+        const standardRedThreshold = parseInt(document.getElementById('standardRedThreshold').value);
+        const standardOrangeThreshold = parseInt(document.getElementById('standardOrangeThreshold').value);
+        const hybridRedThreshold = parseInt(document.getElementById('hybridRedThreshold').value);
+        const hybridOrangeThreshold = parseInt(document.getElementById('hybridOrangeThreshold').value);
+
+        if (!standardRedThreshold || standardRedThreshold < 1) {
+            this.showMessage('Please enter a valid standard red threshold (1 or higher)', 'error');
+            return;
+        }
+        if (!standardOrangeThreshold || standardOrangeThreshold < 1) {
+            this.showMessage('Please enter a valid standard orange threshold (1 or higher)', 'error');
+            return;
+        }
+        if (!hybridRedThreshold || hybridRedThreshold < 1) {
+            this.showMessage('Please enter a valid hybrid red threshold (1 or higher)', 'error');
+            return;
+        }
+        if (!hybridOrangeThreshold || hybridOrangeThreshold < 1) {
+            this.showMessage('Please enter a valid hybrid orange threshold (1 or higher)', 'error');
+            return;
+        }
+
         this.settings.startingJumpNumber = startingJumpNumber;
         this.settings.recentJumpsDays = recentJumpsDays;
         this.settings.autoDetectDZ = document.getElementById('autoDetectDZ').checked;
+        this.settings.standardRedThreshold = standardRedThreshold;
+        this.settings.standardOrangeThreshold = standardOrangeThreshold;
+        this.settings.hybridRedThreshold = hybridRedThreshold;
+        this.settings.hybridOrangeThreshold = hybridOrangeThreshold;
         localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
         this.updateDetectLocationBtnVisibility();
 
@@ -1663,8 +1709,8 @@ class SkydivingLogbook {
         
         if (sortedEquipmentStats.length > 0) {
             sortedEquipmentStats.forEach(stat => {
-                const redThreshold = stat.hybrid ? 80 : 160;
-                const orangeThreshold = stat.hybrid ? 60 : 140;
+                const redThreshold = stat.hybrid ? this.settings.hybridRedThreshold : this.settings.standardRedThreshold;
+                const orangeThreshold = stat.hybrid ? this.settings.hybridOrangeThreshold : this.settings.standardOrangeThreshold;
                 const percentage = Math.min((stat.count / redThreshold) * 100, 100);
                 let barColorClass = '';
                 if (stat.count >= redThreshold) {
