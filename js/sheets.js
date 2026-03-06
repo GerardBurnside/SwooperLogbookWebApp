@@ -32,20 +32,6 @@ class SheetsAPI {
     }
 
     async loadConfig() {
-        // Try to load from config file, fallback to localStorage
-        try {
-            const response = await fetch('./config/sheets-config.json');
-            if (response.ok) {
-                const fileConfig = await response.json();
-                // Also persist to localStorage so it survives offline / missing file
-                localStorage.setItem('sheets-config', JSON.stringify(fileConfig));
-                return fileConfig;
-            }
-        } catch (error) {
-            console.log('Config file not found, checking localStorage');
-        }
-        
-        // Fallback to localStorage
         const config = localStorage.getItem('sheets-config');
         return config ? JSON.parse(config) : {};
     }

@@ -618,8 +618,8 @@ class SkydivingLogbook {
         this.showMessage('Jump deleted successfully', 'success');
         
         // Sync the updated (renumbered) jump list to Google Sheets
-        if (navigator.onLine && window.SheetsAPI) {
-            window.SheetsAPI.syncAfterDelete(this.jumps);
+        if (navigator.onLine && window.SheetsAPI?.initialized) {
+            window.SheetsAPI.pushAllWithGuard();
         }
     }
     
