@@ -5,7 +5,6 @@ class SkydivingLogbook {
         this.settings = JSON.parse(localStorage.getItem('skydiving-settings')) || {
             startingJumpNumber: 1,
             recentJumpsDays: 3,
-            autoDetectDZ: true,
             standardRedThreshold: 160,
             standardOrangeThreshold: 140,
             hybridRedThreshold: 80,
@@ -14,9 +13,6 @@ class SkydivingLogbook {
         // Backfill for existing saved settings that predate these fields
         if (this.settings.recentJumpsDays === undefined) {
             this.settings.recentJumpsDays = 3;
-        }
-        if (this.settings.autoDetectDZ === undefined) {
-            this.settings.autoDetectDZ = true;
         }
         if (this.settings.standardRedThreshold === undefined) {
             this.settings.standardRedThreshold = 160;
@@ -189,12 +185,13 @@ class SkydivingLogbook {
             this.exportData();
         });
 
-        // Detect nearest DZ button (manual mode)
-        const detectBtn = document.getElementById('detectLocationBtn');
-        if (detectBtn) {
-            detectBtn.addEventListener('click', () => this.detectNearestLocation(true));
+        // Auto-detect DZ checkbox in the log jump form
+        const autoDetectChk = document.getElementById('autoDetectDZForm');
+        if (autoDetectChk) {
+            autoDetectChk.addEventListener('change', () => {
+                if (autoDetectChk.checked) this.detectNearestLocation(true);
+            });
         }
-        this.updateDetectLocationBtnVisibility();
 
         // Share backup via native share sheet (e.g. Gmail on Android)
         document.getElementById('shareBtn').addEventListener('click', () => {
@@ -644,7 +641,6 @@ class SkydivingLogbook {
     async openSettingsModal() {
         document.getElementById('startingJumpNumber').value = this.settings.startingJumpNumber;
         document.getElementById('recentJumpsDays').value = this.settings.recentJumpsDays ?? 3;
-        document.getElementById('autoDetectDZ').checked = this.settings.autoDetectDZ ?? true;
         document.getElementById('standardRedThreshold').value = this.settings.standardRedThreshold ?? 160;
         document.getElementById('standardOrangeThreshold').value = this.settings.standardOrangeThreshold ?? 140;
         document.getElementById('hybridRedThreshold').value = this.settings.hybridRedThreshold ?? 80;
@@ -756,14 +752,12 @@ class SkydivingLogbook {
 
         this.settings.startingJumpNumber = startingJumpNumber;
         this.settings.recentJumpsDays = recentJumpsDays;
-        this.settings.autoDetectDZ = document.getElementById('autoDetectDZ').checked;
         this.settings.standardRedThreshold = standardRedThreshold;
         this.settings.standardOrangeThreshold = standardOrangeThreshold;
         this.settings.hybridRedThreshold = hybridRedThreshold;
         this.settings.hybridOrangeThreshold = hybridOrangeThreshold;
         localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
         this.markEquipmentModified();
-        this.updateDetectLocationBtnVisibility();
 
         // Mark equipment dirty so an offline save is not overwritten on next sync.
         localStorage.setItem('skydiving-equipment-dirty', '1');
@@ -886,8 +880,6 @@ class SkydivingLogbook {
             this.renderEquipmentView();
         } else if (viewName === 'stats') {
             this.renderStats();
-        } else if (viewName === 'jumps' && this.settings.autoDetectDZ) {
-            this.detectNearestLocation(false);
         }
     }
     
@@ -1484,12 +1476,6 @@ class SkydivingLogbook {
         } finally {
             btn.disabled = false;
         }
-    }
-
-    /** Show the manual detect button only when auto-detect is disabled. */
-    updateDetectLocationBtnVisibility() {
-        const btn = document.getElementById('detectLocationBtn');
-        if (btn) btn.style.display = this.settings.autoDetectDZ ? 'none' : 'inline-flex';
     }
 
     renderComponents(type) {

@@ -234,35 +234,31 @@ textarea {
     position: relative;
 }
 
-.location-input-row {
+.location-label-row {
     display: flex;
-    gap: 0.4rem;
-    align-items: stretch;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
 }
 
-.location-input-row input[type="text"] {
-    flex: 1;
-    min-width: 0;
+.location-label-row label[for] {
+    margin-bottom: 0;
 }
 
-.detect-location-btn {
-    flex-shrink: 0;
-    background: none;
-    border: 2px solid #ddd;
-    border-radius: 8px;
-    padding: 0 0.65rem;
-    font-size: 1.1rem;
-    cursor: pointer;
-    line-height: 1;
+.location-auto-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.85rem;
     color: #555;
-    touch-action: manipulation;
-    transition: border-color 0.15s, background 0.15s;
+    cursor: pointer;
+    user-select: none;
 }
 
-.detect-location-btn:hover,
-.detect-location-btn:active {
-    border-color: #2196F3;
-    background: #e3f2fd;
+.location-auto-label input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    cursor: pointer;
 }
 
 .location-geo-hint {
