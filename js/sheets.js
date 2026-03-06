@@ -137,7 +137,7 @@ class SheetsAPI {
             if (result.error) throw new Error(result.error);
 
             const d             = result.data || {};
-            const sheetTs       = d.dataModified || '';
+            const sheetTs       = (d._syncMeta && d._syncMeta.dataModified) || '';
             const localSynced   = localStorage.getItem('skydiving-data-synced') || '';
             const localModified = localStorage.getItem('skydiving-data-modified') || '';
 
@@ -205,7 +205,7 @@ class SheetsAPI {
             if (result.error) throw new Error(result.error);
 
             const d           = result.data || {};
-            const sheetTs     = d.dataModified || '';
+            const sheetTs     = (d._syncMeta && d._syncMeta.dataModified) || '';
             const localSynced = localStorage.getItem('skydiving-data-synced') || '';
 
             if (sheetTs && sheetTs > localSynced) {
@@ -309,7 +309,7 @@ class SheetsAPI {
             if (result.error) return;
 
             const d       = result.data || {};
-            const sheetTs = d.dataModified || '';
+            const sheetTs = (d._syncMeta && d._syncMeta.dataModified) || '';
             if (sheetTs && sheetTs > localSynced) {
                 console.log('[Poll] Sheet is newer, pulling...');
                 this.updateSyncStatus('Syncing...');
@@ -344,8 +344,8 @@ class SheetsAPI {
             settings:     logbook.settings,
             locations:    logbook.locations
         };
-        if (rigsToSend)    payload.rigs          = rigsToSend;
-        if (dataModified)  payload.dataModified  = dataModified;
+        if (rigsToSend)    payload.rigs       = rigsToSend;
+        if (dataModified)  payload._syncMeta = { dataModified };
 
         try {
             const response = await fetch(this.webAppUrl, {

@@ -130,6 +130,10 @@ class SkydivingLogbook {
             this.preFillFormWithLastJump();
             if (multiplier > 1) {
                 this.showMessage(`${multiplier} jumps logged successfully!`, 'success');
+                // Sync all multiplier jumps at once
+                if (navigator.onLine && window.SheetsAPI?.initialized) {
+                    window.SheetsAPI.pushAllWithGuard();
+                }
             }
         });
 
@@ -435,14 +439,9 @@ class SkydivingLogbook {
             );
         }
         
-        // Sync to Google Sheets
-        if (navigator.onLine && window.SheetsAPI) {
-            if (isPastJump) {
-                // Existing jumps were renumbered — overwrite the whole sheet
-                window.SheetsAPI.syncAfterDelete(this.jumps);
-            } else {
-                window.SheetsAPI.syncJump(jump);
-            }
+        // Sync to Google Sheets (skip during multiplier batch — caller will sync once)
+        if (!silent && navigator.onLine && window.SheetsAPI?.initialized) {
+            window.SheetsAPI.pushAllWithGuard();
         }
     }
 
@@ -821,6 +820,7 @@ class SkydivingLogbook {
         this.markJumpsModified();
         // Mark that there are local changes not yet pushed to the sheet
         localStorage.setItem('skydiving-needs-sync', '1');
+        localStorage.setItem('skydiving-data-modified', new Date().toISOString());
     }
 
     saveComponentsToLocalStorage() {
