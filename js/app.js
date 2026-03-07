@@ -104,10 +104,19 @@ class SkydivingLogbook {
     }
 
     setupEventListeners() {
+        const getValidMultiplier = () => {
+            const multiplierInput = document.getElementById('jumpMultiplier');
+            const parsed = parseInt(multiplierInput.value, 10);
+            if (Number.isNaN(parsed)) return 1;
+            return Math.max(1, Math.min(99, parsed));
+        };
+
         // Jump form submission
         document.getElementById('jumpForm').addEventListener('submit', (e) => {
             e.preventDefault();
-            const multiplier = parseInt(document.getElementById('jumpMultiplier').value) || 1;
+            const multiplierInput = document.getElementById('jumpMultiplier');
+            const multiplier = getValidMultiplier();
+            multiplierInput.value = multiplier;
             const form = document.getElementById('jumpForm');
             const jumpData = {
                 date: form.elements['date'].value,
@@ -136,13 +145,18 @@ class SkydivingLogbook {
         // Multiplier widget buttons
         document.getElementById('multiplierUp').addEventListener('click', () => {
             const input = document.getElementById('jumpMultiplier');
-            const val = parseInt(input.value) || 1;
+            const val = getValidMultiplier();
             if (val < 99) input.value = val + 1;
         });
         document.getElementById('multiplierDown').addEventListener('click', () => {
             const input = document.getElementById('jumpMultiplier');
-            const val = parseInt(input.value) || 1;
+            const val = getValidMultiplier();
             if (val > 1) input.value = val - 1;
+        });
+
+        // Allow manual entry while enforcing numeric bounds.
+        document.getElementById('jumpMultiplier').addEventListener('blur', () => {
+            document.getElementById('jumpMultiplier').value = getValidMultiplier();
         });
 
         // Settings modal
