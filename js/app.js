@@ -659,25 +659,16 @@ class SkydivingLogbook {
                 <div class="day-location-header">
                     <span class="day-date">${group.dateLabel}</span>
                     ${group.location ? `<span class="day-location">📍 ${group.location}</span>` : ''}
-                    <span class="day-jump-range">${this.getJumpRangeLabel(group.jumps)}</span>
+                    <span class="day-jump-range">${this.getJumpCountLabel(group.jumps)}</span>
                 </div>
                 ${group.jumps.map(j => this.createJumpRowHTML(j)).join('')}
             </div>
         `).join('');
     }
 
-    getJumpRangeLabel(jumps) {
+    getJumpCountLabel(jumps) {
         if (!Array.isArray(jumps) || jumps.length === 0) return '';
-
-        const jumpNumbers = jumps
-            .map(j => Number(j.jumpNumber))
-            .filter(n => Number.isFinite(n));
-
-        if (jumpNumbers.length === 0) return '';
-
-        const highest = Math.max(...jumpNumbers);
-        const lowest = Math.min(...jumpNumbers);
-        return highest === lowest ? `#${highest}` : `#${highest}-#${lowest}`;
+        return `${jumps.length} jump${jumps.length === 1 ? '' : 's'}`;
     }
 
     escapeHtml(text) {
