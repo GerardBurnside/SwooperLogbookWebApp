@@ -1888,7 +1888,7 @@ class SkydivingLogbook {
                 }
             });
         });
-        html += this.renderComponentStats('Canopy Totals', canopyStats, true);
+        html += this.renderComponentStats('Canopy Totals', canopyStats);
         
         container.innerHTML = html;
     }
