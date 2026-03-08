@@ -555,12 +555,12 @@ class SkydivingLogbook {
 
         let html = '';
 
-        // Render recent jumps individually
+        // Render recent jumps grouped by day + location
         if (recentJumps.length > 0) {
-            html += recentJumps.map(jump => this.createJumpHTML(jump)).join('');
+            html += this.renderDayLocationGroups(recentJumps);
         }
 
-        // Group older jumps by month
+        // Group older jumps by month, then by day+location inside
         if (olderJumps.length > 0) {
             const monthGroups = new Map();
             olderJumps.forEach(jump => {
@@ -572,7 +572,6 @@ class SkydivingLogbook {
                 monthGroups.get(key).jumps.push(jump);
             });
 
-            // Keys are already in descending order (sorted input)
             for (const [key, group] of monthGroups) {
                 const jumpCount = group.jumps.length;
                 html += `
@@ -583,7 +582,7 @@ class SkydivingLogbook {
                             <span class="month-group-count">${jumpCount} jump${jumpCount !== 1 ? 's' : ''}</span>
                         </div>
                         <div class="month-group-body" id="month-${key}" style="display:none;">
-                            ${group.jumps.map(jump => this.createJumpHTML(jump)).join('')}
+                            ${this.renderDayLocationGroups(group.jumps)}
                         </div>
                     </div>
                 `;
@@ -602,30 +601,52 @@ class SkydivingLogbook {
         if (arrow) arrow.innerHTML = open ? '&#9654;' : '&#9660;';
     }
 
-    createJumpHTML(jump) {
-        const date = new Date(jump.date).toLocaleDateString();
-        let equipmentName = jump.equipment;
-        
-        // Resolve canopy name + lineset
+    renderDayLocationGroups(jumps) {
+        const groups = [];
+        const groupMap = new Map();
+        jumps.forEach(jump => {
+            const key = `${jump.date}|${jump.location || ''}`;
+            if (!groupMap.has(key)) {
+                const d = new Date(jump.date);
+                const entry = {
+                    dateLabel: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
+                    location: jump.location || '',
+                    jumps: []
+                };
+                groupMap.set(key, entry);
+                groups.push(entry);
+            }
+            groupMap.get(key).jumps.push(jump);
+        });
+
+        return groups.map(group => `
+            <div class="day-location-group">
+                <div class="day-location-header">
+                    <span class="day-date">${group.dateLabel}</span>
+                    ${group.location ? `<span class="day-location">📍 ${group.location}</span>` : ''}
+                </div>
+                ${group.jumps.map(j => this.createJumpRowHTML(j)).join('')}
+            </div>
+        `).join('');
+    }
+
+    createJumpRowHTML(jump) {
+        let canopyName = jump.equipment;
         const canopy = this.canopies.find(c => c.id === jump.equipment);
         if (canopy) {
             const ls = canopy.linesets?.find(l => l.number === jump.linesetNumber);
-            const hybridSuffix = ls?.hybrid ? ' (Hybrid)' : '';
-            equipmentName = `${canopy.name} — Lineset #${jump.linesetNumber || 1}${hybridSuffix}`;
+            const hybridSuffix = ls?.hybrid ? ' (H)' : '';
+            canopyName = `${canopy.name} L#${jump.linesetNumber || 1}${hybridSuffix}`;
         }
 
+        const escapedNotes = jump.notes ? jump.notes.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;') : '';
+
         return `
-            <div class="jump-item">
-                <div class="jump-header">
-                    <span class="jump-number">#${jump.jumpNumber}</span>
-                    <span class="jump-date">${date}</span>
-                    <button class="delete-jump-btn" onclick="logbook.deleteJump('${jump.id}')" title="Delete jump">❌</button>
-                </div>
-                <div class="jump-details">
-                    <div class="jump-location">📍 ${jump.location}</div>
-                    <div class="jump-equipment">🪂 ${equipmentName}</div>
-                    ${jump.notes ? `<div class="jump-notes">💭 ${jump.notes}</div>` : ''}
-                </div>
+            <div class="jump-row">
+                <span class="jump-number">#${jump.jumpNumber}</span>
+                <span class="jump-canopy">🪂 ${canopyName}</span>
+                ${jump.notes ? `<span class="jump-notes-icon" title="${escapedNotes}">💭</span>` : ''}
+                <button class="delete-jump-btn" onclick="logbook.deleteJump('${jump.id}')" title="Delete jump">❌</button>
             </div>
         `;
     }

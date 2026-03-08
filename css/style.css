@@ -488,12 +488,90 @@ textarea {
     margin-top: 1rem;
 }
 
-.jump-item {
-    background: #f8f9fa;
+/* ── Day + Location groups ── */
+.day-location-group {
+    margin-bottom: 0.5rem;
     border: 1px solid #e9ecef;
     border-radius: 8px;
-    padding: 1rem;
-    margin-bottom: 0.5rem;
+    overflow: hidden;
+}
+
+.day-location-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    background: #f0f3f6;
+    font-size: 0.85rem;
+    color: #555;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.day-date {
+    font-weight: 600;
+    color: #333;
+    white-space: nowrap;
+}
+
+.day-location {
+    color: #666;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ── Jump row (compact single line) ── */
+.jump-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.3rem 0.75rem;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.jump-row:last-child {
+    border-bottom: none;
+}
+
+.jump-number {
+    font-weight: bold;
+    color: #2196F3;
+    font-size: 0.95rem;
+    white-space: nowrap;
+    min-width: 2.5rem;
+}
+
+.jump-canopy {
+    flex: 1;
+    font-size: 0.85rem;
+    color: #555;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.jump-notes-icon {
+    font-size: 0.8rem;
+    cursor: default;
+    flex-shrink: 0;
+}
+
+.delete-jump-btn {
+    background: none;
+    border: none;
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: 0.15rem;
+    border-radius: 4px;
+    opacity: 0.5;
+    transition: all 0.3s ease;
+    flex-shrink: 0;
+}
+
+.delete-jump-btn:hover {
+    opacity: 1;
+    background: rgba(244, 67, 54, 0.1);
+    transform: scale(1.1);
 }
 
 /* ── Month group (collapsed older jumps) ── */
@@ -508,7 +586,7 @@ textarea {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.75rem 1rem;
+    padding: 0.6rem 0.75rem;
     background: #e8ecf1;
     cursor: pointer;
     user-select: none;
@@ -540,63 +618,7 @@ textarea {
 }
 
 .month-group-body {
-    padding: 0.5rem;
-}
-
-.jump-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 0.5rem;
-}
-
-.jump-number {
-    font-weight: bold;
-    color: #2196F3;
-    font-size: 1.1rem;
-}
-
-.jump-date {
-    color: #666;
-    font-size: 0.9rem;
-}
-
-.delete-jump-btn {
-    background: none;
-    border: none;
-    font-size: 1rem;
-    cursor: pointer;
     padding: 0.25rem;
-    border-radius: 4px;
-    opacity: 0.6;
-    transition: all 0.3s ease;
-}
-
-.delete-jump-btn:hover {
-    opacity: 1;
-    background: rgba(244, 67, 54, 0.1);
-    transform: scale(1.1);
-}
-
-.jump-details {
-    color: #555;
-}
-
-.jump-location {
-    font-weight: 500;
-    margin-bottom: 0.25rem;
-}
-
-.jump-equipment {
-    font-size: 0.9rem;
-    color: #666;
-}
-
-.jump-notes {
-    margin-top: 0.5rem;
-    font-style: italic;
-    color: #666;
-    font-size: 0.9rem;
 }
 
 .no-jumps {
