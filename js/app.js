@@ -245,6 +245,26 @@ class SkydivingLogbook {
             this.saveSettings();
         });
 
+        document.getElementById('localStorageBtn').addEventListener('click', () => {
+            this.openLocalStorageModal();
+        });
+
+        document.getElementById('localStorageClose').addEventListener('click', () => {
+            this.closeLocalStorageModal();
+        });
+
+        document.getElementById('reloadLocalStorageBtn').addEventListener('click', () => {
+            this.loadLocalStorageEditor();
+        });
+
+        document.getElementById('saveLocalStorageBtn').addEventListener('click', () => {
+            this.saveLocalStorageEditor();
+        });
+
+        document.getElementById('resetAppBtn').addEventListener('click', () => {
+            this.resetAppToFirstLaunch();
+        });
+
         document.getElementById('restoreFromBackupBtn').addEventListener('click', () => {
             this.restoreEquipmentFromBackup();
         });
@@ -369,6 +389,7 @@ class SkydivingLogbook {
             const componentModal = document.getElementById('componentModal');
             const sheetsModal = document.getElementById('sheetsModal');
             const jumpNoteModal = document.getElementById('jumpNoteModal');
+            const localStorageModal = document.getElementById('localStorageModal');
             if (e.target === settingsModal) {
                 this.closeModal();
             }
@@ -383,6 +404,9 @@ class SkydivingLogbook {
             }
             if (e.target === jumpNoteModal) {
                 this.closeJumpNotePopup();
+            }
+            if (e.target === localStorageModal) {
+                this.closeLocalStorageModal();
             }
         });
     }
@@ -847,6 +871,86 @@ class SkydivingLogbook {
 
     closeSheetsModal() {
         document.getElementById('sheetsModal').style.display = 'none';
+    }
+
+    openLocalStorageModal() {
+        this.loadLocalStorageEditor();
+        this.closeModal();
+        document.getElementById('localStorageModal').style.display = 'block';
+    }
+
+    closeLocalStorageModal() {
+        document.getElementById('localStorageModal').style.display = 'none';
+    }
+
+    parseLocalStorageValue(rawValue) {
+        try {
+            return JSON.parse(rawValue);
+        } catch (_) {
+            return rawValue;
+        }
+    }
+
+    loadLocalStorageEditor() {
+        const editor = document.getElementById('localStorageEditor');
+        if (!editor) return;
+
+        const snapshot = {};
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (!key) continue;
+            const rawValue = localStorage.getItem(key);
+            snapshot[key] = this.parseLocalStorageValue(rawValue);
+        }
+
+        const sortedSnapshot = Object.keys(snapshot)
+            .sort((a, b) => a.localeCompare(b))
+            .reduce((acc, key) => {
+                acc[key] = snapshot[key];
+                return acc;
+            }, {});
+
+        editor.value = JSON.stringify(sortedSnapshot, null, 2);
+    }
+
+    saveLocalStorageEditor() {
+        const editor = document.getElementById('localStorageEditor');
+        if (!editor) return;
+
+        let parsed;
+        try {
+            parsed = JSON.parse(editor.value);
+        } catch (error) {
+            this.showMessage('Invalid JSON. Fix formatting before saving.', 'error');
+            return;
+        }
+
+        if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+            this.showMessage('Top-level JSON must be an object of key/value pairs.', 'error');
+            return;
+        }
+
+        localStorage.clear();
+        Object.entries(parsed).forEach(([key, value]) => {
+            if (!key) return;
+            if (typeof value === 'string') {
+                localStorage.setItem(key, value);
+            } else {
+                localStorage.setItem(key, JSON.stringify(value));
+            }
+        });
+
+        this.showMessage('Local storage saved. Reloading app...', 'success');
+        setTimeout(() => window.location.reload(), 300);
+    }
+
+    resetAppToFirstLaunch() {
+        const confirmed = confirm('Erase all local storage data and reset the app to first-launch state? This cannot be undone.');
+        if (!confirmed) return;
+
+        localStorage.clear();
+        this.showMessage('App data erased. Reloading...', 'success');
+        setTimeout(() => window.location.reload(), 300);
     }
 
     saveSheetsConfig() {

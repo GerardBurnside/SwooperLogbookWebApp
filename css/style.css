@@ -988,6 +988,53 @@ textarea {
     word-break: break-word;
 }
 
+.local-storage-modal-content {
+    max-width: 560px;
+}
+
+.local-storage-warning {
+    background: #fff4e5;
+    border: 1px solid #ffcc80;
+    color: #9a5a00;
+    border-radius: 8px;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.88rem;
+    margin-bottom: 0.9rem;
+}
+
+.local-storage-editor {
+    min-height: 260px;
+    font-family: Consolas, 'Courier New', monospace;
+    font-size: 0.86rem;
+    line-height: 1.35;
+}
+
+.local-storage-actions {
+    display: flex;
+    gap: 0.6rem;
+}
+
+.local-storage-actions .btn-secondary,
+.local-storage-actions .btn-primary {
+    width: 100%;
+}
+
+.btn-danger {
+    padding: 0.75rem;
+    border: none;
+    border-radius: 8px;
+    background: #d32f2f;
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.btn-danger:hover {
+    background: #b71c1c;
+}
+
 /* Settings modal — scrollable on small screens */
 .settings-modal-content {
     max-height: 85vh;

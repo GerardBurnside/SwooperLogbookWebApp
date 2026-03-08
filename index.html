@@ -229,12 +229,43 @@
                 <button id="saveSettings" class="btn-primary" style="margin-top:16px;">Save Settings</button>
 
                 <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
+                <button id="localStorageBtn" class="btn-secondary" style="width:100%;">Local Storage</button>
+
+                <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
                 <button id="googleSheetsIntegrationBtn" class="btn-secondary" style="width:100%;">Google Sheet Integration</button>
 
                 <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
                 <h3 id="restoreFromBackupTitle" style="margin-bottom: 8px;">Restore Rigs from Backup</h3>
                 <p id="restoreFromBackupDesc" style="font-size: 13px; margin-bottom: 10px; color: #666;">Restore all equipment data from the <strong>backupRigs</strong> sheet in your spreadsheet. This will overwrite your current local equipment.</p>
                 <button id="restoreFromBackupBtn" class="btn-secondary" style="background: #e65100; color: #fff;">Restore Equipment from Backup</button>
+            </div>
+        </div>
+
+        <!-- Local Storage Modal -->
+        <div id="localStorageModal" class="modal">
+            <div class="modal-content local-storage-modal-content">
+                <span class="close" id="localStorageClose">&times;</span>
+                <h2>Local Storage</h2>
+                <p class="local-storage-warning">
+                    Warning: editing values here can break the app if invalid data is saved.
+                </p>
+
+                <div class="form-group">
+                    <label for="localStorageEditor">Key/Value JSON</label>
+                    <textarea id="localStorageEditor" class="local-storage-editor" rows="14" spellcheck="false"></textarea>
+                    <small style="color:#888; font-size:12px;">
+                        Use a JSON object where each property is a localStorage key.
+                        Values can be strings, numbers, booleans, arrays, or objects.
+                    </small>
+                </div>
+
+                <div class="local-storage-actions">
+                    <button id="reloadLocalStorageBtn" class="btn-secondary">Reload Values</button>
+                    <button id="saveLocalStorageBtn" class="btn-primary">Save Changes</button>
+                </div>
+
+                <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
+                <button id="resetAppBtn" class="btn-danger" style="width:100%;">Erase All / Reset App</button>
             </div>
         </div>
 
