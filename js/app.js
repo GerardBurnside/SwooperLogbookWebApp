@@ -1888,7 +1888,7 @@ class SkydivingLogbook {
                 }
             });
         });
-        html += this.renderComponentStats('Canopy Totals', canopyStats);
+        html += this.renderComponentStats('Canopy Totals', canopyStats, true);
         
         container.innerHTML = html;
     }
@@ -1898,7 +1898,7 @@ class SkydivingLogbook {
         this.renderStats();
     }
 
-    renderComponentStats(title, statsObject) {
+    renderComponentStats(title, statsObject, useStackedLayout = false) {
         const statsArray = Object.entries(statsObject)
             .map(([name, count]) => ({ name, count }))
             .sort((a, b) => b.count - a.count);
@@ -1915,7 +1915,7 @@ class SkydivingLogbook {
                 const percentage = (stat.count / maxCount) * 100;
                 html += `
                     <div class="stat-item">
-                        <div class="stat-info">
+                        <div class="stat-info${useStackedLayout ? ' stat-info-stacked' : ''}">
                             <span class="stat-name">${stat.name}</span>
                             <span class="stat-count">${stat.count} jumps</span>
                         </div>
