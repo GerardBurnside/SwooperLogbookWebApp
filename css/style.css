@@ -626,7 +626,7 @@ textarea {
     margin-bottom: 0.5rem;
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
 }
 
 .equipment-item.archived {
@@ -666,6 +666,64 @@ textarea {
     white-space: pre-line;
 }
 
+/* Lineset rows within canopy cards */
+.linesets-container {
+    margin-top: 0.5rem;
+    border-top: 1px solid #e9ecef;
+    padding-top: 0.5rem;
+}
+
+.lineset-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.35rem 0.5rem;
+    margin: 0.15rem 0;
+    background: #fff;
+    border-radius: 4px;
+    border: 1px solid #e9ecef;
+    font-size: 0.85rem;
+}
+
+.lineset-row.archived {
+    opacity: 0.55;
+    background: #fafafa;
+    border-style: dashed;
+}
+
+.lineset-info {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.lineset-jumps {
+    color: #2196F3;
+    font-weight: 500;
+    font-size: 0.8rem;
+}
+
+.lineset-actions {
+    display: flex;
+    gap: 0.25rem;
+    flex-shrink: 0;
+}
+
+.hybrid-badge {
+    background: #9c27b0;
+    color: white;
+    padding: 0.05rem 0.4rem;
+    border-radius: 8px;
+    font-size: 0.7rem;
+    font-weight: 500;
+}
+
+.lineset-hint {
+    display: block;
+    margin-top: 4px;
+}
+
 .archived-badge {
     background: #ff9800;
     color: white;
@@ -690,6 +748,11 @@ textarea {
     margin-right: 0.5rem;
     cursor: pointer;
     font-size: 0.9rem;
+}
+
+.btn-sm {
+    padding: 0.15rem 0.4rem;
+    font-size: 0.78rem;
 }
 
 .btn-edit:hover {

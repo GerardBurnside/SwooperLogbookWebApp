@@ -273,7 +273,8 @@ class SheetsAPI {
         // Persist equipment to localStorage
         if (d.harnesses)  localStorage.setItem('skydiving-harnesses',      JSON.stringify(d.harnesses));
         if (d.canopies)   localStorage.setItem('skydiving-canopies',       JSON.stringify(d.canopies));
-        if (d.rigs)       localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(d.rigs));
+        // If the sheet still has old-format rigs, store them so the migration runs on apply
+        if (d.rigs && d.rigs.length > 0) localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(d.rigs));
         if (d.locations)  localStorage.setItem('skydiving-locations',      JSON.stringify(d.locations));
         if (d.settings)   localStorage.setItem('skydiving-settings',       JSON.stringify(d.settings));
 
@@ -298,13 +299,20 @@ class SheetsAPI {
         if (logbook) {
             if (d.harnesses)  logbook.harnesses     = d.harnesses;
             if (d.canopies)   logbook.canopies      = d.canopies;
-            if (d.rigs)       logbook.equipmentRigs = d.rigs;
             if (d.settings)   logbook.settings      = d.settings;
             if (d.locations)  logbook.locations     = d.locations;
 
+            // Run migration if sheet had old-format rigs
+            logbook.migrateFromRigsToCanopyLinesets();
+            // Ensure all canopies have linesets
+            logbook.canopies.forEach(c => {
+                if (!Array.isArray(c.linesets)) c.linesets = [];
+                if (c.linesets.length === 0) c.linesets.push({ number: 1, hybrid: false, previousJumps: 0, jumpCount: 0, archived: false });
+            });
+
             logbook.jumps = mergedJumps;
             logbook.renumberJumps();
-            logbook.initializeEquipmentJumpCounts();
+            logbook.initializeCanopyLinesetJumpCounts();
             logbook.updateEquipmentOptions();
             logbook.updateLocationDatalist();
             logbook.updateStats();
@@ -429,19 +437,12 @@ class SheetsAPI {
         const logbook = window.logbook;
         if (!logbook) return;
 
-        // Safety: never push an empty rigs array – it would erase the sheet.
-        // Omit the key so the Apps Script side leaves the existing data intact.
-        const rigsToSend = (logbook.equipmentRigs && logbook.equipmentRigs.length > 0)
-            ? logbook.equipmentRigs
-            : undefined;
-
         const payload = {
             harnesses:    logbook.harnesses,
             canopies:     logbook.canopies,
             settings:     logbook.settings,
             locations:    logbook.locations
         };
-        if (rigsToSend)    payload.rigs       = rigsToSend;
         if (dataModified)  payload._syncMeta = { dataModified };
 
         try {
@@ -515,18 +516,25 @@ class SheetsAPI {
         // Overwrite localStorage
         if (d.harnesses)  localStorage.setItem('skydiving-harnesses',       JSON.stringify(d.harnesses));
         if (d.canopies)   localStorage.setItem('skydiving-canopies',        JSON.stringify(d.canopies));
-        if (d.rigs)       localStorage.setItem('skydiving-equipment-rigs',  JSON.stringify(d.rigs));
+        if (d.rigs && d.rigs.length > 0) localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(d.rigs));
         if (d.settings)   localStorage.setItem('skydiving-settings',        JSON.stringify(d.settings));
         if (d.locations)  localStorage.setItem('skydiving-locations',       JSON.stringify(d.locations));
 
         // Apply to live logbook instance
         const logbook = window.logbook;
         if (logbook) {
-            if (d.harnesses)  logbook.harnesses     = d.harnesses;
-            if (d.canopies)   logbook.canopies      = d.canopies;
-            if (d.rigs)       logbook.equipmentRigs  = d.rigs;
+            if (d.harnesses)  logbook.harnesses      = d.harnesses;
+            if (d.canopies)   logbook.canopies       = d.canopies;
             if (d.settings)   logbook.settings       = d.settings;
             if (d.locations)  logbook.locations       = d.locations;
+
+            // Run migration if backup had old-format rigs
+            logbook.migrateFromRigsToCanopyLinesets();
+            logbook.canopies.forEach(c => {
+                if (!Array.isArray(c.linesets)) c.linesets = [];
+                if (c.linesets.length === 0) c.linesets.push({ number: 1, hybrid: false, previousJumps: 0, jumpCount: 0, archived: false });
+            });
+            logbook.initializeCanopyLinesetJumpCounts();
 
             logbook.updateEquipmentOptions();
             logbook.updateLocationDatalist();
@@ -581,12 +589,14 @@ class SheetsAPI {
         
         // Prepare the data for upload
         const jumpData = jumps.map(jump => {
-            // Get equipment name from rig
+            // Resolve canopy name + lineset for human-readable display
             let equipmentName = jump.equipment;
             if (window.logbook) {
-                const rig = window.logbook.equipmentRigs.find(eq => eq.id === jump.equipment);
-                if (rig) {
-                    equipmentName = rig.name;
+                const canopy = window.logbook.canopies.find(c => c.id === jump.equipment);
+                if (canopy) {
+                    const ls = canopy.linesets?.find(l => l.number === jump.linesetNumber);
+                    const hybridSuffix = ls?.hybrid ? ' (Hybrid)' : '';
+                    equipmentName = `${canopy.name}-Lineset#${jump.linesetNumber || 1}${hybridSuffix}`;
                 }
             }
             
@@ -595,7 +605,7 @@ class SheetsAPI {
                 date: jump.date,
                 location: jump.location,
                 equipment: equipmentName,
-                equipmentId: jump.equipment,  // preserve rig ID for round-trip
+                equipmentId: jump.equipment,  // preserve canopy ID for round-trip
                 notes: jump.notes,
                 timestamp: jump.timestamp
             };
