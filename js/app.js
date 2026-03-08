@@ -607,7 +607,7 @@ class SkydivingLogbook {
         jumps.forEach(jump => {
             const key = `${jump.date}|${jump.location || ''}`;
             if (!groupMap.has(key)) {
-                const d = new Date(jump.date);
+                const d = new Date(jump.date + 'T00:00:00');
                 const entry = {
                     dateLabel: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
                     location: jump.location || '',
