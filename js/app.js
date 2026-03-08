@@ -401,7 +401,10 @@ class SkydivingLogbook {
                 const newId = 'loc_' + Date.now();
                 const newLoc = { id: newId, name: jump.location, lat: null, lng: null };
                 this.locations.push(newLoc);
-                this.saveComponentsToLocalStorage();
+                // Write directly to localStorage (avoid saveComponentsToLocalStorage
+                // which fires a competing syncEquipmentToSheet request).
+                // pushAllWithGuard at the end of addJump will sync everything.
+                localStorage.setItem('skydiving-locations', JSON.stringify(this.locations));
                 this.updateLocationDatalist();
                 this.geocodeLocation(newLoc);
             }
@@ -412,7 +415,9 @@ class SkydivingLogbook {
             const equipment = this.equipmentRigs.find(eq => eq.id === jump.equipment);
             if (equipment) {
                 equipment.jumpCount = (equipment.jumpCount || 0) + 1;
-                this.saveComponentsToLocalStorage();
+                // Write directly to localStorage to avoid firing a competing
+                // syncEquipmentToSheet request. pushAllWithGuard handles the push.
+                localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(this.equipmentRigs));
             }
         }
         
@@ -1961,6 +1966,13 @@ class SkydivingLogbook {
             toast.classList.remove('toast-visible');
             toast.addEventListener('transitionend', () => toast.remove(), { once: true });
         }, 3000);
+    }
+
+    showSyncConflictModal() {
+        this.showMessage(
+            'Sync conflict: local changes were merged with data from Google Sheets.',
+            'info'
+        );
     }
 }
 

@@ -5,6 +5,7 @@ class SheetsAPI {
         this.spreadsheetId = ''; // Will be loaded from config
         this.initialized = false;
         this._pollTimer = null; // handle for the 2-minute background poll
+        this._syncInProgress = false; // mutex to prevent overlapping sync operations
         
         // Expose a promise that resolves when setup is complete
         this.ready = this.setupAPI();
@@ -107,6 +108,12 @@ class SheetsAPI {
      */
     async doStartupSync() {
         if (!this.initialized) return;
+        if (this._syncInProgress) {
+            console.log('[Startup] Sync skipped — another sync in progress');
+            this._schedulePoll();
+            return;
+        }
+        this._syncInProgress = true;
 
         this._cancelPoll();
         this.updateSyncStatus('Syncing...');
@@ -136,7 +143,7 @@ class SheetsAPI {
 
             if (sheetIsNewer) {
                 if (hasPending) {
-                    console.warn('[Startup] Conflict — sheet is newer, pending local changes discarded');
+                    console.warn('[Startup] Conflict — sheet is newer but local has changes, merging...');
                 } else {
                     console.log('[Startup] Sheet is newer, pulling all data...');
                 }
@@ -147,7 +154,14 @@ class SheetsAPI {
                 }
             } else if (hasPending) {
                 console.log('[Startup] Pending local changes, pushing...');
-                await this.pushAllWithGuard();
+                // Push directly (we already checked timestamps — no conflict)
+                const newTs   = new Date().toISOString();
+                const logbook = window.logbook;
+                await this.uploadAllJumps(logbook?.jumps || []);
+                await this.syncEquipmentToSheet(newTs);
+                localStorage.setItem('skydiving-data-synced', newTs);
+                localStorage.setItem('skydiving-data-modified', newTs);
+                console.log('[Sync] Startup push complete, ts:', newTs);
             }
 
             this.updateSyncStatus('Online');
@@ -156,6 +170,7 @@ class SheetsAPI {
             this.updateSyncStatus('Sync failed');
             setTimeout(() => this.updateSyncStatus('Online'), 3000);
         } finally {
+            this._syncInProgress = false;
             this._schedulePoll();
         }
     }
@@ -176,6 +191,11 @@ class SheetsAPI {
      */
     async pushAllWithGuard() {
         if (!this.initialized || !navigator.onLine) return;
+        if (this._syncInProgress) {
+            console.log('[Sync] Push skipped — another sync in progress');
+            return;
+        }
+        this._syncInProgress = true;
 
         this.updateSyncStatus('Syncing...');
 
@@ -195,11 +215,9 @@ class SheetsAPI {
             const localSynced = localStorage.getItem('skydiving-data-synced') || '';
 
             if (sheetTs && sheetTs > localSynced) {
-                // Conflict: sheet was updated since our last sync — pull & notify
-                console.warn('[Sync] Conflict detected — sheet is newer, aborting push');
+                // Sheet updated since our last sync — merge instead of blindly pushing
+                console.warn('[Sync] Sheet is newer — pulling and merging');
                 await this._pullAllFromSheet(d, sheetTs);
-                const logbook = window.logbook;
-                if (logbook) logbook.showSyncConflictModal();
                 this.updateSyncStatus('Online');
                 return;
             }
@@ -212,6 +230,7 @@ class SheetsAPI {
 
             // Record this push as the new sync baseline
             localStorage.setItem('skydiving-data-synced', newTs);
+            localStorage.setItem('skydiving-data-modified', newTs);
 
             this.updateSyncStatus('Synced');
             setTimeout(() => this.updateSyncStatus('Online'), 2000);
@@ -220,6 +239,8 @@ class SheetsAPI {
             console.error('[Sync] pushAllWithGuard failed:', error);
             this.updateSyncStatus('Sync failed');
             setTimeout(() => this.updateSyncStatus('Online'), 3000);
+        } finally {
+            this._syncInProgress = false;
         }
     }
 
@@ -230,6 +251,25 @@ class SheetsAPI {
     async _pullAllFromSheet(d, sheetDataModified) {
         const logbook = window.logbook;
 
+        // Snapshot local jumps BEFORE the async getAllJumps fetch, so a concurrent
+        // addJump that runs during the await is not silently discarded.
+        const localJumps = logbook ? [...logbook.jumps]
+            : JSON.parse(localStorage.getItem('skydiving-jumps') || '[]');
+
+        // Merge deletedJumpTimestamps from both local and sheet settings
+        const localSettings = logbook ? logbook.settings
+            : JSON.parse(localStorage.getItem('skydiving-settings') || '{}');
+        const sheetSettings = d.settings || {};
+        const deletedTimestamps = [...new Set([
+            ...(localSettings.deletedJumpTimestamps || []),
+            ...(sheetSettings.deletedJumpTimestamps || [])
+        ])];
+
+        // Write the merged deletions back into the sheet settings before persisting
+        if (d.settings) {
+            d.settings.deletedJumpTimestamps = deletedTimestamps;
+        }
+
         // Persist equipment to localStorage
         if (d.harnesses)  localStorage.setItem('skydiving-harnesses',      JSON.stringify(d.harnesses));
         if (d.canopies)   localStorage.setItem('skydiving-canopies',       JSON.stringify(d.canopies));
@@ -237,14 +277,22 @@ class SheetsAPI {
         if (d.locations)  localStorage.setItem('skydiving-locations',      JSON.stringify(d.locations));
         if (d.settings)   localStorage.setItem('skydiving-settings',       JSON.stringify(d.settings));
 
-        // Fetch and persist jumps from sheet
+        // Fetch jumps from sheet and MERGE with local jumps to prevent data loss
         const sheetJumps = await this.getAllJumps();
-        localStorage.setItem('skydiving-jumps', JSON.stringify(sheetJumps));
+        const mergedJumps = this._mergeJumps(localJumps, sheetJumps, deletedTimestamps);
+        localStorage.setItem('skydiving-jumps', JSON.stringify(mergedJumps));
 
-        // Stamp both timestamp keys — local is now in sync with the sheet
+        // Stamp sync baseline
         const ts = sheetDataModified || new Date().toISOString();
-        localStorage.setItem('skydiving-data-modified', ts);
         localStorage.setItem('skydiving-data-synced', ts);
+
+        if (mergedJumps.length > sheetJumps.length) {
+            // Local had jumps the sheet didn't — schedule a push on the next cycle
+            console.log(`[Sync] Merge recovered ${mergedJumps.length - sheetJumps.length} local-only jump(s)`);
+            localStorage.setItem('skydiving-data-modified', new Date().toISOString());
+        } else {
+            localStorage.setItem('skydiving-data-modified', ts);
+        }
 
         // Apply to live logbook instance
         if (logbook) {
@@ -254,7 +302,8 @@ class SheetsAPI {
             if (d.settings)   logbook.settings      = d.settings;
             if (d.locations)  logbook.locations     = d.locations;
 
-            logbook.jumps = sheetJumps;
+            logbook.jumps = mergedJumps;
+            logbook.renumberJumps();
             logbook.initializeEquipmentJumpCounts();
             logbook.updateEquipmentOptions();
             logbook.updateLocationDatalist();
@@ -264,7 +313,36 @@ class SheetsAPI {
             logbook.preFillFormWithLastJump();
         }
 
-        console.log('[Sync] Pulled all data from sheet, ts:', ts);
+        console.log('[Sync] Pulled and merged data from sheet, ts:', ts);
+    }
+
+    /**
+     * Merge local jumps with sheet jumps by timestamp, preserving local-only
+     * jumps that haven't been pushed to the sheet yet.
+     */
+    _mergeJumps(localJumps, sheetJumps, deletedTimestamps) {
+        const deletedSet = new Set(deletedTimestamps);
+
+        // Collect sheet jump timestamps for fast lookup
+        const sheetTimestamps = new Set(
+            sheetJumps.map(j => j.timestamp).filter(Boolean)
+        );
+
+        // Start with all sheet jumps (minus deleted)
+        const merged = sheetJumps.filter(j =>
+            !j.timestamp || !deletedSet.has(j.timestamp)
+        );
+
+        // Add local-only jumps (those with timestamps not on the sheet)
+        for (const j of localJumps) {
+            if (j.timestamp
+                && !deletedSet.has(j.timestamp)
+                && !sheetTimestamps.has(j.timestamp)) {
+                merged.push(j);
+            }
+        }
+
+        return merged;
     }
 
     /**
@@ -274,17 +352,46 @@ class SheetsAPI {
      */
     async doPendingPush() {
         if (!this.initialized || !navigator.onLine) return;
+        if (this._syncInProgress) return;
+        this._syncInProgress = true;
 
-        const localModified = localStorage.getItem('skydiving-data-modified') || '';
-        const localSynced   = localStorage.getItem('skydiving-data-synced') || '';
-
-        if (localModified && localModified > localSynced) {
-            await this.pushAllWithGuard();
-            return;
-        }
-
-        // No pending changes — quietly check if the sheet is newer
         try {
+            const localModified = localStorage.getItem('skydiving-data-modified') || '';
+            const localSynced   = localStorage.getItem('skydiving-data-synced') || '';
+
+            if (localModified && localModified > localSynced) {
+                // There are pending local changes — push them
+                this.updateSyncStatus('Syncing...');
+                const response = await fetch(this.webAppUrl + '?action=getEquipment', {
+                    method: 'GET',
+                    redirect: 'follow'
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const result = await response.json();
+                if (result.error) throw new Error(result.error);
+
+                const d       = result.data || {};
+                const sheetTs = (d._syncMeta && d._syncMeta.dataModified) || '';
+
+                if (sheetTs && sheetTs > localSynced) {
+                    // Conflict: merge rather than blindly pushing
+                    console.warn('[Poll] Sheet is newer — pulling and merging');
+                    await this._pullAllFromSheet(d, sheetTs);
+                } else {
+                    const newTs   = new Date().toISOString();
+                    const logbook = window.logbook;
+                    await this.uploadAllJumps(logbook?.jumps || []);
+                    await this.syncEquipmentToSheet(newTs);
+                    localStorage.setItem('skydiving-data-synced', newTs);
+                    localStorage.setItem('skydiving-data-modified', newTs);
+                    console.log('[Poll] Push complete, ts:', newTs);
+                }
+                this.updateSyncStatus('Synced');
+                setTimeout(() => this.updateSyncStatus('Online'), 2000);
+                return;
+            }
+
+            // No pending changes — quietly check if the sheet is newer
             const response = await fetch(this.webAppUrl + '?action=getEquipment', {
                 method: 'GET',
                 redirect: 'follow'
@@ -297,14 +404,18 @@ class SheetsAPI {
             const d       = result.data || {};
             const sheetTs = (d._syncMeta && d._syncMeta.dataModified) || '';
             if (sheetTs && sheetTs > localSynced) {
-                console.log('[Poll] Sheet is newer, pulling...');
+                console.log('[Poll] Sheet is newer, pulling and merging...');
                 this.updateSyncStatus('Syncing...');
                 await this._pullAllFromSheet(d, sheetTs);
                 this.updateSyncStatus('Synced');
                 setTimeout(() => this.updateSyncStatus('Online'), 2000);
             }
         } catch (error) {
-            console.warn('[Poll] doPendingPush check failed:', error);
+            console.warn('[Poll] doPendingPush failed:', error);
+            this.updateSyncStatus('Sync failed');
+            setTimeout(() => this.updateSyncStatus('Online'), 3000);
+        } finally {
+            this._syncInProgress = false;
         }
     }
 
