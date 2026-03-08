@@ -1858,7 +1858,7 @@ class SkydivingLogbook {
                     : `${stat.count} jumps`;
                 html += `
                     <div class="stat-item${stat.archived ? ' archived' : ''}">
-                        <div class="stat-info">
+                        <div class="stat-info stat-info-stacked">
                             <span class="stat-name">${stat.name} ${stat.archived ? '(Archived)' : ''}</span>
                             <span class="stat-count">${breakdown}</span>
                         </div>
