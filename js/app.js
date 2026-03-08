@@ -262,6 +262,13 @@ class SkydivingLogbook {
             this.closeSheetsModal();
         });
 
+        const jumpNoteClose = document.getElementById('jumpNoteClose');
+        if (jumpNoteClose) {
+            jumpNoteClose.addEventListener('click', () => {
+                this.closeJumpNotePopup();
+            });
+        }
+
         document.getElementById('saveSheetsConfig').addEventListener('click', () => {
             this.saveSheetsConfig();
         });
@@ -361,6 +368,7 @@ class SkydivingLogbook {
             const linesetModal = document.getElementById('linesetModal');
             const componentModal = document.getElementById('componentModal');
             const sheetsModal = document.getElementById('sheetsModal');
+            const jumpNoteModal = document.getElementById('jumpNoteModal');
             if (e.target === settingsModal) {
                 this.closeModal();
             }
@@ -372,6 +380,9 @@ class SkydivingLogbook {
             }
             if (e.target === sheetsModal) {
                 this.closeSheetsModal();
+            }
+            if (e.target === jumpNoteModal) {
+                this.closeJumpNotePopup();
             }
         });
     }
@@ -624,10 +635,34 @@ class SkydivingLogbook {
                 <div class="day-location-header">
                     <span class="day-date">${group.dateLabel}</span>
                     ${group.location ? `<span class="day-location">📍 ${group.location}</span>` : ''}
+                    <span class="day-jump-range">${this.getJumpRangeLabel(group.jumps)}</span>
                 </div>
                 ${group.jumps.map(j => this.createJumpRowHTML(j)).join('')}
             </div>
         `).join('');
+    }
+
+    getJumpRangeLabel(jumps) {
+        if (!Array.isArray(jumps) || jumps.length === 0) return '';
+
+        const jumpNumbers = jumps
+            .map(j => Number(j.jumpNumber))
+            .filter(n => Number.isFinite(n));
+
+        if (jumpNumbers.length === 0) return '';
+
+        const highest = Math.max(...jumpNumbers);
+        const lowest = Math.min(...jumpNumbers);
+        return highest === lowest ? `#${highest}` : `#${highest}-#${lowest}`;
+    }
+
+    escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     createJumpRowHTML(jump) {
@@ -639,16 +674,38 @@ class SkydivingLogbook {
             canopyName = `${canopy.name} L#${jump.linesetNumber || 1}${hybridSuffix}`;
         }
 
-        const escapedNotes = jump.notes ? jump.notes.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;') : '';
+        const noteText = typeof jump.notes === 'string' ? jump.notes : '';
+        const compactNote = noteText.replace(/\s+/g, ' ').trim();
+        const hasNote = compactNote.length > 0;
+        const notePreview = hasNote
+            ? `${compactNote.slice(0, 15)}${compactNote.length > 15 ? '...' : ''}`
+            : '';
+        const encodedFullNote = hasNote ? encodeURIComponent(noteText) : '';
 
         return `
             <div class="jump-row">
                 <span class="jump-number">#${jump.jumpNumber}</span>
-                <span class="jump-canopy">🪂 ${canopyName}</span>
-                ${jump.notes ? `<span class="jump-notes-icon" title="${escapedNotes}">💭</span>` : ''}
+                <span class="jump-canopy">🪂 ${this.escapeHtml(canopyName)}</span>
+                ${hasNote ? `<button type="button" class="jump-note-preview" onclick="logbook.openJumpNotePopup('${encodedFullNote}')" title="View full note">${this.escapeHtml(notePreview)}</button>` : ''}
                 <button class="delete-jump-btn" onclick="logbook.deleteJump('${jump.id}')" title="Delete jump">❌</button>
             </div>
         `;
+    }
+
+    openJumpNotePopup(encodedNote) {
+        const modal = document.getElementById('jumpNoteModal');
+        const content = document.getElementById('jumpNoteContent');
+        if (!modal || !content) return;
+
+        const note = decodeURIComponent(encodedNote || '');
+        content.textContent = note;
+        modal.style.display = 'block';
+    }
+
+    closeJumpNotePopup() {
+        const modal = document.getElementById('jumpNoteModal');
+        if (!modal) return;
+        modal.style.display = 'none';
     }
 
     deleteJump(jumpId) {

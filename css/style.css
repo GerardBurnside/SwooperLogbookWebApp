@@ -520,6 +520,13 @@ textarea {
     text-overflow: ellipsis;
 }
 
+.day-jump-range {
+    margin-left: auto;
+    font-weight: 600;
+    color: #4f5d6b;
+    white-space: nowrap;
+}
+
 /* ── Jump row (compact single line) ── */
 .jump-row {
     display: flex;
@@ -550,10 +557,23 @@ textarea {
     white-space: nowrap;
 }
 
-.jump-notes-icon {
-    font-size: 0.8rem;
-    cursor: default;
+.jump-note-preview {
+    border: none;
+    background: #eef5ff;
+    color: #2a5b9c;
+    font-size: 0.78rem;
+    padding: 0.15rem 0.45rem;
+    border-radius: 999px;
+    cursor: pointer;
+    max-width: 9.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     flex-shrink: 0;
+}
+
+.jump-note-preview:hover {
+    background: #dfeeff;
 }
 
 .delete-jump-btn {
@@ -954,6 +974,18 @@ textarea {
     margin: 5% auto;
     max-height: 85vh;
     overflow-y: auto;
+}
+
+.jump-note-modal-content {
+    max-width: 460px;
+}
+
+.jump-note-content {
+    margin-top: 0.75rem;
+    color: #444;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
 /* Settings modal — scrollable on small screens */
