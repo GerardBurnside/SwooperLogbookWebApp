@@ -85,7 +85,13 @@ class AuthManager {
      * The returned Promise never resolves — the page navigates away immediately.
      */
     _signInWithRedirect(prompt = '') {
-        const redirectUri = window.location.origin + window.location.pathname;
+        // Normalise the redirect URI: strip index.html so it always matches
+        // the bare directory URL registered in Google Cloud Console.
+        let pathname = window.location.pathname;
+        if (pathname.endsWith('/index.html')) {
+            pathname = pathname.slice(0, -'index.html'.length);
+        }
+        const redirectUri = window.location.origin + pathname;
         const params = new URLSearchParams({
             client_id:              this._clientId,
             redirect_uri:           redirectUri,

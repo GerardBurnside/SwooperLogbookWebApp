@@ -436,6 +436,10 @@ class SheetsAPI {
         const mergedJumps = this._mergeJumps(localJumps, sheetJumps, deletedTimestamps);
         await DB.replaceAllJumps(mergedJumps);
 
+        // Detect whether tombstones removed any jumps that were still on the sheet.
+        const deletedSet = new Set(deletedTimestamps);
+        const tombstonedFromSheet = sheetJumps.some(j => j.timestamp && deletedSet.has(j.timestamp));
+
         const ts = sheetDataModified || new Date().toISOString();
         localStorage.setItem('skydiving-data-synced', ts);
 
@@ -467,6 +471,16 @@ class SheetsAPI {
             logbook.renderJumpsList();
             if (logbook.currentView === 'equipment') logbook.renderEquipmentView();
             logbook.preFillFormWithLastJump();
+        }
+
+        // If tombstones pruned jumps that were still in the sheet, re-upload the
+        // clean list immediately so the sheet reflects the deletions right away.
+        if (tombstonedFromSheet) {
+            console.log('[Sync] Tombstones pruned sheet jumps — re-uploading clean list');
+            const uploadTs = new Date().toISOString();
+            await this.uploadAllJumps(logbook ? logbook.jumps : mergedJumps);
+            localStorage.setItem('skydiving-data-synced', uploadTs);
+            localStorage.setItem('skydiving-data-modified', uploadTs);
         }
 
         console.log('[Sync] Pulled and merged data from sheet, ts:', ts);
