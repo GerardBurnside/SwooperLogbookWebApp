@@ -9,7 +9,7 @@ class SkydivingLogbook {
 
         this.settings = JSON.parse(localStorage.getItem('skydiving-settings')) || {
             startingJumpNumber: 1,
-            recentJumpsDays: 3,
+            recentJumpsDays: 7,
             standardRedThreshold: 160,
             standardOrangeThreshold: 140,
             hybridRedThreshold: 80,
@@ -17,7 +17,7 @@ class SkydivingLogbook {
         };
         // Backfill for existing saved settings that predate these fields
         if (this.settings.recentJumpsDays === undefined) {
-            this.settings.recentJumpsDays = 3;
+            this.settings.recentJumpsDays = 7;
         }
         if (this.settings.standardRedThreshold === undefined) {
             this.settings.standardRedThreshold = 160;
@@ -598,7 +598,8 @@ class SkydivingLogbook {
         // Cache older jumps for lazy "load more" rendering
         this._olderJumpsCache = olderJumps;
         const PAGE_SIZE = 100;
-        const initialOlder = olderJumps.slice(0, PAGE_SIZE);
+        const endIndex = this._findMonthCompleteIndex(olderJumps, PAGE_SIZE);
+        const initialOlder = olderJumps.slice(0, endIndex);
         this._renderedOlderCount = initialOlder.length;
 
         let html = '';
@@ -614,8 +615,9 @@ class SkydivingLogbook {
         }
 
         // "Load more" button if there are remaining older jumps
-        if (olderJumps.length > PAGE_SIZE) {
-            html += `<button class="btn-secondary load-more-btn" id="loadMoreJumpsBtn" onclick="logbook.loadMoreJumps()">Load more (${olderJumps.length - PAGE_SIZE} remaining)</button>`;
+        const remaining = olderJumps.length - this._renderedOlderCount;
+        if (remaining > 0) {
+            html += `<button class="btn-secondary load-more-btn" id="loadMoreJumpsBtn" onclick="logbook.loadMoreJumps()">Load more (${remaining} remaining)</button>`;
         }
 
         jumpsList.innerHTML = html;
@@ -652,15 +654,34 @@ class SkydivingLogbook {
         return html;
     }
 
+    /** Given an array of jumps sorted by jumpNumber desc, find the smallest index >= targetCount that sits on a month boundary. */
+    _findMonthCompleteIndex(jumps, targetCount) {
+        if (targetCount >= jumps.length) return jumps.length;
+        const lastDate = new Date(jumps[targetCount - 1].date);
+        const lastMonthKey = `${lastDate.getFullYear()}-${String(lastDate.getMonth() + 1).padStart(2, '0')}`;
+        let endIndex = targetCount;
+        while (endIndex < jumps.length) {
+            const d = new Date(jumps[endIndex].date);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            if (key !== lastMonthKey) break;
+            endIndex++;
+        }
+        return endIndex;
+    }
+
     /** Append the next page of older jumps to the list. */
     loadMoreJumps() {
         const PAGE_SIZE = 100;
-        const nextBatch = this._olderJumpsCache.slice(
-            this._renderedOlderCount,
+        const endIndex = this._findMonthCompleteIndex(
+            this._olderJumpsCache,
             this._renderedOlderCount + PAGE_SIZE
         );
+        const nextBatch = this._olderJumpsCache.slice(
+            this._renderedOlderCount,
+            endIndex
+        );
         if (nextBatch.length === 0) return;
-        this._renderedOlderCount += nextBatch.length;
+        this._renderedOlderCount = endIndex;
 
         // Remove existing load-more button
         const btn = document.getElementById('loadMoreJumpsBtn');
