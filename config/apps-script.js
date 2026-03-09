@@ -58,8 +58,30 @@ function getJumps() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Jumps');
   const data = sheet.getDataRange().getValues();
   
+  // getValues() returns native Date objects for date/time cells.
+  // JSON.stringify would turn them into full ISO timestamps which the app
+  // mis-parses.  Convert every Date to a plain string so the client
+  // receives exactly what was stored (e.g. "2026-03-08").
+  const sanitized = data.map(row =>
+    row.map(cell => {
+      if (cell instanceof Date) {
+        // Date-only cells (column B) → YYYY-MM-DD
+        // Timestamp cells (column F) → full ISO string
+        const y = cell.getFullYear();
+        const m = String(cell.getMonth() + 1).padStart(2, '0');
+        const d = String(cell.getDate()).padStart(2, '0');
+        const h = cell.getHours(), mi = cell.getMinutes(), s = cell.getSeconds(), ms = cell.getMilliseconds();
+        if (h === 0 && mi === 0 && s === 0 && ms === 0) {
+          return `${y}-${m}-${d}`;
+        }
+        return cell.toISOString();
+      }
+      return cell;
+    })
+  );
+  
   return ContentService
-    .createTextOutput(JSON.stringify({ data: data }))
+    .createTextOutput(JSON.stringify({ data: sanitized }))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
