@@ -508,7 +508,21 @@ textarea {
     background: #f0f3f6;
     font-size: 0.85rem;
     color: #555;
-    border-bottom: 1px solid #e9ecef;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s;
+}
+
+.day-location-header:hover {
+    background: #e4e8ed;
+}
+
+.day-group-arrow {
+    font-size: 0.7rem;
+    color: #555;
+    width: 0.85rem;
+    text-align: center;
+    flex-shrink: 0;
 }
 
 .day-date {

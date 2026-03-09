@@ -603,9 +603,9 @@ class SkydivingLogbook {
 
         let html = '';
 
-        // Render recent jumps grouped by day + location
+        // Render recent jumps grouped by day + location (latest day expanded)
         if (recentJumps.length > 0) {
-            html += this.renderDayLocationGroups(recentJumps);
+            html += this.renderDayLocationGroups(recentJumps, { expandFirst: true });
         }
 
         // Render initial page of older jumps grouped by month
@@ -693,7 +693,7 @@ class SkydivingLogbook {
         if (arrow) arrow.innerHTML = open ? '&#9654;' : '&#9660;';
     }
 
-    renderDayLocationGroups(jumps) {
+    renderDayLocationGroups(jumps, { expandFirst = false } = {}) {
         const groups = [];
         const groupMap = new Map();
         jumps.forEach(jump => {
@@ -701,6 +701,7 @@ class SkydivingLogbook {
             if (!groupMap.has(key)) {
                 const d = new Date(jump.date + 'T00:00:00');
                 const entry = {
+                    key,
                     dateLabel: d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }),
                     location: jump.location || '',
                     jumps: []
@@ -711,16 +712,32 @@ class SkydivingLogbook {
             groupMap.get(key).jumps.push(jump);
         });
 
-        return groups.map(group => `
+        return groups.map((group, i) => {
+            const expanded = expandFirst && i === 0;
+            const dayId = 'day-' + group.key.replace(/[^a-zA-Z0-9]/g, '_');
+            return `
             <div class="day-location-group">
-                <div class="day-location-header">
+                <div class="day-location-header" onclick="logbook.toggleDayGroup('${dayId}')">
+                    <span class="day-group-arrow" id="arrow-${dayId}">${expanded ? '&#9660;' : '&#9654;'}</span>
                     <span class="day-date">${group.dateLabel}</span>
                     ${group.location ? `<span class="day-location">📍 ${group.location}</span>` : ''}
                     <span class="day-jump-range">${this.getJumpCountLabel(group.jumps)}</span>
                 </div>
-                ${group.jumps.map(j => this.createJumpRowHTML(j)).join('')}
+                <div class="day-group-body" id="${dayId}" style="display:${expanded ? 'block' : 'none'};">
+                    ${group.jumps.map(j => this.createJumpRowHTML(j)).join('')}
+                </div>
             </div>
-        `).join('');
+        `;
+        }).join('');
+    }
+
+    toggleDayGroup(dayId) {
+        const body = document.getElementById(dayId);
+        const arrow = document.getElementById('arrow-' + dayId);
+        if (!body) return;
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : 'block';
+        if (arrow) arrow.innerHTML = open ? '&#9654;' : '&#9660;';
     }
 
     getJumpCountLabel(jumps) {
