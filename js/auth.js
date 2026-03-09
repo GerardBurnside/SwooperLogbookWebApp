@@ -3,7 +3,8 @@
 // ── Deployer configuration ──────────────────────────────────────────
 // Set your OAuth Client ID here. End users do NOT need to change this.
 // Create one at: Google Cloud Console → APIs & Services → Credentials
-const OAUTH_CLIENT_ID = '10848044869-5njrtqvdrrkjdihq0kc1mttnrl0g1lfn.apps.googleusercontent.com';
+//const OAUTH_CLIENT_ID = '10848044869-5njrtqvdrrkjdihq0kc1mttnrl0g1lfn.apps.googleusercontent.com';
+const OAUTH_CLIENT_ID = '174725674241-vnr83t2ck5avn6l9jeo9veud8heh9ptn.apps.googleusercontent.com';
 // ─────────────────────────────────────────────────────────────────────
 
 class AuthManager {
