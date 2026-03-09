@@ -212,7 +212,7 @@ class SkydivingLogbook {
             const multiplierInput = document.getElementById('jumpMultiplier');
             const parsed = parseInt(multiplierInput.value, 10);
             if (Number.isNaN(parsed)) return 1;
-            return Math.max(1, Math.min(99, parsed));
+            return Math.max(1, Math.min(150, parsed));
         };
 
         // Jump form submission
@@ -250,7 +250,7 @@ class SkydivingLogbook {
         document.getElementById('multiplierUp').addEventListener('click', () => {
             const input = document.getElementById('jumpMultiplier');
             const val = getValidMultiplier();
-            if (val < 99) input.value = val + 1;
+            if (val < 150) input.value = val + 1;
         });
         document.getElementById('multiplierDown').addEventListener('click', () => {
             const input = document.getElementById('jumpMultiplier');

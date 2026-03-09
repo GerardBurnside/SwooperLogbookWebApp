@@ -89,10 +89,26 @@ class SheetsAPI {
             // col 7 (row[6]) holds the rig ID written by the updated script;
             // fall back to row[3] (name string) for legacy rows without the ID column.
             const equipment = (row[6] && row[6] !== '') ? row[6] : row[3] || '';
+
+            // Normalize date to YYYY-MM-DD. Google Sheets getValues() returns
+            // Date objects for date cells which JSON.stringify serialises to
+            // full ISO timestamps ("2026-03-08T00:00:00.000Z"); the app
+            // expects plain "2026-03-08".
+            let date = '';
+            if (row[1]) {
+                const s = String(row[1]);
+                if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+                    date = s.slice(0, 10);
+                } else {
+                    const d = new Date(s);
+                    date = isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10);
+                }
+            }
+
             return {
                 id,
                 jumpNumber: parseInt(row[0]) || 0,
-                date: row[1] || '',
+                date,
                 location: row[2] || '',
                 equipment,
                 notes: row[4] || '',
