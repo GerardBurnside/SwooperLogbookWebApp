@@ -2095,8 +2095,8 @@ class SkydivingLogbook {
     updateOnlineStatus() {
         const syncStatus = document.getElementById('syncStatus');
         if (navigator.onLine) {
-            syncStatus.textContent = 'Online';
-            syncStatus.className = 'sync-status success';
+            syncStatus.textContent = 'Unsynced';
+            syncStatus.className = 'sync-status warning';
             this.hideOfflineIndicator();
         } else {
             syncStatus.textContent = 'Offline';

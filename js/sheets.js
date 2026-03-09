@@ -168,7 +168,7 @@ class SheetsAPI {
         } catch (error) {
             console.error('[Startup] Sync failed:', error);
             this.updateSyncStatus('Sync failed');
-            setTimeout(() => this.updateSyncStatus('Online'), 3000);
+            setTimeout(() => this.updateSyncStatus('Unsynced'), 3000);
         } finally {
             this._syncInProgress = false;
             this._schedulePoll();
@@ -238,7 +238,7 @@ class SheetsAPI {
         } catch (error) {
             console.error('[Sync] pushAllWithGuard failed:', error);
             this.updateSyncStatus('Sync failed');
-            setTimeout(() => this.updateSyncStatus('Online'), 3000);
+            setTimeout(() => this.updateSyncStatus('Unsynced'), 3000);
         } finally {
             this._syncInProgress = false;
         }
@@ -421,7 +421,7 @@ class SheetsAPI {
         } catch (error) {
             console.warn('[Poll] doPendingPush failed:', error);
             this.updateSyncStatus('Sync failed');
-            setTimeout(() => this.updateSyncStatus('Online'), 3000);
+            setTimeout(() => this.updateSyncStatus('Unsynced'), 3000);
         } finally {
             this._syncInProgress = false;
         }
@@ -646,6 +646,8 @@ class SheetsAPI {
                 syncElement.classList.add('syncing');
             } else if (status === 'Synced' || status === 'Online' || status === 'Ready') {
                 syncElement.classList.add('success');
+            } else if (status === 'Unsynced' || status === 'Not configured') {
+                syncElement.classList.add('warning');
             } else if (status.includes('failed') || status.includes('error')) {
                 syncElement.classList.add('error');
             }

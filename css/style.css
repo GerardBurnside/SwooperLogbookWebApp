@@ -64,6 +64,10 @@ header h1 {
     color: #c8e6c9;
 }
 
+.header-sync .sync-status.warning {
+    color: #ffe0b2;
+}
+
 .sync-btn {
     background: rgba(255, 255, 255, 0.2);
     border: none;
