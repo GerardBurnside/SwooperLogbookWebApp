@@ -1032,12 +1032,12 @@ class SkydivingLogbook {
         localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
         this.markEquipmentModified();
 
-        // Mark equipment dirty so an offline save is not overwritten on next sync.
-        localStorage.setItem('skydiving-equipment-dirty', '1');
+        // Mark data as locally modified so the background poller detects pending changes.
+        localStorage.setItem('skydiving-data-modified', new Date().toISOString());
 
-        // Push settings to Google Sheets if online
+        // Push settings to Google Sheets if online (with timestamp so _syncMeta is updated)
         if (navigator.onLine && window.SheetsAPI?.initialized) {
-            window.SheetsAPI.syncEquipmentToSheet();
+            window.SheetsAPI.syncEquipmentToSheet(new Date().toISOString());
         }
         
         this.closeModal();
@@ -1097,14 +1097,12 @@ class SkydivingLogbook {
             DB.replaceAll('locations', this.locations)
         ]).catch(err => console.error('[DB] Failed to save equipment:', err));
         this.markEquipmentModified();
-        // Mark equipment as locally modified so the next sync pushes instead of pulls.
-        // Startup code (jump-count init) must NOT call this method — it
-        // should write directly to localStorage to avoid falsely setting the dirty flag.
-        localStorage.setItem('skydiving-equipment-dirty', '1');
+        // Mark data as locally modified so the background poller detects pending changes.
+        localStorage.setItem('skydiving-data-modified', new Date().toISOString());
         
-        // Push to Google Sheets if online
+        // Push to Google Sheets if online (with timestamp so _syncMeta is updated)
         if (navigator.onLine && window.SheetsAPI?.initialized) {
-            window.SheetsAPI.syncEquipmentToSheet();
+            window.SheetsAPI.syncEquipmentToSheet(new Date().toISOString());
         }
     }
     

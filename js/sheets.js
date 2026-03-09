@@ -111,6 +111,7 @@ class SheetsAPI {
                 date,
                 location: row[2] || '',
                 equipment,
+                linesetNumber: parseInt(row[7]) || 1,
                 notes: row[4] || '',
                 timestamp
             };
@@ -623,7 +624,8 @@ class SheetsAPI {
                 equipment: equipmentName,
                 equipmentId: jump.equipment,  // preserve canopy ID for round-trip
                 notes: jump.notes,
-                timestamp: jump.timestamp
+                timestamp: jump.timestamp,
+                linesetNumber: jump.linesetNumber || 1
             };
         });
         

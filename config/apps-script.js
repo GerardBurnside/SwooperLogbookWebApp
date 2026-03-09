@@ -74,7 +74,8 @@ function addJump(jumpData) {
     jumpData.equipment,
     jumpData.notes,
     jumpData.timestamp,
-    jumpData.equipmentId || ''
+    jumpData.equipmentId || '',
+    jumpData.linesetNumber || 1
   ]);
   
   return ContentService
@@ -100,7 +101,8 @@ function uploadJumps(jumpsData) {
       jump.equipment,
       jump.notes,
       jump.timestamp,
-      jump.equipmentId || ''
+      jump.equipmentId || '',
+      jump.linesetNumber || 1
     ]);
   });
   
