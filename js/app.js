@@ -992,19 +992,25 @@ class SkydivingLogbook {
             return;
         }
 
+        const signInBtn = document.getElementById('googleSignInBtn');
         try {
+            // Disable button and show loading state
+            if (signInBtn) {
+                signInBtn.disabled = true;
+                signInBtn.textContent = 'Signing in…';
+            }
+
             // Configure AuthManager with the client ID if changed
             if (clientId !== window.AuthManager.clientId) {
                 await window.AuthManager.configure(clientId);
             }
 
-            this.showMessage('Signing in with Google...', 'info');
             await window.AuthManager.signIn();
 
             // If no spreadsheet exists yet, create one and push local data
             let spreadsheetId = localStorage.getItem('oauth-spreadsheet-id') || '';
             if (!spreadsheetId) {
-                this.showMessage('Creating your spreadsheet...', 'info');
+                if (signInBtn) signInBtn.textContent = 'Creating spreadsheet…';
                 spreadsheetId = await window.SheetsAPI.createSpreadsheet();
                 window.SheetsAPI.reinitialize(spreadsheetId);
 
@@ -1027,11 +1033,19 @@ class SkydivingLogbook {
             this.showMessage('Connected to Google Sheets!', 'success');
             this.openSheetsModal(); // refresh modal state
 
-            // Trigger a sync
-            window.SheetsAPI.syncWithSheet();
+            // Trigger a sync (fire-and-forget; errors logged inside)
+            window.SheetsAPI.syncWithSheet().catch(err =>
+                console.error('[Sheets] Post-connect sync failed:', err)
+            );
         } catch (error) {
             console.error('[Auth] Sign-in failed:', error);
             this.showMessage('Sign-in failed: ' + error.message, 'error');
+        } finally {
+            // Always restore button state
+            if (signInBtn) {
+                signInBtn.disabled = false;
+                signInBtn.textContent = 'Sign in with Google';
+            }
         }
     }
 

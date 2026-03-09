@@ -91,7 +91,8 @@ class AuthManager {
 
     _onTokenError(err) {
         console.error('[Auth] GIS error callback:', err);
-        this._rejectToken?.(err);
+        const msg = (err && err.message) || (err && err.type) || 'Unknown GIS error';
+        this._rejectToken?.(new Error(msg));
         this._resolveToken = null;
         this._rejectToken = null;
     }
@@ -117,8 +118,18 @@ class AuthManager {
             return Promise.reject(new Error('OAuth not configured — set a Client ID first'));
         }
         return new Promise((resolve, reject) => {
-            this._resolveToken = resolve;
-            this._rejectToken = reject;
+            // Timeout: if GIS callback never fires (popup blocked, origin mismatch, etc.)
+            const timeout = setTimeout(() => {
+                this._resolveToken = null;
+                this._rejectToken = null;
+                console.error('[Auth] Sign-in timed out after 120 s');
+                reject(new Error('Sign-in timed out. Make sure popups are allowed and try again.'));
+            }, 120000);
+
+            this._resolveToken = (token) => { clearTimeout(timeout); resolve(token); };
+            this._rejectToken  = (err)   => { clearTimeout(timeout); reject(err); };
+
+            console.log('[Auth] Requesting access token (consent prompt)...');
             this._tokenClient.requestAccessToken({ prompt: 'consent' });
         });
     }
@@ -129,8 +140,15 @@ class AuthManager {
             return Promise.reject(new Error('OAuth not configured'));
         }
         return new Promise((resolve, reject) => {
-            this._resolveToken = resolve;
-            this._rejectToken = reject;
+            const timeout = setTimeout(() => {
+                this._resolveToken = null;
+                this._rejectToken = null;
+                reject(new Error('Silent refresh timed out'));
+            }, 15000);
+
+            this._resolveToken = (token) => { clearTimeout(timeout); resolve(token); };
+            this._rejectToken  = (err)   => { clearTimeout(timeout); reject(err); };
+
             this._tokenClient.requestAccessToken({ prompt: '' });
         });
     }
