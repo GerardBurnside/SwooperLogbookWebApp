@@ -1031,7 +1031,7 @@ class SkydivingLogbook {
             }
 
             this.showMessage('Connected to Google Sheets!', 'success');
-            this.openSheetsModal(); // refresh modal state
+            this.closeSheetsModal(); // close settings and return to main view
 
             // Trigger a sync (fire-and-forget; errors logged inside)
             window.SheetsAPI.syncWithSheet().catch(err =>
