@@ -1,99 +1,200 @@
-// Google Sheets API Integration via Apps Script
+// Google Sheets API v4 Integration via OAuth (replaces Apps Script proxy)
+// Requires js/auth.js (AuthManager) to be loaded first.
+
+const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
+
 class SheetsAPI {
     constructor() {
-        this.webAppUrl = ''; // Will be loaded from config
-        this.spreadsheetId = ''; // Will be loaded from config
+        this.spreadsheetId = '';
         this.initialized = false;
-        this._pollTimer = null; // handle for the 2-minute background poll
-        this._syncInProgress = false; // mutex to prevent overlapping sync operations
-        
-        // Expose a promise that resolves when setup is complete
+        this._pollTimer = null;
+        this._syncInProgress = false;
+
+        // Legacy Apps Script support for migration detection
+        this.webAppUrl = '';
+
         this.ready = this.setupAPI();
     }
 
+    // ── Initialisation ──────────────────────────────────────────────────
+
     async setupAPI() {
         try {
-            // Load config from local file
-            const config = await this.loadConfig();
-            this.webAppUrl = config.webAppUrl;
-            this.spreadsheetId = config.spreadsheetId;
-            
-            if (this.webAppUrl) {
+            // Detect legacy Apps Script config (for migration)
+            const legacyCfg = JSON.parse(localStorage.getItem('sheets-config') || '{}');
+            if (legacyCfg.webAppUrl) {
+                this.webAppUrl = legacyCfg.webAppUrl;
+            }
+
+            // Load OAuth-based spreadsheet ID
+            this.spreadsheetId = localStorage.getItem('oauth-spreadsheet-id') || '';
+
+            await window.AuthManager.ready;
+
+            if (this.spreadsheetId && window.AuthManager.isSignedIn()) {
                 this.initialized = true;
-                console.log('Google Apps Script API initialized');
+                console.log('[Sheets] OAuth API initialised, spreadsheet:', this.spreadsheetId);
+                this.updateSyncStatus('Ready');
+            } else if (this.spreadsheetId) {
+                // Have a sheet but no active token — will try silent refresh on sync
+                this.initialized = true;
+                console.log('[Sheets] Spreadsheet configured, token will refresh on sync');
                 this.updateSyncStatus('Ready');
             } else {
-                console.log('Google Apps Script API not configured');
-                this.updateSyncStatus('Not configured');
+                console.log('[Sheets] Not configured — sign in to enable sync');
+                this.updateSyncStatus('Not signed in');
             }
         } catch (error) {
-            console.error('Failed to initialize Google Apps Script API:', error);
+            console.error('[Sheets] Setup failed:', error);
             this.updateSyncStatus('Configuration error');
         }
     }
 
-    async loadConfig() {
-        const config = localStorage.getItem('sheets-config');
-        return config ? JSON.parse(config) : {};
-    }
-
-    /**
-     * Re-initialize the API with new credentials (called from Settings).
-     */
-    reinitialize(webAppUrl, spreadsheetId) {
-        this.webAppUrl = webAppUrl || '';
+    /** Re-initialise after OAuth sign-in or spreadsheet creation. */
+    reinitialize(spreadsheetId) {
         this.spreadsheetId = spreadsheetId || '';
+        if (spreadsheetId) {
+            localStorage.setItem('oauth-spreadsheet-id', spreadsheetId);
+        }
 
-        if (this.webAppUrl) {
+        if (this.spreadsheetId) {
             this.initialized = true;
-            console.log('Google Apps Script API re-initialized with new config');
+            console.log('[Sheets] Re-initialised with spreadsheet:', this.spreadsheetId);
             this.updateSyncStatus('Ready');
         } else {
             this.initialized = false;
-            this.updateSyncStatus('Not configured');
+            this.updateSyncStatus('Not signed in');
         }
     }
 
-    async getAllJumps() {
-        if (!this.initialized) {
-            throw new Error('API not initialized');
+    // ── Sheets API v4 transport layer ───────────────────────────────────
+
+    /**
+     * Make an authenticated request to the Google Sheets API v4.
+     * Handles token refresh and 401 retry automatically.
+     */
+    async _apiCall(method, path, body = null, retry = true) {
+        const token = await window.AuthManager.getValidToken();
+        const url = `${SHEETS_API}/${this.spreadsheetId}${path}`;
+
+        const opts = {
+            method,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+        };
+        if (body !== null) {
+            opts.body = JSON.stringify(body);
         }
 
-        const response = await fetch(this.webAppUrl + '?action=getJumps', {
-            method: 'GET',
-            redirect: 'follow'
+        const resp = await fetch(url, opts);
+
+        if (resp.status === 401 && retry) {
+            // Token was rejected — force refresh and retry once
+            console.warn('[Sheets] 401 — refreshing token and retrying');
+            await window.AuthManager.silentRefresh();
+            return this._apiCall(method, path, body, false);
+        }
+
+        if (!resp.ok) {
+            const text = await resp.text().catch(() => '');
+            throw new Error(`Sheets API ${resp.status}: ${text}`);
+        }
+
+        // Some calls (e.g. clear) may return empty body
+        const ct = resp.headers.get('content-type') || '';
+        return ct.includes('application/json') ? resp.json() : {};
+    }
+
+    // ── Spreadsheet creation ────────────────────────────────────────────
+
+    /**
+     * Create a new spreadsheet in the user's Drive with the required structure.
+     * Returns the new spreadsheetId.
+     */
+    async createSpreadsheet() {
+        const token = await window.AuthManager.getValidToken();
+        const email = window.AuthManager.userEmail || 'User';
+
+        const body = {
+            properties: { title: `Swooper Logbook — ${email}` },
+            sheets: [
+                {
+                    properties: { title: 'Jumps', index: 0 },
+                    data: [{
+                        startRow: 0, startColumn: 0,
+                        rowData: [{
+                            values: [
+                                'Jump Number', 'Date', 'Location', 'Equipment',
+                                'Notes', 'Timestamp', 'Equipment ID', 'Lineset Number'
+                            ].map(v => ({ userEnteredValue: { stringValue: v } }))
+                        }]
+                    }]
+                },
+                {
+                    properties: { title: 'Equipment', index: 1 },
+                    data: [{
+                        startRow: 0, startColumn: 0,
+                        rowData: [
+                            { values: [{ userEnteredValue: { stringValue: 'harnesses' } }, { userEnteredValue: { stringValue: '[]' } }] },
+                            { values: [{ userEnteredValue: { stringValue: 'canopies' } },  { userEnteredValue: { stringValue: '[]' } }] },
+                            { values: [{ userEnteredValue: { stringValue: 'rigs' } },      { userEnteredValue: { stringValue: '[]' } }] },
+                            { values: [{ userEnteredValue: { stringValue: 'settings' } },  { userEnteredValue: { stringValue: '{}' } }] },
+                            { values: [{ userEnteredValue: { stringValue: 'locations' } }, { userEnteredValue: { stringValue: '[]' } }] },
+                            { values: [{ userEnteredValue: { stringValue: '_syncMeta' } }, { userEnteredValue: { stringValue: '{}' } }] },
+                        ]
+                    }]
+                }
+            ]
+        };
+
+        const resp = await fetch(SHEETS_API, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
         });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+
+        if (!resp.ok) {
+            const text = await resp.text().catch(() => '');
+            throw new Error(`Create spreadsheet failed ${resp.status}: ${text}`);
         }
 
-        const result = await response.json();
-        
-        if (result.error) {
-            throw new Error(result.error);
-        }
+        const result = await resp.json();
+        const newId = result.spreadsheetId;
 
-        if (!result.data || result.data.length === 0) {
-            return [];
-        }
+        localStorage.setItem('oauth-spreadsheet-id', newId);
+        this.spreadsheetId = newId;
+        this.initialized = true;
 
-        // Convert to jump objects (skip header row)
-        const rows = result.data.slice(1);
+        console.log('[Sheets] Created spreadsheet:', newId);
+        return newId;
+    }
+
+    // ── Read operations (Sheets API v4) ─────────────────────────────────
+
+    async getAllJumps() {
+        if (!this.initialized) throw new Error('API not initialized');
+
+        const result = await this._apiCall(
+            'GET',
+            '/values/Jumps!A2:H?majorDimension=ROWS'
+        );
+
+        const rows = result.values || [];
+        if (rows.length === 0) return [];
+
         return rows.map((row, index) => {
             const timestamp = row[5] || new Date().toISOString();
-            // Restore numeric id from timestamp (originally Date.now()); fall back to
-            // a unique value derived from index so id is never undefined.
             const parsedTime = new Date(timestamp).getTime();
             const id = Number.isFinite(parsedTime) ? parsedTime : Date.now() + index;
-            // col 7 (row[6]) holds the rig ID written by the updated script;
-            // fall back to row[3] (name string) for legacy rows without the ID column.
+            // Column 6 (index 6) = Equipment ID; fall back to col 3 (display name)
             const equipment = (row[6] && row[6] !== '') ? row[6] : row[3] || '';
 
-            // Normalize date to YYYY-MM-DD. Google Sheets getValues() returns
-            // Date objects for date cells which JSON.stringify serialises to
-            // full ISO timestamps ("2026-03-08T00:00:00.000Z"); the app
-            // expects plain "2026-03-08".
+            // Normalize date to YYYY-MM-DD
             let date = '';
             if (row[1]) {
                 const s = String(row[1]);
@@ -118,11 +219,91 @@ class SheetsAPI {
         });
     }
 
-    /**
-     * Called on startup: fetch the sheet's dataModified timestamp and decide
-     * whether to pull (sheet is newer), push (pending local changes), or
-     * do nothing (already in sync).
-     */
+    /** Read the Equipment sheet (6 key-value rows). Returns a parsed object. */
+    async _getEquipment() {
+        const result = await this._apiCall(
+            'GET',
+            '/values/Equipment!A1:B6?majorDimension=ROWS'
+        );
+
+        const rows = result.values || [];
+        const data = {};
+        for (const row of rows) {
+            const key = (row[0] || '').trim();
+            if (!key) continue;
+            try { data[key] = JSON.parse(row[1] || '{}'); }
+            catch { data[key] = row[1]; }
+        }
+        return data;
+    }
+
+    // ── Write operations (Sheets API v4) ────────────────────────────────
+
+    async uploadAllJumps(jumps) {
+        if (!this.initialized) throw new Error('API not initialized');
+        this.updateSyncStatus('Uploading jumps...');
+
+        // Build rows: header + data
+        const header = ['Jump Number', 'Date', 'Location', 'Equipment', 'Notes', 'Timestamp', 'Equipment ID', 'Lineset Number'];
+
+        const dataRows = jumps.map(jump => {
+            let equipmentName = jump.equipment;
+            if (window.logbook) {
+                const canopy = window.logbook.canopies.find(c => c.id === jump.equipment);
+                if (canopy) {
+                    const ls = canopy.linesets?.find(l => l.number === jump.linesetNumber);
+                    const hybridSuffix = ls?.hybrid ? ' (Hybrid)' : '';
+                    equipmentName = `${canopy.name}-Lineset#${jump.linesetNumber || 1}${hybridSuffix}`;
+                }
+            }
+            return [
+                jump.jumpNumber,
+                jump.date,
+                jump.location,
+                equipmentName,
+                jump.notes || '',
+                jump.timestamp,
+                jump.equipment,        // canopy ID
+                jump.linesetNumber || 1
+            ];
+        });
+
+        // Clear old data then write fresh
+        await this._apiCall('POST', '/values/Jumps!A1:H:clear', {});
+        await this._apiCall('PUT', '/values/Jumps!A1:H?valueInputOption=RAW', {
+            values: [header, ...dataRows]
+        });
+
+        console.log(`[Sheets] Uploaded ${jumps.length} jumps`);
+    }
+
+    async syncEquipmentToSheet(dataModified = null) {
+        if (!this.initialized) return;
+
+        const logbook = window.logbook;
+        if (!logbook) return;
+
+        const rows = [
+            ['harnesses',  JSON.stringify(logbook.harnesses || [])],
+            ['canopies',   JSON.stringify(logbook.canopies || [])],
+            ['rigs',       JSON.stringify([])],
+            ['settings',   JSON.stringify(logbook.settings || {})],
+            ['locations',  JSON.stringify(logbook.locations || [])],
+            ['_syncMeta',  JSON.stringify(dataModified ? { dataModified } : {})],
+        ];
+
+        try {
+            await this._apiCall('PUT', '/values/Equipment!A1:B6?valueInputOption=RAW', {
+                values: rows
+            });
+            console.log('[Sheets] Equipment synced');
+        } catch (error) {
+            console.error('[Sheets] Equipment sync failed:', error);
+        }
+    }
+
+    // ── Sync logic (same as before, transport-agnostic) ─────────────────
+
     async doStartupSync() {
         if (!this.initialized) return;
         if (this._syncInProgress) {
@@ -136,24 +317,12 @@ class SheetsAPI {
         this.updateSyncStatus('Syncing...');
 
         try {
-            const response = await fetch(this.webAppUrl + '?action=getEquipment', {
-                method: 'GET',
-                redirect: 'follow'
-            });
-
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-            const result = await response.json();
-            if (result.error) throw new Error(result.error);
-
-            const d             = result.data || {};
+            const d             = await this._getEquipment();
             const sheetTs       = (d._syncMeta && d._syncMeta.dataModified) || '';
             const localSynced   = localStorage.getItem('skydiving-data-synced') || '';
             const localModified = localStorage.getItem('skydiving-data-modified') || '';
 
             const hasSheetData = !!(d.harnesses || d.canopies || d.rigs);
-            // Sheet is newer if its timestamp is ahead, OR if it has data and we
-            // have never synced before (migration / fresh device with no timestamps).
             const sheetIsNewer = (sheetTs && sheetTs > localSynced) ||
                                  (hasSheetData && !localSynced && !sheetTs);
             const hasPending   = !!(localModified && localModified > localSynced);
@@ -171,7 +340,6 @@ class SheetsAPI {
                 }
             } else if (hasPending) {
                 console.log('[Startup] Pending local changes, pushing...');
-                // Push directly (we already checked timestamps — no conflict)
                 const newTs   = new Date().toISOString();
                 const logbook = window.logbook;
                 await this.uploadAllJumps(logbook?.jumps || []);
@@ -192,20 +360,11 @@ class SheetsAPI {
         }
     }
 
-    /**
-     * Backward-compatible entry point used by app.js.
-     * Delegates to startup sync logic (pull/push/no-op + poll scheduling).
-     */
     async syncWithSheet() {
         await this.ready;
         await this.doStartupSync();
     }
 
-    /**
-     * Push all local data to the sheet, but first verify the sheet has not
-     * been updated by another device since our last sync. If it has, pull
-     * instead and show the user a conflict notification.
-     */
     async pushAllWithGuard() {
         if (!this.initialized || !navigator.onLine) return;
         if (this._syncInProgress) {
@@ -217,35 +376,22 @@ class SheetsAPI {
         this.updateSyncStatus('Syncing...');
 
         try {
-            const response = await fetch(this.webAppUrl + '?action=getEquipment', {
-                method: 'GET',
-                redirect: 'follow'
-            });
-
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-            const result = await response.json();
-            if (result.error) throw new Error(result.error);
-
-            const d           = result.data || {};
+            const d           = await this._getEquipment();
             const sheetTs     = (d._syncMeta && d._syncMeta.dataModified) || '';
             const localSynced = localStorage.getItem('skydiving-data-synced') || '';
 
             if (sheetTs && sheetTs > localSynced) {
-                // Sheet updated since our last sync — merge instead of blindly pushing
                 console.warn('[Sync] Sheet is newer — pulling and merging');
                 await this._pullAllFromSheet(d, sheetTs);
                 this.updateSyncStatus('Online');
                 return;
             }
 
-            // No conflict — generate a new timestamp for this write
             const newTs   = new Date().toISOString();
             const logbook = window.logbook;
             await this.uploadAllJumps(logbook?.jumps || []);
             await this.syncEquipmentToSheet(newTs);
 
-            // Record this push as the new sync baseline
             localStorage.setItem('skydiving-data-synced', newTs);
             localStorage.setItem('skydiving-data-modified', newTs);
 
@@ -261,19 +407,12 @@ class SheetsAPI {
         }
     }
 
-    /**
-     * Apply sheet equipment data + jumps to local storage and the live logbook.
-     * Sets both timestamp keys so local state is clean and in sync with the sheet.
-     */
     async _pullAllFromSheet(d, sheetDataModified) {
         const logbook = window.logbook;
 
-        // Snapshot local jumps BEFORE the async getAllJumps fetch, so a concurrent
-        // addJump that runs during the await is not silently discarded.
         const localJumps = logbook ? [...logbook.jumps]
             : await DB.getAllJumps();
 
-        // Merge deletedJumpTimestamps from both local and sheet settings
         const localSettings = logbook ? logbook.settings
             : JSON.parse(localStorage.getItem('skydiving-settings') || '{}');
         const sheetSettings = d.settings || {};
@@ -282,7 +421,6 @@ class SheetsAPI {
             ...(sheetSettings.deletedJumpTimestamps || [])
         ])];
 
-        // Write the merged deletions back into the sheet settings before persisting
         if (d.settings) {
             d.settings.deletedJumpTimestamps = deletedTimestamps;
         }
@@ -291,37 +429,30 @@ class SheetsAPI {
         if (d.harnesses)  DB.replaceAll('harnesses', d.harnesses).catch(err => console.error('[Sync] IDB harnesses write failed:', err));
         if (d.canopies)   DB.replaceAll('canopies',  d.canopies).catch(err => console.error('[Sync] IDB canopies write failed:', err));
         if (d.locations)  DB.replaceAll('locations',  d.locations).catch(err => console.error('[Sync] IDB locations write failed:', err));
-        // If the sheet still has old-format rigs, store them so the migration runs on apply
         if (d.rigs && d.rigs.length > 0) localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(d.rigs));
-        if (d.settings)   localStorage.setItem('skydiving-settings',       JSON.stringify(d.settings));
+        if (d.settings)   localStorage.setItem('skydiving-settings', JSON.stringify(d.settings));
 
-        // Fetch jumps from sheet and MERGE with local jumps to prevent data loss
         const sheetJumps = await this.getAllJumps();
         const mergedJumps = this._mergeJumps(localJumps, sheetJumps, deletedTimestamps);
         await DB.replaceAllJumps(mergedJumps);
 
-        // Stamp sync baseline
         const ts = sheetDataModified || new Date().toISOString();
         localStorage.setItem('skydiving-data-synced', ts);
 
         if (mergedJumps.length > sheetJumps.length) {
-            // Local had jumps the sheet didn't — schedule a push on the next cycle
             console.log(`[Sync] Merge recovered ${mergedJumps.length - sheetJumps.length} local-only jump(s)`);
             localStorage.setItem('skydiving-data-modified', new Date().toISOString());
         } else {
             localStorage.setItem('skydiving-data-modified', ts);
         }
 
-        // Apply to live logbook instance
         if (logbook) {
-            if (d.harnesses)  logbook.harnesses     = d.harnesses;
-            if (d.canopies)   logbook.canopies      = d.canopies;
-            if (d.settings)   logbook.settings      = d.settings;
-            if (d.locations)  logbook.locations     = d.locations;
+            if (d.harnesses)  logbook.harnesses  = d.harnesses;
+            if (d.canopies)   logbook.canopies   = d.canopies;
+            if (d.settings)   logbook.settings   = d.settings;
+            if (d.locations)  logbook.locations  = d.locations;
 
-            // Run migration if sheet had old-format rigs
             logbook.migrateFromRigsToCanopyLinesets();
-            // Ensure all canopies have linesets
             logbook.canopies.forEach(c => {
                 if (!Array.isArray(c.linesets)) c.linesets = [];
                 if (c.linesets.length === 0) c.linesets.push({ number: 1, hybrid: false, previousJumps: 0, jumpCount: 0, archived: false });
@@ -341,24 +472,14 @@ class SheetsAPI {
         console.log('[Sync] Pulled and merged data from sheet, ts:', ts);
     }
 
-    /**
-     * Merge local jumps with sheet jumps by timestamp, preserving local-only
-     * jumps that haven't been pushed to the sheet yet.
-     */
     _mergeJumps(localJumps, sheetJumps, deletedTimestamps) {
         const deletedSet = new Set(deletedTimestamps);
-
-        // Collect sheet jump timestamps for fast lookup
         const sheetTimestamps = new Set(
             sheetJumps.map(j => j.timestamp).filter(Boolean)
         );
-
-        // Start with all sheet jumps (minus deleted)
         const merged = sheetJumps.filter(j =>
             !j.timestamp || !deletedSet.has(j.timestamp)
         );
-
-        // Add local-only jumps (those with timestamps not on the sheet)
         for (const j of localJumps) {
             if (j.timestamp
                 && !deletedSet.has(j.timestamp)
@@ -366,15 +487,9 @@ class SheetsAPI {
                 merged.push(j);
             }
         }
-
         return merged;
     }
 
-    /**
-     * Called by the background poll and the online-event handler.
-     * Pushes if there are pending local changes, otherwise checks quietly
-     * whether the sheet is newer and pulls if so.
-     */
     async doPendingPush() {
         if (!this.initialized || !navigator.onLine) return;
         if (this._syncInProgress) return;
@@ -385,21 +500,11 @@ class SheetsAPI {
             const localSynced   = localStorage.getItem('skydiving-data-synced') || '';
 
             if (localModified && localModified > localSynced) {
-                // There are pending local changes — push them
                 this.updateSyncStatus('Syncing...');
-                const response = await fetch(this.webAppUrl + '?action=getEquipment', {
-                    method: 'GET',
-                    redirect: 'follow'
-                });
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
-                const result = await response.json();
-                if (result.error) throw new Error(result.error);
-
-                const d       = result.data || {};
+                const d       = await this._getEquipment();
                 const sheetTs = (d._syncMeta && d._syncMeta.dataModified) || '';
 
                 if (sheetTs && sheetTs > localSynced) {
-                    // Conflict: merge rather than blindly pushing
                     console.warn('[Poll] Sheet is newer — pulling and merging');
                     await this._pullAllFromSheet(d, sheetTs);
                 } else {
@@ -416,17 +521,8 @@ class SheetsAPI {
                 return;
             }
 
-            // No pending changes — quietly check if the sheet is newer
-            const response = await fetch(this.webAppUrl + '?action=getEquipment', {
-                method: 'GET',
-                redirect: 'follow'
-            });
-            if (!response.ok) return;
-
-            const result = await response.json();
-            if (result.error) return;
-
-            const d       = result.data || {};
+            // No pending changes — quietly check if sheet is newer
+            const d       = await this._getEquipment();
             const sheetTs = (d._syncMeta && d._syncMeta.dataModified) || '';
             if (sheetTs && sheetTs > localSynced) {
                 console.log('[Poll] Sheet is newer, pulling and merging...');
@@ -444,148 +540,83 @@ class SheetsAPI {
         }
     }
 
-    /**
-     * Push all equipment components + settings to the Equipment sheet tab.
-     * Called whenever the user saves any equipment change.
-     */
-    async syncEquipmentToSheet(dataModified = null) {
-        if (!this.initialized) return;
+    // ── Backup rig sheet support ────────────────────────────────────────
 
-        const logbook = window.logbook;
-        if (!logbook) return;
-
-        const payload = {
-            harnesses:    logbook.harnesses,
-            canopies:     logbook.canopies,
-            settings:     logbook.settings,
-            locations:    logbook.locations
-        };
-        if (dataModified)  payload._syncMeta = { dataModified };
-
-        try {
-            const response = await fetch(this.webAppUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain' },
-                redirect: 'follow',
-                body: JSON.stringify({ action: 'saveEquipment', data: payload })
-            });
-
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-            const result = await response.json();
-            if (result.error) throw new Error(result.error);
-
-            console.log('Equipment synced to sheet');
-        } catch (error) {
-            console.error('Failed to sync equipment to sheet:', error);
-        }
-    }
-
-    /**
-     * Return true if the spreadsheet has a readable backupRigs sheet tab.
-     */
     async hasBackupRigsSheet() {
         if (!this.initialized) return false;
-
         try {
-            const response = await fetch(this.webAppUrl + '?action=getBackupEquipment', {
-                method: 'GET',
-                redirect: 'follow'
-            });
-
-            if (!response.ok) return false;
-
-            const result = await response.json();
-            if (result.error) return false;
-
-            if (typeof result.hasBackupRigsSheet === 'boolean') {
-                return result.hasBackupRigsSheet;
-            }
-
-            return !!(result.data && Object.keys(result.data).length > 0);
-        } catch (error) {
-            console.warn('Could not verify backupRigs sheet:', error);
-            return false;
-        }
+            const meta = await this._apiCall('GET', '?fields=sheets.properties.title');
+            const sheets = meta.sheets || [];
+            return sheets.some(s => s.properties?.title === 'backupRigs');
+        } catch { return false; }
     }
 
-    /**
-     * Restore all equipment from the "backupRigs" sheet tab.
-     * Overwrites local equipment and pushes restored data to the main Equipment sheet.
-     */
     async restoreEquipmentFromBackup() {
         if (!this.initialized) throw new Error('API not initialized');
 
-        const response = await fetch(this.webAppUrl + '?action=getBackupEquipment', {
-            method: 'GET',
-            redirect: 'follow'
-        });
+        const result = await this._apiCall('GET', '/values/backupRigs!A1:B6?majorDimension=ROWS');
+        const rows = result.values || [];
+        const d = {};
+        for (const row of rows) {
+            const key = (row[0] || '').trim();
+            if (!key) continue;
+            try { d[key] = JSON.parse(row[1] || '{}'); }
+            catch { d[key] = row[1]; }
+        }
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-        const result = await response.json();
-        if (result.error) throw new Error(result.error);
-
-        const d = result.data || {};
         const hasData = d.harnesses || d.canopies || d.rigs;
         if (!hasData) return false;
 
-        // Overwrite IndexedDB equipment stores (settings & legacy rigs stay in localStorage)
         if (d.harnesses)  await DB.replaceAll('harnesses', d.harnesses);
         if (d.canopies)   await DB.replaceAll('canopies',  d.canopies);
         if (d.locations)  await DB.replaceAll('locations', d.locations);
         if (d.rigs && d.rigs.length > 0) localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(d.rigs));
-        if (d.settings)   localStorage.setItem('skydiving-settings',        JSON.stringify(d.settings));
+        if (d.settings)   localStorage.setItem('skydiving-settings', JSON.stringify(d.settings));
 
-        // Apply to live logbook instance
         const logbook = window.logbook;
         if (logbook) {
-            if (d.harnesses)  logbook.harnesses      = d.harnesses;
-            if (d.canopies)   logbook.canopies       = d.canopies;
-            if (d.settings)   logbook.settings       = d.settings;
-            if (d.locations)  logbook.locations       = d.locations;
+            if (d.harnesses)  logbook.harnesses = d.harnesses;
+            if (d.canopies)   logbook.canopies  = d.canopies;
+            if (d.settings)   logbook.settings  = d.settings;
+            if (d.locations)  logbook.locations  = d.locations;
 
-            // Run migration if backup had old-format rigs
             logbook.migrateFromRigsToCanopyLinesets();
             logbook.canopies.forEach(c => {
                 if (!Array.isArray(c.linesets)) c.linesets = [];
                 if (c.linesets.length === 0) c.linesets.push({ number: 1, hybrid: false, previousJumps: 0, jumpCount: 0, archived: false });
             });
             logbook.initializeCanopyLinesetJumpCounts();
-
             logbook.updateEquipmentOptions();
             logbook.updateLocationDatalist();
             if (logbook.currentView === 'equipment') logbook.renderEquipmentView();
             logbook.preFillFormWithLastJump();
         }
 
-        // Push restored data to the main Equipment sheet, stamped as authoritative now.
         const now = new Date().toISOString();
         await this.syncEquipmentToSheet(now);
 
-        // Stamp both local timestamps — this restore is a clean baseline.
         localStorage.setItem('skydiving-data-modified', now);
         localStorage.setItem('skydiving-data-synced', now);
 
-        console.log('Equipment restored from backupRigs sheet');
+        console.log('[Sheets] Equipment restored from backupRigs sheet');
         return true;
     }
 
-    /** Schedule a background sync poll after `intervalMs` ms (default 2 min). */
+    // ── Polling ─────────────────────────────────────────────────────────
+
     _schedulePoll(intervalMs = 120000) {
         this._cancelPoll();
         if (!this.initialized) return;
         this._pollTimer = setTimeout(() => {
             if (navigator.onLine) {
                 console.log('[Poll] Auto-sync triggered');
-                this.doPendingPush(); // reschedules itself on completion
+                this.doPendingPush().finally(() => this._schedulePoll(intervalMs));
             } else {
-                this._schedulePoll(intervalMs); // offline — try again later
+                this._schedulePoll(intervalMs);
             }
         }, intervalMs);
     }
 
-    /** Cancel any pending background poll. */
     _cancelPoll() {
         if (this._pollTimer !== null) {
             clearTimeout(this._pollTimer);
@@ -593,84 +624,25 @@ class SheetsAPI {
         }
     }
 
-    async uploadAllJumps(jumps) {
-        if (!this.initialized) {
-            throw new Error('API not initialized');
-        }
-        
-        if (jumps.length === 0) {
-            return;
-        }
-        
-        this.updateSyncStatus('Uploading jumps...');
-        
-        // Prepare the data for upload
-        const jumpData = jumps.map(jump => {
-            // Resolve canopy name + lineset for human-readable display
-            let equipmentName = jump.equipment;
-            if (window.logbook) {
-                const canopy = window.logbook.canopies.find(c => c.id === jump.equipment);
-                if (canopy) {
-                    const ls = canopy.linesets?.find(l => l.number === jump.linesetNumber);
-                    const hybridSuffix = ls?.hybrid ? ' (Hybrid)' : '';
-                    equipmentName = `${canopy.name}-Lineset#${jump.linesetNumber || 1}${hybridSuffix}`;
-                }
-            }
-            
-            return {
-                jumpNumber: jump.jumpNumber,
-                date: jump.date,
-                location: jump.location,
-                equipment: equipmentName,
-                equipmentId: jump.equipment,  // preserve canopy ID for round-trip
-                notes: jump.notes,
-                timestamp: jump.timestamp,
-                linesetNumber: jump.linesetNumber || 1
-            };
-        });
-        
-        const response = await fetch(this.webAppUrl, {
-            method: 'POST',
-            // Use text/plain to avoid CORS preflight (simple request)
-            headers: {
-                'Content-Type': 'text/plain',
-            },
-            redirect: 'follow',
-            body: JSON.stringify({ action: 'uploadJumps', data: jumpData })
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const result = await response.json();
-        if (result.error) {
-            throw new Error(result.error);
-        }
-        
-        console.log(`Uploaded ${jumps.length} jumps to Google Sheets`);
-        return result;
-    }
+    // ── UI helpers ──────────────────────────────────────────────────────
 
     updateSyncStatus(status) {
         const syncElement = document.getElementById('syncStatus');
         const syncBtn = document.getElementById('syncBtn');
         if (syncElement) {
             syncElement.textContent = status;
-            
-            // Update classes based on status
+
             syncElement.className = 'sync-status';
             if (status === 'Syncing...' || status === 'Uploading jumps...') {
                 syncElement.classList.add('syncing');
             } else if (status === 'Synced' || status === 'Online' || status === 'Ready') {
                 syncElement.classList.add('success');
-            } else if (status === 'Unsynced' || status === 'Not configured') {
+            } else if (status === 'Unsynced' || status === 'Not signed in') {
                 syncElement.classList.add('warning');
             } else if (status.includes('failed') || status.includes('error')) {
                 syncElement.classList.add('error');
             }
         }
-        // Spin the sync button while syncing
         if (syncBtn) {
             if (status === 'Syncing...' || status === 'Uploading jumps...') {
                 syncBtn.classList.add('syncing');
@@ -679,34 +651,12 @@ class SheetsAPI {
             }
         }
     }
-
-    // Helper method to create setup instructions
-    generateSetupInstructions() {
-        return `
-Google Sheets Setup Instructions (Apps Script Method):
-
-1. Create a new Google Spreadsheet
-2. Rename the first sheet to "Jumps"
-3. Add headers in row 1: Jump Number, Date, Location, Equipment, Notes, Timestamp
-4. Get your Spreadsheet ID from the URL (the long string between /d/ and /edit)
-5. Go to Extensions → Apps Script in your spreadsheet
-6. Copy the code from config/apps-script.js into the script editor
-7. Deploy as Web app with "Anyone" access
-8. Create config/sheets-config.json with:
-   {
-     "webAppUrl": "your-apps-script-web-app-url",
-     "spreadsheetId": "your-spreadsheet-id"
-   }
-
-For detailed instructions, see config/README.md
-        `;
-    }
 }
 
-// Initialize Sheets API
+// Initialise global instance
 window.SheetsAPI = new SheetsAPI();
 
-// Wire up the sync button in the header
+// Wire up the sync button
 document.addEventListener('DOMContentLoaded', () => {
     const syncBtn = document.getElementById('syncBtn');
     if (syncBtn) {

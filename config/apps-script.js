@@ -1,4 +1,10 @@
-// Google Apps Script for Swooper Logbook
+// ⚠️  DEPRECATED — This Apps Script proxy is no longer needed.
+// The app now uses direct OAuth + Google Sheets API v4 instead.
+// This file is kept for reference and backward compatibility with
+// users who haven't migrated yet. New setups should follow the
+// OAuth method in config/README.md.
+//
+// Google Apps Script for Swooper Logbook (legacy)
 // This script acts as a backend API for the Swooper Logbook web app
 
 function doGet(e) {

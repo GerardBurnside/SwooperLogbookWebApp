@@ -284,7 +284,7 @@ class SkydivingLogbook {
             this.setComponentCoordsFromGPS();
         });
 
-        // Google Sheets Integration modal
+        // Google Sheets Integration modal (OAuth)
         document.getElementById('googleSheetsIntegrationBtn').addEventListener('click', () => {
             this.openSheetsModal();
         });
@@ -300,8 +300,12 @@ class SkydivingLogbook {
             });
         }
 
-        document.getElementById('saveSheetsConfig').addEventListener('click', () => {
-            this.saveSheetsConfig();
+        document.getElementById('googleSignInBtn').addEventListener('click', () => {
+            this.handleGoogleSignIn();
+        });
+
+        document.getElementById('googleSignOutBtn').addEventListener('click', () => {
+            this.handleGoogleSignOut();
         });
 
         // Modal close
@@ -932,31 +936,116 @@ class SkydivingLogbook {
     }
 
     openSheetsModal() {
-        // Populate Google Sheets config fields from localStorage (or current API state)
-        const savedConfig = JSON.parse(localStorage.getItem('sheets-config') || '{}');
-        const webAppUrl = (window.SheetsAPI && window.SheetsAPI.webAppUrl) || savedConfig.webAppUrl || '';
-        const spreadsheetId = (window.SheetsAPI && window.SheetsAPI.spreadsheetId) || savedConfig.spreadsheetId || '';
-        document.getElementById('cfgWebAppUrl').value = webAppUrl;
-        document.getElementById('cfgSpreadsheetId').value = spreadsheetId;
-
-        // Show connection status
         const statusEl = document.getElementById('sheetsConfigStatus');
-        if (window.SheetsAPI && window.SheetsAPI.initialized) {
+        const signedOutEl = document.getElementById('oauthSignedOut');
+        const signedInEl = document.getElementById('oauthSignedIn');
+        const migrationEl = document.getElementById('oauthMigrationBanner');
+
+        const isSignedIn = window.AuthManager?.isSignedIn();
+        const spreadsheetId = localStorage.getItem('oauth-spreadsheet-id') || '';
+
+        if (isSignedIn && spreadsheetId) {
+            signedOutEl.style.display = 'none';
+            signedInEl.style.display = 'block';
+            document.getElementById('oauthUserEmail').textContent = window.AuthManager.userEmail || 'Signed in';
+            document.getElementById('oauthSheetLink').href = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(spreadsheetId)}/edit`;
             statusEl.textContent = '✅ Connected to Google Sheets';
             statusEl.style.color = '#2e7d32';
-        } else if (webAppUrl) {
-            statusEl.textContent = '⚠️ Configured but not connected — check values';
-            statusEl.style.color = '#e65100';
         } else {
-            statusEl.textContent = 'ℹ️ Enter your Apps Script URL and Spreadsheet ID to enable sync';
+            signedOutEl.style.display = 'block';
+            signedInEl.style.display = 'none';
+
+            // Only show Client ID input if no hardcoded ID (self-hosting scenario)
+            const hasHardcodedId = typeof OAUTH_CLIENT_ID !== 'undefined' && OAUTH_CLIENT_ID;
+            const clientIdGroup = document.getElementById('oauthClientIdGroup');
+            if (!hasHardcodedId) {
+                clientIdGroup.style.display = 'block';
+                document.getElementById('cfgOAuthClientId').value = localStorage.getItem('oauth-client-id') || '';
+                statusEl.textContent = 'ℹ️ Enter your OAuth Client ID and sign in to enable sync';
+            } else {
+                clientIdGroup.style.display = 'none';
+                statusEl.textContent = 'ℹ️ Sign in with your Google account to enable sync';
+            }
             statusEl.style.color = '#666';
         }
+
+        // Show migration banner if old Apps Script config exists
+        const legacyCfg = JSON.parse(localStorage.getItem('sheets-config') || '{}');
+        migrationEl.style.display = legacyCfg.webAppUrl ? 'block' : 'none';
 
         document.getElementById('sheetsModal').style.display = 'block';
     }
 
     closeSheetsModal() {
         document.getElementById('sheetsModal').style.display = 'none';
+    }
+
+    async handleGoogleSignIn() {
+        // Use hardcoded constant, or fall back to manual input for self-hosters
+        const hasHardcodedId = typeof OAUTH_CLIENT_ID !== 'undefined' && OAUTH_CLIENT_ID;
+        const clientId = hasHardcodedId
+            ? OAUTH_CLIENT_ID
+            : document.getElementById('cfgOAuthClientId').value.trim();
+
+        if (!clientId) {
+            this.showMessage('Please enter your OAuth Client ID first', 'error');
+            return;
+        }
+
+        try {
+            // Configure AuthManager with the client ID if changed
+            if (clientId !== window.AuthManager.clientId) {
+                await window.AuthManager.configure(clientId);
+            }
+
+            this.showMessage('Signing in with Google...', 'info');
+            await window.AuthManager.signIn();
+
+            // If no spreadsheet exists yet, create one and push local data
+            let spreadsheetId = localStorage.getItem('oauth-spreadsheet-id') || '';
+            if (!spreadsheetId) {
+                this.showMessage('Creating your spreadsheet...', 'info');
+                spreadsheetId = await window.SheetsAPI.createSpreadsheet();
+                window.SheetsAPI.reinitialize(spreadsheetId);
+
+                // Push all local data to the new sheet
+                const newTs = new Date().toISOString();
+                await window.SheetsAPI.uploadAllJumps(this.jumps || []);
+                await window.SheetsAPI.syncEquipmentToSheet(newTs);
+                localStorage.setItem('skydiving-data-synced', newTs);
+                localStorage.setItem('skydiving-data-modified', newTs);
+            } else {
+                window.SheetsAPI.reinitialize(spreadsheetId);
+            }
+
+            // Clear legacy Apps Script config if migrating
+            if (localStorage.getItem('sheets-config')) {
+                localStorage.removeItem('sheets-config');
+                console.log('[Migration] Cleared legacy Apps Script config');
+            }
+
+            this.showMessage('Connected to Google Sheets!', 'success');
+            this.openSheetsModal(); // refresh modal state
+
+            // Trigger a sync
+            window.SheetsAPI.syncWithSheet();
+        } catch (error) {
+            console.error('[Auth] Sign-in failed:', error);
+            this.showMessage('Sign-in failed: ' + error.message, 'error');
+        }
+    }
+
+    async handleGoogleSignOut() {
+        if (!confirm('Sign out and disconnect Google Sheets sync?')) return;
+
+        await window.AuthManager.signOut();
+        window.SheetsAPI.initialized = false;
+        window.SheetsAPI.spreadsheetId = '';
+        window.SheetsAPI._cancelPoll();
+        window.SheetsAPI.updateSyncStatus('Not signed in');
+
+        this.showMessage('Signed out from Google Sheets', 'success');
+        this.openSheetsModal(); // refresh modal state
     }
 
     async resetAppToFirstLaunch() {
@@ -969,23 +1058,7 @@ class SkydivingLogbook {
         setTimeout(() => window.location.reload(), 300);
     }
 
-    saveSheetsConfig() {
-        const webAppUrl = document.getElementById('cfgWebAppUrl').value.trim();
-        const spreadsheetId = document.getElementById('cfgSpreadsheetId').value.trim();
-
-        if (webAppUrl || spreadsheetId) {
-            const sheetsConfig = { webAppUrl, spreadsheetId };
-            localStorage.setItem('sheets-config', JSON.stringify(sheetsConfig));
-
-            // Re-initialize the Sheets API with the new values
-            if (window.SheetsAPI) {
-                window.SheetsAPI.reinitialize(webAppUrl, spreadsheetId);
-            }
-        }
-
-        this.closeSheetsModal();
-        this.showMessage('Google Sheets configuration saved!', 'success');
-    }
+    // saveSheetsConfig is no longer needed — OAuth sign-in handles everything.
 
     saveSettings() {
         const startingJumpNumber = parseInt(document.getElementById('startingJumpNumber').value);
