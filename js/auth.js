@@ -27,6 +27,10 @@ class AuthManager {
         this._clientId = OAUTH_CLIENT_ID || localStorage.getItem('oauth-client-id') || '';
         this._userEmail = localStorage.getItem('oauth-user-email') || '';
 
+        // Handle OAuth2 redirect callback (mobile sign-in flow) — must run before
+        // any early return so the token is recovered on the redirect-back page load.
+        this._handleRedirectCallback();
+
         if (!this._clientId) {
             console.log('[Auth] No OAuth Client ID configured');
             return;
@@ -35,6 +39,67 @@ class AuthManager {
         await this._waitForGIS();
         this._createTokenClient();
         console.log('[Auth] AuthManager initialised');
+    }
+
+    /** Returns true when running on a mobile browser where popups are unreliable. */
+    _isMobileBrowser() {
+        return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    }
+
+    /**
+     * Parse an OAuth2 implicit-flow redirect callback from the URL hash.
+     * Google appends #access_token=…&expires_in=… after the user signs in.
+     * Cleans the hash from the URL so it is not shown to the user.
+     */
+    _handleRedirectCallback() {
+        if (!window.location.hash) return false;
+
+        const params = new URLSearchParams(window.location.hash.substring(1));
+        const token    = params.get('access_token');
+        const errorVal = params.get('error');
+
+        // Always clean the fragment from the URL bar
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+
+        if (errorVal) {
+            console.warn('[Auth] Redirect callback returned error:', errorVal);
+            this._redirectError = errorVal;
+            return false;
+        }
+
+        if (token) {
+            const expiresIn = parseInt(params.get('expires_in') || '3600', 10);
+            this._accessToken = token;
+            this._expiresAt   = Date.now() + (expiresIn - 60) * 1000;
+            console.log('[Auth] Access token recovered from redirect callback');
+            this._fetchUserInfo();
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Redirect the browser to Google OAuth2 (implicit / token flow).
+     * Used on mobile where popup-based GIS does not work reliably.
+     * The returned Promise never resolves — the page navigates away immediately.
+     */
+    _signInWithRedirect(prompt = '') {
+        const redirectUri = window.location.origin + window.location.pathname;
+        const params = new URLSearchParams({
+            client_id:              this._clientId,
+            redirect_uri:           redirectUri,
+            response_type:          'token',
+            scope:                  'https://www.googleapis.com/auth/drive.file',
+            include_granted_scopes: 'true',
+        });
+        if (prompt) params.set('prompt', prompt);
+
+        // Mark that we expect a redirect return so app.js can resume the flow
+        sessionStorage.setItem('oauth-redirect-pending', '1');
+
+        window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+        return new Promise(() => {}); // never resolves; page navigates away
     }
 
     /** Wait until the Google Identity Services library is loaded. */
@@ -113,10 +178,15 @@ class AuthManager {
 
     // ── Public API ──────────────────────────────────────────────────────
 
-    /** Interactive sign-in (shows Google consent popup). */
+    /** Interactive sign-in (shows Google consent popup, or redirects on mobile). */
     signIn() {
         if (!this._tokenClient) {
             return Promise.reject(new Error('OAuth not configured — set a Client ID first'));
+        }
+        // On Android/mobile, the GIS popup cannot post back to window.opener;
+        // use the OAuth2 redirect (implicit) flow instead.
+        if (this._isMobileBrowser()) {
+            return this._signInWithRedirect('consent');
         }
         return new Promise((resolve, reject) => {
             // Timeout: if GIS callback never fires (popup blocked, origin mismatch, etc.)
@@ -139,6 +209,11 @@ class AuthManager {
     silentRefresh() {
         if (!this._tokenClient) {
             return Promise.reject(new Error('OAuth not configured'));
+        }
+        // On mobile the GIS popup flow is unreliable; reject here so that
+        // getValidToken() falls through to the interactive redirect sign-in.
+        if (this._isMobileBrowser()) {
+            return Promise.reject(new Error('Silent refresh not supported on mobile'));
         }
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {

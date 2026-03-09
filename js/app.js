@@ -188,6 +188,10 @@ class SkydivingLogbook {
         });
         window.addEventListener('offline', () => this.updateOnlineStatus());
         
+        // Resume post-login flow when returning from an OAuth redirect (mobile)
+        await window.AuthManager.ready;
+        await this._resumeOAuthRedirectIfNeeded();
+
         // Auto-sync equipment from Google Sheets on startup
         // Wait for SheetsAPI.ready (promise) instead of a fragile timeout
         this.autoSyncEquipmentOnStartup();
@@ -978,6 +982,48 @@ class SkydivingLogbook {
 
     closeSheetsModal() {
         document.getElementById('sheetsModal').style.display = 'none';
+    }
+
+    /**
+     * After an OAuth2 redirect sign-in on mobile, the page reloads fresh.
+     * If sessionStorage has the pending flag and the token was recovered from
+     * the URL hash, continue with the spreadsheet setup that was interrupted.
+     */
+    async _resumeOAuthRedirectIfNeeded() {
+        if (!sessionStorage.getItem('oauth-redirect-pending')) return;
+        sessionStorage.removeItem('oauth-redirect-pending');
+
+        if (!window.AuthManager?.isSignedIn()) {
+            // User cancelled or Google returned an error
+            this.showMessage('Sign-in was cancelled or failed', 'error');
+            return;
+        }
+
+        // Mirror the post-sign-in logic from handleGoogleSignIn()
+        try {
+            let spreadsheetId = localStorage.getItem('oauth-spreadsheet-id') || '';
+            if (!spreadsheetId) {
+                spreadsheetId = await window.SheetsAPI.createSpreadsheet();
+                window.SheetsAPI.reinitialize(spreadsheetId);
+                const newTs = new Date().toISOString();
+                await window.SheetsAPI.uploadAllJumps(this.jumps || []);
+                await window.SheetsAPI.syncEquipmentToSheet(newTs);
+                localStorage.setItem('skydiving-data-synced', newTs);
+                localStorage.setItem('skydiving-data-modified', newTs);
+            } else {
+                window.SheetsAPI.reinitialize(spreadsheetId);
+            }
+            if (localStorage.getItem('sheets-config')) {
+                localStorage.removeItem('sheets-config');
+            }
+            this.showMessage('Connected to Google Sheets!', 'success');
+            window.SheetsAPI.syncWithSheet().catch(err =>
+                console.error('[Sheets] Post-redirect sync failed:', err)
+            );
+        } catch (error) {
+            console.error('[Auth] Post-redirect setup failed:', error);
+            this.showMessage('Sign-in succeeded but setup failed: ' + error.message, 'error');
+        }
     }
 
     async handleGoogleSignIn() {
