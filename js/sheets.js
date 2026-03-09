@@ -254,7 +254,7 @@ class SheetsAPI {
         // Snapshot local jumps BEFORE the async getAllJumps fetch, so a concurrent
         // addJump that runs during the await is not silently discarded.
         const localJumps = logbook ? [...logbook.jumps]
-            : JSON.parse(localStorage.getItem('skydiving-jumps') || '[]');
+            : await DB.getAllJumps();
 
         // Merge deletedJumpTimestamps from both local and sheet settings
         const localSettings = logbook ? logbook.settings
@@ -270,18 +270,18 @@ class SheetsAPI {
             d.settings.deletedJumpTimestamps = deletedTimestamps;
         }
 
-        // Persist equipment to localStorage
-        if (d.harnesses)  localStorage.setItem('skydiving-harnesses',      JSON.stringify(d.harnesses));
-        if (d.canopies)   localStorage.setItem('skydiving-canopies',       JSON.stringify(d.canopies));
+        // Persist equipment to IndexedDB
+        if (d.harnesses)  DB.replaceAll('harnesses', d.harnesses).catch(err => console.error('[Sync] IDB harnesses write failed:', err));
+        if (d.canopies)   DB.replaceAll('canopies',  d.canopies).catch(err => console.error('[Sync] IDB canopies write failed:', err));
+        if (d.locations)  DB.replaceAll('locations',  d.locations).catch(err => console.error('[Sync] IDB locations write failed:', err));
         // If the sheet still has old-format rigs, store them so the migration runs on apply
         if (d.rigs && d.rigs.length > 0) localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(d.rigs));
-        if (d.locations)  localStorage.setItem('skydiving-locations',      JSON.stringify(d.locations));
         if (d.settings)   localStorage.setItem('skydiving-settings',       JSON.stringify(d.settings));
 
         // Fetch jumps from sheet and MERGE with local jumps to prevent data loss
         const sheetJumps = await this.getAllJumps();
         const mergedJumps = this._mergeJumps(localJumps, sheetJumps, deletedTimestamps);
-        localStorage.setItem('skydiving-jumps', JSON.stringify(mergedJumps));
+        await DB.replaceAllJumps(mergedJumps);
 
         // Stamp sync baseline
         const ts = sheetDataModified || new Date().toISOString();
@@ -513,12 +513,12 @@ class SheetsAPI {
         const hasData = d.harnesses || d.canopies || d.rigs;
         if (!hasData) return false;
 
-        // Overwrite localStorage
-        if (d.harnesses)  localStorage.setItem('skydiving-harnesses',       JSON.stringify(d.harnesses));
-        if (d.canopies)   localStorage.setItem('skydiving-canopies',        JSON.stringify(d.canopies));
+        // Overwrite IndexedDB equipment stores (settings & legacy rigs stay in localStorage)
+        if (d.harnesses)  await DB.replaceAll('harnesses', d.harnesses);
+        if (d.canopies)   await DB.replaceAll('canopies',  d.canopies);
+        if (d.locations)  await DB.replaceAll('locations', d.locations);
         if (d.rigs && d.rigs.length > 0) localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(d.rigs));
         if (d.settings)   localStorage.setItem('skydiving-settings',        JSON.stringify(d.settings));
-        if (d.locations)  localStorage.setItem('skydiving-locations',       JSON.stringify(d.locations));
 
         // Apply to live logbook instance
         const logbook = window.logbook;

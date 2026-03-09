@@ -1,7 +1,12 @@
 // Swooper Logbook App - Main Application Logic
 class SkydivingLogbook {
     constructor() {
-        this.jumps = JSON.parse(localStorage.getItem('skydiving-jumps')) || [];
+        // Data arrays — populated asynchronously from IndexedDB in init()
+        this.jumps = [];
+        this.harnesses = [];
+        this.canopies = [];
+        this.locations = [];
+
         this.settings = JSON.parse(localStorage.getItem('skydiving-settings')) || {
             startingJumpNumber: 1,
             recentJumpsDays: 3,
@@ -27,45 +32,11 @@ class SkydivingLogbook {
             this.settings.hybridOrangeThreshold = 60;
         }
         
-        // Component-based equipment system
-        this.harnesses = JSON.parse(localStorage.getItem('skydiving-harnesses')) || [
-            { id: 'javelin', name: 'Javelin' },
-            { id: 'mutant', name: 'Mutant' }
-        ];
-        this.canopies = JSON.parse(localStorage.getItem('skydiving-canopies')) || [
-            { id: 'petra64', name: 'Petra64' },
-            { id: 'petra68', name: 'Petra68' }
-        ];
-        this.locations = JSON.parse(localStorage.getItem('skydiving-locations')) || [
-            { id: 'loc_lfoz',    name: 'LFOZ Epcol',               lat: null, lng: null },
-            { id: 'loc_klatovy', name: 'Klatovy',                   lat: null, lng: null },
-            { id: 'loc_ravenna', name: 'Ravenna',                   lat: null, lng: null },
-            { id: 'loc_palm',    name: 'The Palm Skydive Dubai',    lat: null, lng: null },
-            { id: 'loc_desert',  name: 'Desert Skydive Dubai',      lat: null, lng: null }
-        ];
-        // Backfill lat/lng on locations loaded from older data
-        this.locations.forEach(loc => {
-            if (loc.lat === undefined) loc.lat = null;
-            if (loc.lng === undefined) loc.lng = null;
-        });
-        
-        // Migrate from old rig-based system to canopy-lineset system
-        this.migrateFromRigsToCanopyLinesets();
-        
-        // Ensure every canopy has a linesets array with at least one lineset
-        this.canopies.forEach(canopy => {
-            if (!Array.isArray(canopy.linesets)) canopy.linesets = [];
-            if (canopy.linesets.length === 0) {
-                canopy.linesets.push({ number: 1, hybrid: false, previousJumps: 0, archived: false });
-            }
-        });
-        
-        // Initialize jump counts for canopy linesets
-        this.initializeCanopyLinesetJumpCounts();
-        
         this.currentView = 'jumps'; // 'jumps', 'equipment', 'stats'
         this.equipmentSubView = 'canopies'; // 'canopies', 'harnesses', 'locations'
         this.showArchivedStats = false;
+        this._olderJumpsCache = []; // cached older jumps for lazy rendering
+        this._renderedOlderCount = 0;
         
         this.init();
     }
@@ -125,9 +96,9 @@ class SkydivingLogbook {
             }
         });
         
-        // Persist migrated data
-        localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
-        localStorage.setItem('skydiving-jumps', JSON.stringify(this.jumps));
+        // Persist migrated data to IndexedDB
+        DB.replaceAll('canopies', this.canopies).catch(err => console.error('[DB] Rig migration canopies save failed:', err));
+        DB.replaceAllJumps(this.jumps).catch(err => console.error('[DB] Rig migration jumps save failed:', err));
         localStorage.removeItem('skydiving-equipment-rigs');
         
         // Mark data as dirty for sync
@@ -137,7 +108,63 @@ class SkydivingLogbook {
         console.log(`Migrated ${rigs.length} rig(s) to canopy-lineset system`);
     }
 
-    init() {
+    async init() {
+        // Open IndexedDB and migrate from localStorage if needed
+        try {
+            await DB.open();
+            await DB.migrateFromLocalStorage();
+        } catch (err) {
+            console.error('[DB] IndexedDB unavailable, running in memory-only mode:', err);
+        }
+
+        // Load data from IndexedDB (falls back to defaults if empty / IDB failed)
+        try {
+            const [jumps, canopies, harnesses, locations] = await Promise.all([
+                DB.getAllJumps(),
+                DB.getAll('canopies'),
+                DB.getAll('harnesses'),
+                DB.getAll('locations')
+            ]);
+            this.jumps     = jumps.length     ? jumps     : [];
+            this.canopies  = canopies.length  ? canopies  : [
+                { id: 'petra64', name: 'Petra64' },
+                { id: 'petra68', name: 'Petra68' }
+            ];
+            this.harnesses = harnesses.length ? harnesses : [
+                { id: 'javelin', name: 'Javelin' },
+                { id: 'mutant', name: 'Mutant' }
+            ];
+            this.locations = locations.length ? locations : [
+                { id: 'loc_lfoz',    name: 'LFOZ Epcol',            lat: null, lng: null },
+                { id: 'loc_klatovy', name: 'Klatovy',                lat: null, lng: null },
+                { id: 'loc_ravenna', name: 'Ravenna',                lat: null, lng: null },
+                { id: 'loc_palm',    name: 'The Palm Skydive Dubai', lat: null, lng: null },
+                { id: 'loc_desert',  name: 'Desert Skydive Dubai',   lat: null, lng: null }
+            ];
+        } catch (err) {
+            console.error('[DB] Failed to load data from IndexedDB:', err);
+        }
+
+        // Backfill lat/lng on locations loaded from older data
+        this.locations.forEach(loc => {
+            if (loc.lat === undefined) loc.lat = null;
+            if (loc.lng === undefined) loc.lng = null;
+        });
+
+        // Migrate from old rig-based system to canopy-lineset system
+        this.migrateFromRigsToCanopyLinesets();
+
+        // Ensure every canopy has a linesets array with at least one lineset
+        this.canopies.forEach(canopy => {
+            if (!Array.isArray(canopy.linesets)) canopy.linesets = [];
+            if (canopy.linesets.length === 0) {
+                canopy.linesets.push({ number: 1, hybrid: false, previousJumps: 0, archived: false });
+            }
+        });
+
+        // Initialize jump counts for canopy linesets
+        this.initializeCanopyLinesetJumpCounts();
+
         this.setupEventListeners();
         this.updateStats();
         this.renderJumpsList();
@@ -243,22 +270,6 @@ class SkydivingLogbook {
 
         document.getElementById('saveSettings').addEventListener('click', () => {
             this.saveSettings();
-        });
-
-        document.getElementById('localStorageBtn').addEventListener('click', () => {
-            this.openLocalStorageModal();
-        });
-
-        document.getElementById('localStorageClose').addEventListener('click', () => {
-            this.closeLocalStorageModal();
-        });
-
-        document.getElementById('reloadLocalStorageBtn').addEventListener('click', () => {
-            this.loadLocalStorageEditor();
-        });
-
-        document.getElementById('saveLocalStorageBtn').addEventListener('click', () => {
-            this.saveLocalStorageEditor();
         });
 
         document.getElementById('resetAppBtn').addEventListener('click', () => {
@@ -389,7 +400,6 @@ class SkydivingLogbook {
             const componentModal = document.getElementById('componentModal');
             const sheetsModal = document.getElementById('sheetsModal');
             const jumpNoteModal = document.getElementById('jumpNoteModal');
-            const localStorageModal = document.getElementById('localStorageModal');
             if (e.target === settingsModal) {
                 this.closeModal();
             }
@@ -404,9 +414,6 @@ class SkydivingLogbook {
             }
             if (e.target === jumpNoteModal) {
                 this.closeJumpNotePopup();
-            }
-            if (e.target === localStorageModal) {
-                this.closeLocalStorageModal();
             }
         });
     }
@@ -497,7 +504,7 @@ class SkydivingLogbook {
                 const newId = 'loc_' + Date.now();
                 const newLoc = { id: newId, name: jump.location, lat: null, lng: null };
                 this.locations.push(newLoc);
-                localStorage.setItem('skydiving-locations', JSON.stringify(this.locations));
+                DB.putAll('locations', this.locations).catch(err => console.error('[DB] Failed to save locations:', err));
                 this.updateLocationDatalist();
                 this.geocodeLocation(newLoc);
             }
@@ -511,7 +518,7 @@ class SkydivingLogbook {
                 if (lineset) {
                     lineset.jumpCount = (lineset.jumpCount || 0) + 1;
                 }
-                localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
+                DB.replaceAll('canopies', this.canopies).catch(err => console.error('[DB] Failed to save canopies:', err));
             }
         }
         
@@ -588,6 +595,12 @@ class SkydivingLogbook {
             }
         });
 
+        // Cache older jumps for lazy "load more" rendering
+        this._olderJumpsCache = olderJumps;
+        const PAGE_SIZE = 100;
+        const initialOlder = olderJumps.slice(0, PAGE_SIZE);
+        this._renderedOlderCount = initialOlder.length;
+
         let html = '';
 
         // Render recent jumps grouped by day + location
@@ -595,36 +608,80 @@ class SkydivingLogbook {
             html += this.renderDayLocationGroups(recentJumps);
         }
 
-        // Group older jumps by month, then by day+location inside
-        if (olderJumps.length > 0) {
-            const monthGroups = new Map();
-            olderJumps.forEach(jump => {
-                const d = new Date(jump.date);
-                const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-                if (!monthGroups.has(key)) {
-                    monthGroups.set(key, { label: d.toLocaleDateString(undefined, { year: 'numeric', month: 'long' }), jumps: [] });
-                }
-                monthGroups.get(key).jumps.push(jump);
-            });
+        // Render initial page of older jumps grouped by month
+        if (initialOlder.length > 0) {
+            html += this._renderOlderMonthGroups(initialOlder);
+        }
 
-            for (const [key, group] of monthGroups) {
-                const jumpCount = group.jumps.length;
-                html += `
-                    <div class="month-group" data-month="${key}">
-                        <div class="month-group-header" onclick="logbook.toggleMonthGroup('${key}')">
-                            <span class="month-group-arrow" id="arrow-${key}">&#9654;</span>
-                            <span class="month-group-label">${group.label}</span>
-                            <span class="month-group-count">${jumpCount} jump${jumpCount !== 1 ? 's' : ''}</span>
-                        </div>
-                        <div class="month-group-body" id="month-${key}" style="display:none;">
-                            ${this.renderDayLocationGroups(group.jumps)}
-                        </div>
-                    </div>
-                `;
-            }
+        // "Load more" button if there are remaining older jumps
+        if (olderJumps.length > PAGE_SIZE) {
+            html += `<button class="btn-secondary load-more-btn" id="loadMoreJumpsBtn" onclick="logbook.loadMoreJumps()">Load more (${olderJumps.length - PAGE_SIZE} remaining)</button>`;
         }
 
         jumpsList.innerHTML = html;
+    }
+
+    /** Render a batch of older jumps as collapsed month groups. */
+    _renderOlderMonthGroups(jumps) {
+        const monthGroups = new Map();
+        jumps.forEach(jump => {
+            const d = new Date(jump.date);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            if (!monthGroups.has(key)) {
+                monthGroups.set(key, { label: d.toLocaleDateString(undefined, { year: 'numeric', month: 'long' }), jumps: [] });
+            }
+            monthGroups.get(key).jumps.push(jump);
+        });
+
+        let html = '';
+        for (const [key, group] of monthGroups) {
+            const jumpCount = group.jumps.length;
+            html += `
+                <div class="month-group" data-month="${key}">
+                    <div class="month-group-header" onclick="logbook.toggleMonthGroup('${key}')">
+                        <span class="month-group-arrow" id="arrow-${key}">&#9654;</span>
+                        <span class="month-group-label">${group.label}</span>
+                        <span class="month-group-count">${jumpCount} jump${jumpCount !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="month-group-body" id="month-${key}" style="display:none;">
+                        ${this.renderDayLocationGroups(group.jumps)}
+                    </div>
+                </div>
+            `;
+        }
+        return html;
+    }
+
+    /** Append the next page of older jumps to the list. */
+    loadMoreJumps() {
+        const PAGE_SIZE = 100;
+        const nextBatch = this._olderJumpsCache.slice(
+            this._renderedOlderCount,
+            this._renderedOlderCount + PAGE_SIZE
+        );
+        if (nextBatch.length === 0) return;
+        this._renderedOlderCount += nextBatch.length;
+
+        // Remove existing load-more button
+        const btn = document.getElementById('loadMoreJumpsBtn');
+        if (btn) btn.remove();
+
+        // Append new month groups
+        const jumpsList = document.getElementById('jumpsList');
+        const fragment = document.createElement('div');
+        fragment.innerHTML = this._renderOlderMonthGroups(nextBatch);
+        while (fragment.firstChild) jumpsList.appendChild(fragment.firstChild);
+
+        // Re-add button if more remain
+        const remaining = this._olderJumpsCache.length - this._renderedOlderCount;
+        if (remaining > 0) {
+            const newBtn = document.createElement('button');
+            newBtn.className = 'btn-secondary load-more-btn';
+            newBtn.id = 'loadMoreJumpsBtn';
+            newBtn.textContent = `Load more (${remaining} remaining)`;
+            newBtn.onclick = () => this.loadMoreJumps();
+            jumpsList.appendChild(newBtn);
+        }
     }
 
     toggleMonthGroup(key) {
@@ -864,82 +921,12 @@ class SkydivingLogbook {
         document.getElementById('sheetsModal').style.display = 'none';
     }
 
-    openLocalStorageModal() {
-        this.loadLocalStorageEditor();
-        this.closeModal();
-        document.getElementById('localStorageModal').style.display = 'block';
-    }
-
-    closeLocalStorageModal() {
-        document.getElementById('localStorageModal').style.display = 'none';
-    }
-
-    parseLocalStorageValue(rawValue) {
-        try {
-            return JSON.parse(rawValue);
-        } catch (_) {
-            return rawValue;
-        }
-    }
-
-    loadLocalStorageEditor() {
-        const editor = document.getElementById('localStorageEditor');
-        if (!editor) return;
-
-        const snapshot = {};
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (!key) continue;
-            const rawValue = localStorage.getItem(key);
-            snapshot[key] = this.parseLocalStorageValue(rawValue);
-        }
-
-        const sortedSnapshot = Object.keys(snapshot)
-            .sort((a, b) => a.localeCompare(b))
-            .reduce((acc, key) => {
-                acc[key] = snapshot[key];
-                return acc;
-            }, {});
-
-        editor.value = JSON.stringify(sortedSnapshot, null, 2);
-    }
-
-    saveLocalStorageEditor() {
-        const editor = document.getElementById('localStorageEditor');
-        if (!editor) return;
-
-        let parsed;
-        try {
-            parsed = JSON.parse(editor.value);
-        } catch (error) {
-            this.showMessage('Invalid JSON. Fix formatting before saving.', 'error');
-            return;
-        }
-
-        if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
-            this.showMessage('Top-level JSON must be an object of key/value pairs.', 'error');
-            return;
-        }
-
-        localStorage.clear();
-        Object.entries(parsed).forEach(([key, value]) => {
-            if (!key) return;
-            if (typeof value === 'string') {
-                localStorage.setItem(key, value);
-            } else {
-                localStorage.setItem(key, JSON.stringify(value));
-            }
-        });
-
-        this.showMessage('Local storage saved. Reloading app...', 'success');
-        setTimeout(() => window.location.reload(), 300);
-    }
-
-    resetAppToFirstLaunch() {
-        const confirmed = confirm('Erase all local storage data and reset the app to first-launch state? This cannot be undone.');
+    async resetAppToFirstLaunch() {
+        const confirmed = confirm('⚠️ This will permanently erase ALL app data (jumps, equipment, settings) and reset to first-launch state.\n\nThis action CANNOT be undone.\n\nContinue?');
         if (!confirmed) return;
 
         localStorage.clear();
+        try { await DB.clearAll(); } catch (_) { /* IDB may not be open */ }
         this.showMessage('App data erased. Reloading...', 'success');
         setTimeout(() => window.location.reload(), 300);
     }
@@ -1058,7 +1045,7 @@ class SkydivingLogbook {
     }
 
     saveToLocalStorage() {
-        localStorage.setItem('skydiving-jumps', JSON.stringify(this.jumps));
+        DB.replaceAllJumps(this.jumps).catch(err => console.error('[DB] Failed to save jumps:', err));
         this.markJumpsModified();
         // Mark that there are local changes not yet pushed to the sheet
         localStorage.setItem('skydiving-needs-sync', '1');
@@ -1066,9 +1053,11 @@ class SkydivingLogbook {
     }
 
     saveComponentsToLocalStorage() {
-        localStorage.setItem('skydiving-harnesses', JSON.stringify(this.harnesses));
-        localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
-        localStorage.setItem('skydiving-locations', JSON.stringify(this.locations));
+        Promise.all([
+            DB.replaceAll('harnesses', this.harnesses),
+            DB.replaceAll('canopies', this.canopies),
+            DB.replaceAll('locations', this.locations)
+        ]).catch(err => console.error('[DB] Failed to save equipment:', err));
         this.markEquipmentModified();
         // Mark equipment as locally modified so the next sync pushes instead of pulls.
         // Startup code (jump-count init) must NOT call this method — it
@@ -1098,7 +1087,7 @@ class SkydivingLogbook {
         });
         
         if (needsSave) {
-            localStorage.setItem('skydiving-canopies', JSON.stringify(this.canopies));
+            DB.replaceAll('canopies', this.canopies).catch(err => console.error('[DB] Failed to save canopy counts:', err));
         }
     }
 
