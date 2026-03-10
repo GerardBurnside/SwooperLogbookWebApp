@@ -279,6 +279,10 @@ class SheetsAPI {
 
     async syncEquipmentToSheet(dataModified = null) {
         if (!this.initialized) return;
+        if (!window.AuthManager.isSignedIn()) {
+            this.updateSyncStatus('Unsynced');
+            return;
+        }
 
         const logbook = window.logbook;
         if (!logbook) return;
@@ -375,6 +379,10 @@ class SheetsAPI {
 
     async pushAllWithGuard() {
         if (!this.initialized || !navigator.onLine) return;
+        if (!window.AuthManager.isSignedIn()) {
+            this.updateSyncStatus('Unsynced');
+            return;
+        }
         if (this._syncInProgress) {
             console.log('[Sync] Push skipped — another sync in progress');
             return;
@@ -693,8 +701,13 @@ class SheetsAPI {
         if (syncBtn) {
             if (status === 'Syncing...' || status === 'Uploading jumps...') {
                 syncBtn.classList.add('syncing');
+                syncBtn.classList.remove('unsynced');
+            } else if (status === 'Unsynced' || status === 'Not signed in') {
+                syncBtn.classList.remove('syncing');
+                syncBtn.classList.add('unsynced');
             } else {
                 syncBtn.classList.remove('syncing');
+                syncBtn.classList.remove('unsynced');
             }
         }
     }

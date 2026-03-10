@@ -92,6 +92,15 @@ header h1 {
     animation: spin 1s linear infinite;
 }
 
+.sync-btn.unsynced {
+    background: rgba(255, 152, 0, 0.55);
+}
+
+.sync-btn.unsynced:hover,
+.sync-btn.unsynced:active {
+    background: rgba(255, 152, 0, 0.75);
+}
+
 @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
