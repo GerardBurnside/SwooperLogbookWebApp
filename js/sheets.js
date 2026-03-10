@@ -642,25 +642,27 @@ class SheetsAPI {
     }
 
     /**
-     * Called by the sync button. If the token is expired, triggers interactive
-     * sign-in first, then performs a full sync and starts the background poll.
+     * Called by the sync button. If not configured, triggers the full sign-in
+     * and spreadsheet setup flow. If the token is expired, refreshes it first,
+     * then performs a full sync and starts the background poll.
      */
     async userInitiatedSync() {
-        if (!this.initialized) return;
         if (!navigator.onLine) {
             this.updateSyncStatus('Offline');
             return;
         }
-        if (!window.AuthManager.isSignedIn()) {
-            try {
-                this.updateSyncStatus('Signing in...');
-                await window.AuthManager.getValidToken();
-            } catch (e) {
-                console.error('[Sync] Sign-in failed:', e);
-                this.updateSyncStatus('Not signed in');
+
+        // If not initialized (no spreadsheet configured), trigger the full
+        // sign-in flow from app.js which handles OAuth + spreadsheet discovery.
+        if (!this.initialized || !window.AuthManager.isSignedIn()) {
+            if (window.logbook && typeof window.logbook.handleGoogleSignIn === 'function') {
+                await window.logbook.handleGoogleSignIn();
                 return;
             }
+            this.updateSyncStatus('Not signed in');
+            return;
         }
+
         // doStartupSync handles push/pull conflict detection and schedules the poll
         await this.doStartupSync();
     }
