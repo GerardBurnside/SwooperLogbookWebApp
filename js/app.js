@@ -1514,6 +1514,7 @@ class SkydivingLogbook {
         this.canopies.splice(tgtIdx, 0, moved);
         this.saveComponentsToLocalStorage();
         this.renderEquipmentView();
+        this.updateEquipmentOptions();
     }
 
     // ── Lineset management ──────────────────────────────────────────────────
