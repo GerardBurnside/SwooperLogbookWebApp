@@ -470,7 +470,10 @@ class SheetsAPI {
             if (d.harnesses)  logbook.harnesses  = d.harnesses;
             if (d.canopies)   logbook.canopies   = d.canopies;
             if (d.settings)   logbook.settings   = d.settings;
-            if (d.locations)  logbook.locations  = d.locations;
+            if (d.locations) {
+                logbook.locations = d.locations;
+                logbook.locations.sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity));
+            }
 
             logbook.migrateFromRigsToCanopyLinesets();
             logbook.canopies.forEach(c => {

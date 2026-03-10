@@ -140,6 +140,7 @@ class SkydivingLogbook {
                 { id: 'loc_palm',    name: 'The Palm Skydive Dubai', lat: 25.112176, lng: 55.153587 },
                 { id: 'loc_desert',  name: 'Desert Skydive Dubai',   lat: 24.985654, lng: 55.146111 }
             ];
+            this.locations.sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity));
         } catch (err) {
             console.error('[DB] Failed to load data from IndexedDB:', err);
         }
@@ -1316,7 +1317,7 @@ class SkydivingLogbook {
         switch(this.equipmentSubView) {
             case 'canopies':     this.renderCanopiesWithLinesets(); break;
             case 'harnesses':    this.renderComponents('harnesses');    break;
-            case 'locations':    this.renderComponents('locations');    break;
+            case 'locations':    this.renderLocations();               break;
         }
     }
 
@@ -1764,9 +1765,9 @@ class SkydivingLogbook {
 
         const showDropdown = () => {
             const query = input.value.trim().toLowerCase();
-            const matches = this.locations.filter(loc =>
-                loc.name.toLowerCase().includes(query)
-            );
+            const matches = this.locations
+                .filter(loc => !loc.archived && loc.name.toLowerCase().includes(query))
+                .sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity));
 
             if (matches.length === 0) {
                 dropdown.classList.remove('open');
@@ -1983,6 +1984,128 @@ class SkydivingLogbook {
                 </div>
             </div>
         `).join('');
+    }
+
+    renderLocations() {
+        const container = document.getElementById('equipmentList');
+
+        if (this.locations.length === 0) {
+            container.innerHTML = '<p class="no-items">No locations added yet.</p>';
+            return;
+        }
+
+        // Active locations in user-defined order, archived appended at the end
+        const active   = this.locations.filter(l => !l.archived);
+        const archived = this.locations.filter(l =>  l.archived);
+        const sorted   = [...active, ...archived];
+
+        container.innerHTML = sorted.map(loc => {
+            const draggable = !loc.archived;
+            return `
+                <div class="equipment-item ${loc.archived ? 'archived' : ''}" data-location-id="${loc.id}" ${draggable ? 'draggable="true"' : ''}>
+                    <div class="equipment-info">
+                        <div class="equipment-name-row">
+                            ${draggable ? '<span class="drag-handle" title="Drag to reorder">&#x283f;</span>' : ''}
+                            <span class="equipment-name">${loc.name}</span>
+                        </div>
+                        ${loc.notes ? `<div class="component-notes">\uD83D\uDCDD ${loc.notes}</div>` : ''}
+                        ${loc.archived ? '<span class="archived-badge">Archived</span>' : ''}
+                    </div>
+                    <div class="equipment-actions">
+                        <button onclick="window.logbook.editComponent('${loc.id}', 'locations')" class="btn-edit">Edit</button>
+                        <button onclick="window.logbook.toggleArchiveComponent('${loc.id}', 'locations')" class="btn-toggle">
+                            ${loc.archived ? 'Unarchive' : 'Archive'}
+                        </button>
+                        <button onclick="window.logbook.deleteComponent('${loc.id}', 'locations')" class="btn-delete">Delete</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        this._initLocationDragAndDrop(container);
+    }
+
+    _initLocationDragAndDrop(container) {
+        let dragSrcId = null;
+
+        const clearOver = () =>
+            container.querySelectorAll('.equipment-item').forEach(i => i.classList.remove('drag-over'));
+
+        container.querySelectorAll('.equipment-item[draggable="true"]').forEach(item => {
+            // ── Desktop HTML5 drag ──────────────────────────────────────
+            item.addEventListener('dragstart', e => {
+                dragSrcId = item.dataset.locationId;
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => item.classList.add('dragging'), 0);
+            });
+
+            item.addEventListener('dragend', () => {
+                item.classList.remove('dragging');
+                clearOver();
+            });
+
+            item.addEventListener('dragover', e => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                clearOver();
+                item.classList.add('drag-over');
+            });
+
+            item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+
+            item.addEventListener('drop', e => {
+                e.preventDefault();
+                clearOver();
+                const targetId = item.dataset.locationId;
+                if (dragSrcId && dragSrcId !== targetId) {
+                    this._reorderLocation(dragSrcId, targetId);
+                }
+            });
+
+            // ── Mobile touch drag (via handle) ──────────────────────────
+            const handle = item.querySelector('.drag-handle');
+            if (!handle) return;
+
+            handle.addEventListener('touchstart', e => {
+                dragSrcId = item.dataset.locationId;
+                item.classList.add('dragging');
+                e.preventDefault();
+            }, { passive: false });
+
+            handle.addEventListener('touchmove', e => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                const hit = document.elementFromPoint(touch.clientX, touch.clientY);
+                clearOver();
+                const target = hit && hit.closest('.equipment-item[draggable="true"]');
+                if (target && target !== item) target.classList.add('drag-over');
+            }, { passive: false });
+
+            handle.addEventListener('touchend', () => {
+                item.classList.remove('dragging');
+                const overEl = container.querySelector('.equipment-item.drag-over');
+                clearOver();
+                if (overEl && dragSrcId) {
+                    const targetId = overEl.dataset.locationId;
+                    if (dragSrcId !== targetId) this._reorderLocation(dragSrcId, targetId);
+                }
+            });
+        });
+    }
+
+    _reorderLocation(srcId, targetId) {
+        // Only reorder within active (non-archived) locations
+        const active   = this.locations.filter(l => !l.archived);
+        const archived = this.locations.filter(l =>  l.archived);
+        const srcIdx   = active.findIndex(l => l.id === srcId);
+        const tgtIdx   = active.findIndex(l => l.id === targetId);
+        if (srcIdx === -1 || tgtIdx === -1) return;
+        const [moved] = active.splice(srcIdx, 1);
+        active.splice(tgtIdx, 0, moved);
+        active.forEach((l, i) => { l.sortOrder = i; });
+        this.locations = [...active, ...archived];
+        this.saveComponentsToLocalStorage();
+        this.renderLocations();
     }
 
     toggleArchiveComponent(id, type) {
