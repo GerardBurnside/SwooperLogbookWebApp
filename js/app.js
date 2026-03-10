@@ -1411,8 +1411,8 @@ class SkydivingLogbook {
                         <div class="equipment-name-row">
                             ${draggable ? '<span class="drag-handle" title="Drag to reorder">⠿</span>' : ''}
                             <span class="equipment-name">${canopy.name}</span>
+                            ${canopy.notes ? `<span class="component-notes-inline">\uD83D\uDCDD ${canopy.notes}</span>` : ''}
                         </div>
-                        ${canopy.notes ? `<div class="component-notes">\uD83D\uDCDD ${canopy.notes}</div>` : ''}
                         ${canopy.archived ? '<span class="archived-badge">Archived</span>' : ''}
                         <div class="linesets-container">
                             ${activeLinesetsHtml || '<p class="no-items" style="margin:4px 0;">No active linesets</p>'}

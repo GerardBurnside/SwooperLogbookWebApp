@@ -776,6 +776,16 @@ textarea {
     white-space: pre-line;
 }
 
+.component-notes-inline {
+    font-size: 0.8rem;
+    color: #666;
+    font-style: italic;
+    margin-left: 0.4rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* Lineset rows within canopy cards */
 .linesets-container {
     margin-top: 0.5rem;
