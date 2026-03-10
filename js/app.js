@@ -1552,6 +1552,13 @@ class SkydivingLogbook {
             hint.textContent = 'Leave blank to auto-geocode from the name.';
             hint.style.color = '#888';
         }
+        // Show/hide initial lineset section for new canopies
+        const isCanopy = type === 'canopy';
+        document.getElementById('canopyLinesetSection').style.display = isCanopy ? 'block' : 'none';
+        if (isCanopy) {
+            document.getElementById('newCanopyHybridCheck').checked = false;
+            document.getElementById('newCanopyPreviousJumps').value = 0;
+        }
         document.getElementById('componentModal').style.display = 'block';
     }
 
@@ -1636,11 +1643,13 @@ class SkydivingLogbook {
             }
         }
         
-        // Give new canopies a default lineset #1
+        // Give new canopies a lineset #1 using the values from the creation form
         if (type === 'canopy' && !id) {
             const canopy = collection[collection.length - 1];
             if (!Array.isArray(canopy.linesets)) {
-                canopy.linesets = [{ number: 1, hybrid: false, previousJumps: 0, jumpCount: 0, archived: false }];
+                const hybrid = document.getElementById('newCanopyHybridCheck').checked;
+                const previousJumps = Math.max(0, parseInt(document.getElementById('newCanopyPreviousJumps').value) || 0);
+                canopy.linesets = [{ number: 1, hybrid: hybrid, previousJumps: previousJumps, jumpCount: 0, archived: false }];
             }
         }
         
@@ -1924,6 +1933,8 @@ class SkydivingLogbook {
                     hint.style.color = '#888';
                 }
             }
+            // Hide initial lineset section when editing (only shown for new canopies)
+            document.getElementById('canopyLinesetSection').style.display = 'none';
             document.getElementById('componentModal').style.display = 'block';
         }
     }

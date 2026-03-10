@@ -209,6 +209,10 @@ label {
     color: #555;
 }
 
+input[type="checkbox"], input[type="radio"] {
+    width: auto;
+}
+
 input, select, textarea {
     width: 100%;
     padding: 0.75rem;
