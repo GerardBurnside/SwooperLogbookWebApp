@@ -486,6 +486,7 @@ class SheetsAPI {
             logbook.updateStats();
             logbook.renderJumpsList();
             if (logbook.currentView === 'equipment') logbook.renderEquipmentView();
+            if (logbook.currentView === 'stats') logbook.renderStats();
             logbook.preFillFormWithLastJump();
         }
 

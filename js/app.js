@@ -126,10 +126,7 @@ class SkydivingLogbook {
                 DB.getAll('locations')
             ]);
             this.jumps     = jumps.length     ? jumps     : [];
-            this.canopies  = canopies.length  ? canopies  : [
-                { id: 'petra64', name: 'Petra64' },
-                { id: 'petra68', name: 'Petra68' }
-            ];
+            this.canopies  = canopies.length  ? canopies  : [];
             this.canopies.sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity));
             this.harnesses = harnesses.length ? harnesses : [
                 { id: 'javelin', name: 'Javelin' },
@@ -1279,7 +1276,9 @@ class SkydivingLogbook {
         document.getElementById(`${viewName}ViewBtn`).classList.add('active');
         
         // Load view-specific content
-        if (viewName === 'equipment') {
+        if (viewName === 'jumps') {
+            this.renderJumpsList();
+        } else if (viewName === 'equipment') {
             this.renderEquipmentView();
         } else if (viewName === 'stats') {
             this.renderStats();
