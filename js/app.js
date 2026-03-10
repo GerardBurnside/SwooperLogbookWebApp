@@ -1373,29 +1373,36 @@ class SkydivingLogbook {
         const sorted = [...this.canopies].sort((a, b) => !!a.archived - !!b.archived);
 
         container.innerHTML = sorted.map(canopy => {
-            const linesetsHtml = (canopy.linesets || [])
-                .sort((a, b) => b.number - a.number)
-                .map(ls => {
-                    const logged = ls.jumpCount || 0;
-                    const preApp = ls.previousJumps || 0;
-                    const total = logged + preApp;
-                    const hybridBadge = ls.hybrid ? '<span class="hybrid-badge">Hybrid</span>' : '';
-                    const archivedBadge = ls.archived ? '<span class="archived-badge">Archived</span>' : '';
-                    return `
-                        <div class="lineset-row ${ls.archived ? 'archived' : ''}">
-                            <span class="lineset-info">
-                                Lineset #${ls.number} ${hybridBadge} ${archivedBadge}
-                                <span class="lineset-jumps">${total} jumps${preApp > 0 ? ` (${logged} logged + ${preApp} pre-app)` : ''}</span>
-                            </span>
-                            <span class="lineset-actions">
-                                <button onclick="window.logbook.editLineset('${canopy.id}', ${ls.number})" class="btn-edit btn-sm">Edit</button>
-                                <button onclick="window.logbook.toggleArchiveLineset('${canopy.id}', ${ls.number})" class="btn-toggle btn-sm">
-                                    ${ls.archived ? 'Unarchive' : 'Archive'}
-                                </button>
-                            </span>
-                        </div>
-                    `;
-                }).join('');
+            const allLinesets = (canopy.linesets || []).sort((a, b) => b.number - a.number);
+            const activeLinesets = allLinesets.filter(ls => !ls.archived);
+            const archivedLinesets = allLinesets.filter(ls => ls.archived);
+            const hasArchived = archivedLinesets.length > 0;
+
+            const renderLinesetRow = (ls) => {
+                const logged = ls.jumpCount || 0;
+                const preApp = ls.previousJumps || 0;
+                const total = logged + preApp;
+                const hybridBadge = ls.hybrid ? '<span class="hybrid-badge">Hybrid</span>' : '';
+                const archivedBadge = ls.archived ? '<span class="archived-badge">Archived</span>' : '';
+                return `
+                    <div class="lineset-row ${ls.archived ? 'archived' : ''}">
+                        <span class="lineset-info">
+                            Lineset #${ls.number} ${hybridBadge} ${archivedBadge}
+                            <span class="lineset-jumps">${total} jumps${preApp > 0 ? ` (${logged} logged + ${preApp} pre-app)` : ''}</span>
+                        </span>
+                        <span class="lineset-actions">
+                            <button onclick="window.logbook.editLineset('${canopy.id}', ${ls.number})" class="btn-edit btn-sm">Edit</button>
+                            <button onclick="window.logbook.toggleArchiveLineset('${canopy.id}', ${ls.number})" class="btn-toggle btn-sm">
+                                ${ls.archived ? 'Unarchive' : 'Archive'}
+                            </button>
+                        </span>
+                    </div>
+                `;
+            };
+
+            const activeLinesetsHtml = activeLinesets.map(renderLinesetRow).join('');
+            const archivedLinesetsHtml = archivedLinesets.map(renderLinesetRow).join('');
+            const archivedId = 'archived-linesets-' + canopy.id.replace(/[^a-zA-Z0-9_-]/g, '_');
 
             const draggable = !canopy.archived;
             return `
@@ -1408,7 +1415,16 @@ class SkydivingLogbook {
                         ${canopy.notes ? `<div class="component-notes">\uD83D\uDCDD ${canopy.notes}</div>` : ''}
                         ${canopy.archived ? '<span class="archived-badge">Archived</span>' : ''}
                         <div class="linesets-container">
-                            ${linesetsHtml || '<p class="no-items" style="margin:4px 0;">No linesets</p>'}
+                            ${activeLinesetsHtml || '<p class="no-items" style="margin:4px 0;">No active linesets</p>'}
+                            ${hasArchived ? `
+                                <label class="show-archived-linesets-label">
+                                    <input type="checkbox" onchange="window.logbook.toggleArchivedLinesets('${archivedId}', this.checked)">
+                                    Show archived linesets (${archivedLinesets.length})
+                                </label>
+                                <div id="${archivedId}" class="archived-linesets-group" style="display:none;">
+                                    ${archivedLinesetsHtml}
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
                     <div class="equipment-actions">
@@ -1424,6 +1440,11 @@ class SkydivingLogbook {
         }).join('');
 
         this._initCanopyDragAndDrop(container);
+    }
+
+    toggleArchivedLinesets(id, show) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = show ? 'block' : 'none';
     }
 
     _initCanopyDragAndDrop(container) {
