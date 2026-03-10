@@ -130,6 +130,7 @@ class SkydivingLogbook {
                 { id: 'petra64', name: 'Petra64' },
                 { id: 'petra68', name: 'Petra68' }
             ];
+            this.canopies.sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity));
             this.harnesses = harnesses.length ? harnesses : [
                 { id: 'javelin', name: 'Javelin' },
                 { id: 'mutant', name: 'Mutant' }
@@ -1512,6 +1513,7 @@ class SkydivingLogbook {
         if (srcIdx === -1 || tgtIdx === -1) return;
         const [moved] = this.canopies.splice(srcIdx, 1);
         this.canopies.splice(tgtIdx, 0, moved);
+        this.canopies.forEach((c, i) => { c.sortOrder = i; });
         this.saveComponentsToLocalStorage();
         this.renderEquipmentView();
         this.updateEquipmentOptions();
