@@ -307,16 +307,11 @@ class SheetsAPI {
     async doStartupSync() {
         if (!this.initialized) return;
 
-        // Avoid triggering interactive sign-in on startup; set "Not signed in"
-        // and let the user initiate auth manually via the sync button.
+        // Never trigger interactive sign-in at startup — bail silently so the
+        // user can initiate auth manually by pressing the sync button.
         if (!window.AuthManager.isSignedIn()) {
-            try {
-                await window.AuthManager.silentRefresh();
-            } catch (_) {
-                this.updateSyncStatus('Not signed in');
-                this._schedulePoll();
-                return;
-            }
+            this.updateSyncStatus('Not signed in');
+            return;
         }
 
         if (this._syncInProgress) {
@@ -519,6 +514,7 @@ class SheetsAPI {
 
     async doPendingPush() {
         if (!this.initialized || !navigator.onLine) return;
+        if (!window.AuthManager.isSignedIn()) return; // bail silently — background poll must not show sign-in UI
         if (this._syncInProgress) return;
         this._syncInProgress = true;
 
@@ -565,6 +561,30 @@ class SheetsAPI {
         } finally {
             this._syncInProgress = false;
         }
+    }
+
+    /**
+     * Called by the sync button. If the token is expired, triggers interactive
+     * sign-in first, then performs a full sync and starts the background poll.
+     */
+    async userInitiatedSync() {
+        if (!this.initialized) return;
+        if (!navigator.onLine) {
+            this.updateSyncStatus('Offline');
+            return;
+        }
+        if (!window.AuthManager.isSignedIn()) {
+            try {
+                this.updateSyncStatus('Signing in...');
+                await window.AuthManager.getValidToken();
+            } catch (e) {
+                console.error('[Sync] Sign-in failed:', e);
+                this.updateSyncStatus('Not signed in');
+                return;
+            }
+        }
+        // doStartupSync handles push/pull conflict detection and schedules the poll
+        await this.doStartupSync();
     }
 
     // ── Backup rig sheet support ────────────────────────────────────────
@@ -687,6 +707,6 @@ window.SheetsAPI = new SheetsAPI();
 document.addEventListener('DOMContentLoaded', () => {
     const syncBtn = document.getElementById('syncBtn');
     if (syncBtn) {
-        syncBtn.onclick = () => window.SheetsAPI.doPendingPush();
+        syncBtn.onclick = () => window.SheetsAPI.userInitiatedSync();
     }
 });
