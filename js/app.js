@@ -1412,9 +1412,11 @@ class SkydivingLogbook {
             const draggable = !canopy.archived;
             return `
                 <div class="equipment-item ${canopy.archived ? 'archived' : ''}" data-canopy-id="${canopy.id}" ${draggable ? 'draggable="true"' : ''}>
-                    ${draggable ? '<div class="drag-handle" title="Drag to reorder">⠿</div>' : ''}
                     <div class="equipment-info">
-                        <span class="equipment-name">${canopy.name}</span>
+                        <div class="equipment-name-row">
+                            ${draggable ? '<span class="drag-handle" title="Drag to reorder">⠿</span>' : ''}
+                            <span class="equipment-name">${canopy.name}</span>
+                        </div>
                         ${canopy.notes ? `<div class="component-notes">\uD83D\uDCDD ${canopy.notes}</div>` : ''}
                         ${canopy.archived ? '<span class="archived-badge">Archived</span>' : ''}
                         <div class="linesets-container">
@@ -2079,8 +2081,8 @@ class SkydivingLogbook {
             });
         });
         
-        const activeStats = linesetStats.filter(s => !s.archived && s.count > 0).sort((a, b) => b.count - a.count);
-        const archivedStats = linesetStats.filter(s => s.archived).sort((a, b) => b.count - a.count);
+        const activeStats = linesetStats.filter(s => !s.archived && s.count > 0);
+        const archivedStats = linesetStats.filter(s => s.archived);
         const sortedStats = this.showArchivedStats ? [...activeStats, ...archivedStats] : activeStats;
         
         const hasArchived = archivedStats.length > 0;
@@ -2127,21 +2129,13 @@ class SkydivingLogbook {
         
         html += '</div></div>';
         
-        // Add canopy aggregate statistics
-        const canopyStats = {};
-        this.jumps.forEach(jump => {
-            const canopy = this.canopies.find(c => c.id === jump.equipment);
-            if (canopy) canopyStats[canopy.name] = (canopyStats[canopy.name] || 0) + 1;
-        });
-        // Add pre-app counts from linesets
-        this.canopies.forEach(canopy => {
-            (canopy.linesets || []).forEach(ls => {
-                if (ls.previousJumps > 0) {
-                    canopyStats[canopy.name] = (canopyStats[canopy.name] || 0) + ls.previousJumps;
-                }
-            });
-        });
-        html += this.renderComponentStats('Canopy Totals', canopyStats);
+        // Add canopy aggregate statistics (preserve canopy order)
+        const canopyTotalsArray = this.canopies.map(canopy => {
+            const logged = this.jumps.filter(j => j.equipment === canopy.id).length;
+            const preApp = (canopy.linesets || []).reduce((sum, ls) => sum + (ls.previousJumps || 0), 0);
+            return { name: canopy.name, count: logged + preApp, archived: !!canopy.archived };
+        }).filter(s => s.count > 0);
+        html += this.renderOrderedComponentStats('Canopy Totals', canopyTotalsArray);
         
         container.innerHTML = html;
     }
@@ -2182,6 +2176,39 @@ class SkydivingLogbook {
             html += `<p class="no-items">No ${title.toLowerCase()} statistics available.</p>`;
         }
         
+        html += '</div></div>';
+        return html;
+    }
+
+    // Like renderComponentStats but accepts a pre-ordered array { name, count }
+    // so the display order is controlled by the caller (not sorted by count).
+    renderOrderedComponentStats(title, statsArray) {
+        let html = `
+            <div class="stats-section">
+                <h3>${title}</h3>
+                <div class="stats-list">
+        `;
+
+        if (statsArray.length > 0) {
+            const maxCount = Math.max(...statsArray.map(s => s.count));
+            statsArray.forEach(stat => {
+                const percentage = (stat.count / maxCount) * 100;
+                html += `
+                    <div class="stat-item${stat.archived ? ' archived' : ''}">
+                        <div class="stat-info">
+                            <span class="stat-name">${stat.name}${stat.archived ? ' (Archived)' : ''}</span>
+                            <span class="stat-count">${stat.count} jumps</span>
+                        </div>
+                        <div class="stat-bar">
+                            <div class="stat-fill" style="width: ${percentage}%"></div>
+                        </div>
+                    </div>
+                `;
+            });
+        } else {
+            html += `<p class="no-items">No ${title.toLowerCase()} statistics available.</p>`;
+        }
+
         html += '</div></div>';
         return html;
     }

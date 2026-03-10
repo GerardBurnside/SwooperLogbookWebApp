@@ -709,13 +709,23 @@ textarea {
     background: #e3f2fd;
 }
 
+.equipment-name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.25rem;
+}
+
+.equipment-name-row .equipment-name {
+    margin-bottom: 0;
+    display: inline;
+}
+
 .drag-handle {
-    font-size: 1.3rem;
+    font-size: 1.2rem;
     line-height: 1;
-    color: #aaa;
+    color: #bbb;
     cursor: grab;
-    padding: 0 0.5rem 0 0;
-    align-self: center;
     touch-action: none;
     user-select: none;
     flex-shrink: 0;
