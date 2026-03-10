@@ -26,6 +26,9 @@ class AuthManager {
         this._clientId = OAUTH_CLIENT_ID || localStorage.getItem('oauth-client-id') || '';
         this._userEmail = localStorage.getItem('oauth-user-email') || '';
 
+        // Restore persisted token if it hasn't expired yet
+        this._restoreToken();
+
         // Handle OAuth2 redirect callback (mobile sign-in flow) — must run before
         // any early return so the token is recovered on the redirect-back page load.
         this._handleRedirectCallback();
@@ -70,6 +73,7 @@ class AuthManager {
             const expiresIn = parseInt(params.get('expires_in') || '3600', 10);
             this._accessToken = token;
             this._expiresAt   = Date.now() + (expiresIn - 60) * 1000;
+            this._persistToken();
             console.log('[Auth] Access token recovered from redirect callback');
             this._fetchUserInfo();
             return true;
@@ -105,6 +109,35 @@ class AuthManager {
 
         window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
         return new Promise(() => {}); // never resolves; page navigates away
+    }
+
+    /** Persist current token to localStorage so it survives page reloads. */
+    _persistToken() {
+        if (this._accessToken && this._expiresAt > Date.now()) {
+            localStorage.setItem('oauth-access-token', this._accessToken);
+            localStorage.setItem('oauth-token-expires', String(this._expiresAt));
+        }
+    }
+
+    /** Restore token from localStorage if it hasn't expired. */
+    _restoreToken() {
+        const token = localStorage.getItem('oauth-access-token');
+        const expires = parseInt(localStorage.getItem('oauth-token-expires') || '0', 10);
+        if (token && expires > Date.now()) {
+            this._accessToken = token;
+            this._expiresAt = expires;
+            console.log('[Auth] Restored token from storage, expires in', Math.round((expires - Date.now()) / 1000), 's');
+        } else {
+            // Clean up stale values
+            localStorage.removeItem('oauth-access-token');
+            localStorage.removeItem('oauth-token-expires');
+        }
+    }
+
+    /** Clear persisted token from localStorage. */
+    _clearPersistedToken() {
+        localStorage.removeItem('oauth-access-token');
+        localStorage.removeItem('oauth-token-expires');
     }
 
     /** Wait until the Google Identity Services library is loaded. */
@@ -150,6 +183,7 @@ class AuthManager {
 
         this._accessToken = resp.access_token;
         this._expiresAt = Date.now() + (resp.expires_in - 60) * 1000; // buffer 60 s
+        this._persistToken();
         console.log('[Auth] Token obtained, expires in', resp.expires_in, 's');
 
         // Fetch the user's email for display (best-effort)
@@ -270,6 +304,7 @@ class AuthManager {
         this._accessToken = null;
         this._expiresAt = 0;
         this._userEmail = '';
+        this._clearPersistedToken();
         localStorage.removeItem('oauth-user-email');
         localStorage.removeItem('oauth-spreadsheet-id');
         console.log('[Auth] Signed out');
