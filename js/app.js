@@ -1409,8 +1409,10 @@ class SkydivingLogbook {
                     `;
                 }).join('');
 
+            const draggable = !canopy.archived;
             return `
-                <div class="equipment-item ${canopy.archived ? 'archived' : ''}">
+                <div class="equipment-item ${canopy.archived ? 'archived' : ''}" data-canopy-id="${canopy.id}" ${draggable ? 'draggable="true"' : ''}>
+                    ${draggable ? '<div class="drag-handle" title="Drag to reorder">⠿</div>' : ''}
                     <div class="equipment-info">
                         <span class="equipment-name">${canopy.name}</span>
                         ${canopy.notes ? `<div class="component-notes">\uD83D\uDCDD ${canopy.notes}</div>` : ''}
@@ -1430,6 +1432,86 @@ class SkydivingLogbook {
                 </div>
             `;
         }).join('');
+
+        this._initCanopyDragAndDrop(container);
+    }
+
+    _initCanopyDragAndDrop(container) {
+        let dragSrcId = null;
+
+        const clearOver = () =>
+            container.querySelectorAll('.equipment-item').forEach(i => i.classList.remove('drag-over'));
+
+        container.querySelectorAll('.equipment-item[draggable="true"]').forEach(item => {
+            // ── Desktop HTML5 drag ──────────────────────────────────────
+            item.addEventListener('dragstart', e => {
+                dragSrcId = item.dataset.canopyId;
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => item.classList.add('dragging'), 0);
+            });
+
+            item.addEventListener('dragend', () => {
+                item.classList.remove('dragging');
+                clearOver();
+            });
+
+            item.addEventListener('dragover', e => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                clearOver();
+                item.classList.add('drag-over');
+            });
+
+            item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+
+            item.addEventListener('drop', e => {
+                e.preventDefault();
+                clearOver();
+                const targetId = item.dataset.canopyId;
+                if (dragSrcId && dragSrcId !== targetId) {
+                    this._reorderCanopy(dragSrcId, targetId);
+                }
+            });
+
+            // ── Mobile touch drag (via handle) ──────────────────────────
+            const handle = item.querySelector('.drag-handle');
+            if (!handle) return;
+
+            handle.addEventListener('touchstart', e => {
+                dragSrcId = item.dataset.canopyId;
+                item.classList.add('dragging');
+                e.preventDefault();
+            }, { passive: false });
+
+            handle.addEventListener('touchmove', e => {
+                e.preventDefault();
+                const touch = e.touches[0];
+                const hit = document.elementFromPoint(touch.clientX, touch.clientY);
+                clearOver();
+                const target = hit && hit.closest('.equipment-item[draggable="true"]');
+                if (target && target !== item) target.classList.add('drag-over');
+            }, { passive: false });
+
+            handle.addEventListener('touchend', () => {
+                item.classList.remove('dragging');
+                const overEl = container.querySelector('.equipment-item.drag-over');
+                clearOver();
+                if (overEl && dragSrcId) {
+                    const targetId = overEl.dataset.canopyId;
+                    if (dragSrcId !== targetId) this._reorderCanopy(dragSrcId, targetId);
+                }
+            });
+        });
+    }
+
+    _reorderCanopy(srcId, targetId) {
+        const srcIdx = this.canopies.findIndex(c => c.id === srcId);
+        const tgtIdx = this.canopies.findIndex(c => c.id === targetId);
+        if (srcIdx === -1 || tgtIdx === -1) return;
+        const [moved] = this.canopies.splice(srcIdx, 1);
+        this.canopies.splice(tgtIdx, 0, moved);
+        this.saveComponentsToLocalStorage();
+        this.renderEquipmentView();
     }
 
     // ── Lineset management ──────────────────────────────────────────────────

@@ -699,6 +699,33 @@ textarea {
     background: #f5f5f5;
 }
 
+.equipment-item.dragging {
+    opacity: 0.4;
+    border: 2px dashed #2196F3;
+}
+
+.equipment-item.drag-over {
+    border: 2px solid #2196F3;
+    background: #e3f2fd;
+}
+
+.drag-handle {
+    font-size: 1.3rem;
+    line-height: 1;
+    color: #aaa;
+    cursor: grab;
+    padding: 0 0.5rem 0 0;
+    align-self: center;
+    touch-action: none;
+    user-select: none;
+    flex-shrink: 0;
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+    color: #555;
+}
+
 .equipment-info {
     flex: 1;
 }
