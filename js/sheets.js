@@ -406,10 +406,33 @@ class SheetsAPI {
 
             this.updateSyncStatus('Online');
         } catch (error) {
+            // If the stored spreadsheet was deleted or is inaccessible (404),
+            // clear the stale ID and try to find the real one on Drive.
+            if (error.message && error.message.includes('404') && !this._recoveryAttempted) {
+                console.warn('[Startup] Spreadsheet not found (404) — searching Drive for existing one...');
+                this._recoveryAttempted = true;
+                localStorage.removeItem('oauth-spreadsheet-id');
+                this.spreadsheetId = '';
+                this.initialized = false;
+                this._syncInProgress = false;
+
+                try {
+                    const newId = await this.findOrCreateSpreadsheet();
+                    if (newId) {
+                        this.reinitialize(newId);
+                        await this.doStartupSync();
+                        return;
+                    }
+                } catch (recoveryError) {
+                    console.error('[Startup] Recovery failed:', recoveryError);
+                }
+            }
+
             console.error('[Startup] Sync failed:', error);
             this.updateSyncStatus('Sync failed');
             setTimeout(() => this.updateSyncStatus('Unsynced'), 3000);
         } finally {
+            this._recoveryAttempted = false;
             this._syncInProgress = false;
             this._schedulePoll();
         }
