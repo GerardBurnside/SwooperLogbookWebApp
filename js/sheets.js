@@ -246,7 +246,9 @@ class SheetsAPI {
         // Build rows: header + data
         const header = ['Jump Number', 'Date', 'Location', 'Equipment', 'Notes', 'Timestamp', 'Equipment ID', 'Lineset Number'];
 
-        const dataRows = jumps.map(jump => {
+        const sortedJumps = [...jumps].sort((a, b) => (a.jumpNumber || 0) - (b.jumpNumber || 0));
+
+        const dataRows = sortedJumps.map(jump => {
             let equipmentName = jump.equipment;
             if (window.logbook) {
                 const canopy = window.logbook.canopies.find(c => c.id === jump.equipment);
