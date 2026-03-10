@@ -800,10 +800,12 @@ class SkydivingLogbook {
             : '';
         const encodedFullNote = hasNote ? encodeURIComponent(noteText) : '';
 
+        const canopyNameHtml = this.escapeHtml(canopyName).replace(/\d{2,}/g, '<b>$&</b>');
+
         return `
             <div class="jump-row">
                 <span class="jump-number">#${jump.jumpNumber}</span>
-                <span class="jump-canopy">🪂 ${this.escapeHtml(canopyName)}</span>
+                <span class="jump-canopy">🪂 ${canopyNameHtml}</span>
                 ${hasNote ? `<button type="button" class="jump-note-preview" onclick="logbook.openJumpNotePopup('${encodedFullNote}')" title="View full note">${this.escapeHtml(notePreview)}</button>` : ''}
                 <button class="delete-jump-btn" onclick="logbook.deleteJump('${jump.id}')" title="Delete jump">❌</button>
             </div>
