@@ -134,8 +134,8 @@ class SkydivingLogbook {
             ];
             this.locations = locations.length ? locations : [
                 { id: 'loc_lfoz',    name: 'LFOZ Epcol',             lat: 47.90293836878678, lng: 2.168939324589268 },
-                { id: 'loc_klatovy', name: 'Klatovy',                lat: 49.4181547, lng: 13.321609 },
-                { id: 'loc_ravenna', name: 'Ravenna',                lat: 44.362208, lng: 12.202889 },
+                { id: 'loc_klatovy', name: 'Klatovy LKKT',                lat: 49.4181547, lng: 13.321609 },
+                { id: 'loc_ravenna', name: 'Ravenna LIDR',                lat: 44.362208, lng: 12.202889 },
                 { id: 'loc_eloy',    name: 'Eloy Skydive Arizona',   lat: 32.7555, lng: -111.8467 },
                 { id: 'loc_palm',    name: 'The Palm Skydive Dubai', lat: 25.112176, lng: 55.153587 },
                 { id: 'loc_desert',  name: 'Desert Skydive Dubai',   lat: 24.985654, lng: 55.146111 }
