@@ -926,7 +926,7 @@ class SkydivingLogbook {
         restoreDesc.style.display  = 'none';
         restoreTitle.style.display = 'none';
 
-        if (navigator.onLine && window.SheetsAPI?.initialized) {
+        if (navigator.onLine && window.SheetsAPI?.initialized && window.AuthManager?.isSignedIn()) {
             const hasBackupRigsSheet = await window.SheetsAPI.hasBackupRigsSheet();
             const vis = hasBackupRigsSheet ? 'block' : 'none';
             restoreBtn.style.display   = vis;
