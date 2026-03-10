@@ -107,7 +107,48 @@ class SheetsAPI {
         return ct.includes('application/json') ? resp.json() : {};
     }
 
-    // ── Spreadsheet creation ────────────────────────────────────────────
+    // ── Spreadsheet discovery & creation ─────────────────────────────────
+
+    /**
+     * Search the user's Drive for an existing Swooper Logbook spreadsheet
+     * created by this app (drive.file scope). Returns the spreadsheetId or null.
+     */
+    async findExistingSpreadsheet() {
+        const token = await window.AuthManager.getValidToken();
+        const query = "name contains 'Swooper Logbook' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false";
+        const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=${encodeURIComponent('files(id,name)')}&orderBy=createdTime`;
+
+        const resp = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${token}` },
+        });
+
+        if (!resp.ok) {
+            console.warn('[Sheets] Drive search failed:', resp.status);
+            return null;
+        }
+
+        const data = await resp.json();
+        if (data.files && data.files.length > 0) {
+            console.log('[Sheets] Found existing spreadsheet:', data.files[0].id, data.files[0].name);
+            return data.files[0].id;
+        }
+        return null;
+    }
+
+    /**
+     * Find an existing Swooper Logbook spreadsheet, or create a new one.
+     * Returns the spreadsheetId.
+     */
+    async findOrCreateSpreadsheet() {
+        const existingId = await this.findExistingSpreadsheet();
+        if (existingId) {
+            localStorage.setItem('oauth-spreadsheet-id', existingId);
+            this.spreadsheetId = existingId;
+            this.initialized = true;
+            return existingId;
+        }
+        return this.createSpreadsheet();
+    }
 
     /**
      * Create a new spreadsheet in the user's Drive with the required structure.

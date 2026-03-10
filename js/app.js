@@ -1003,16 +1003,9 @@ class SkydivingLogbook {
         try {
             let spreadsheetId = localStorage.getItem('oauth-spreadsheet-id') || '';
             if (!spreadsheetId) {
-                spreadsheetId = await window.SheetsAPI.createSpreadsheet();
-                window.SheetsAPI.reinitialize(spreadsheetId);
-                const newTs = new Date().toISOString();
-                await window.SheetsAPI.uploadAllJumps(this.jumps || []);
-                await window.SheetsAPI.syncEquipmentToSheet(newTs);
-                localStorage.setItem('skydiving-data-synced', newTs);
-                localStorage.setItem('skydiving-data-modified', newTs);
-            } else {
-                window.SheetsAPI.reinitialize(spreadsheetId);
+                spreadsheetId = await window.SheetsAPI.findOrCreateSpreadsheet();
             }
+            window.SheetsAPI.reinitialize(spreadsheetId);
             if (localStorage.getItem('sheets-config')) {
                 localStorage.removeItem('sheets-config');
             }
@@ -1053,19 +1046,12 @@ class SkydivingLogbook {
 
             await window.AuthManager.signIn();
 
-            // If no spreadsheet exists yet, create one and push local data
+            // If no spreadsheet exists yet, find existing or create one
             let spreadsheetId = localStorage.getItem('oauth-spreadsheet-id') || '';
             if (!spreadsheetId) {
-                if (signInBtn) signInBtn.textContent = 'Creating spreadsheet…';
-                spreadsheetId = await window.SheetsAPI.createSpreadsheet();
+                if (signInBtn) signInBtn.textContent = 'Looking for spreadsheet…';
+                spreadsheetId = await window.SheetsAPI.findOrCreateSpreadsheet();
                 window.SheetsAPI.reinitialize(spreadsheetId);
-
-                // Push all local data to the new sheet
-                const newTs = new Date().toISOString();
-                await window.SheetsAPI.uploadAllJumps(this.jumps || []);
-                await window.SheetsAPI.syncEquipmentToSheet(newTs);
-                localStorage.setItem('skydiving-data-synced', newTs);
-                localStorage.setItem('skydiving-data-modified', newTs);
             } else {
                 window.SheetsAPI.reinitialize(spreadsheetId);
             }
