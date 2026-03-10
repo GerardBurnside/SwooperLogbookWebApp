@@ -1497,6 +1497,8 @@ class SkydivingLogbook {
                 this.showMessage(`Lineset #${linesetNumber} already exists for this canopy`, 'error');
                 return;
             }
+            // Archive all existing non-archived linesets
+            canopy.linesets.forEach(ls => { if (!ls.archived) ls.archived = true; });
             canopy.linesets.push({
                 number: linesetNumber,
                 hybrid: hybrid,

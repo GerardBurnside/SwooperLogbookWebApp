@@ -306,6 +306,19 @@ class SheetsAPI {
 
     async doStartupSync() {
         if (!this.initialized) return;
+
+        // Avoid triggering interactive sign-in on startup; set "Not signed in"
+        // and let the user initiate auth manually via the sync button.
+        if (!window.AuthManager.isSignedIn()) {
+            try {
+                await window.AuthManager.silentRefresh();
+            } catch (_) {
+                this.updateSyncStatus('Not signed in');
+                this._schedulePoll();
+                return;
+            }
+        }
+
         if (this._syncInProgress) {
             console.log('[Startup] Sync skipped — another sync in progress');
             this._schedulePoll();
