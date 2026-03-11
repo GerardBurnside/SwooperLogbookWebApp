@@ -8,10 +8,9 @@ This app was conceived for swoopers to keep track on the number of jumps on thei
 - 📱 Mobile-responsive design
 - 🪂 Jump entry with location and equipment tracking
 - 📊 Auto-incrementing jump numbers (configurable starting number)
-- 🔧 **Advanced equipment system** - Manage harnesses, canopies, and linesets separately
-- ⚙️ **Equipment rigs** - Combine components into complete setups
+- 🔧 **Equipment system** - Manage harnesses, canopies, and linesets (per canopy)
 - 📊 **Component-level statistics** - Track usage by harness, canopy, and lineset
-- 💫 **Equipment archiving** - Archive old rigs while preserving statistics
+- 💫 **Equipment archiving** - Archive canopies/linesets while preserving statistics
 - 📍 **Drop zone statistics** - Track your most visited locations
 - �📋 Google Sheets integration for data storage
 - 🔄 Offline-capable with sync when online
@@ -20,42 +19,34 @@ This app was conceived for swoopers to keep track on the number of jumps on thei
 
 ## Quick Start
 1. Open `index.html` in a web browser
-2. **Set up equipment components**: 
+2. **Set up equipment**:
    - Go to Equipment tab → Harnesses to add your harness(es) (e.g., Javelin, Mutant)
-   - Go to Canopies to add your canopies (e.g., Petra64, Petra68)
-   - Go to Linesets to add your linesets (e.g., #1, #2, #3)
-3. **Create equipment rigs**:
-   - Go to Rigs to combine your components into complete setups
-   - Name each rig (e.g., "Main Setup", "Backup Rig")
-4. **Log jumps**: Return to Jumps tab and select from your equipment rigs
-5. **View detailed stats**: Check Statistics tab for component-level analytics
-6. Optional: Configure Google Sheets integration for cloud backup
+   - Go to Canopies to add your canopies (e.g., Petra64, Petra68), each with one or more linesets (e.g., #1, #2)
+3. **Log jumps**: On the Jumps tab, add a jump and select harness, canopy, and lineset
+4. **View stats**: Check Statistics tab for component-level analytics
+5. Optional: Configure Google Sheets integration for cloud backup and synchronization across devices
 
 ## Equipment Management
 
-The app uses a realistic three-component equipment system:
+The app uses a three-component equipment system:
 
 ### **Components**
-- **Harnesses**: Your harness/container systems (e.g., Javelin Odyssey, Mutant)
-- **Canopies**: Your parachutes (e.g., Petra64, Petra68, Sabre2 120)  
-- **Linesets**: Your line sets, numbered or named (e.g., #1, #2, #3, A-lines)
+- **Harnesses**: Your harness/container systems (e.g., Javelin Odyssey, Mutant) - for book-keeping only
+- **Canopies**: Your parachutes (e.g., Petra64, Petra68, Sabre2 120), each with one or more linesets
+- **Linesets**: Attached to each canopy, numbered automatically (e.g., #1, #2, #3)
 
-### **Rigs**
-- Combine any harness + canopy + lineset into a complete equipment setup
-- Name your rigs (e.g., "Primary Setup", "Backup Rig", "Student Gear")
-- Use these rigs when logging jumps
+When logging a jump, you just select a canopy (with the latest lineset)
 
 ### **Archiving**
-- Archive old equipment rigs when you stop using them
-- Archived equipment won't appear in the jump logging dropdown
+- Archive canopies when you stop using them
+- Archived equipment won’t appear in the jump logging dropdown
 - All statistics are preserved for archived equipment
 
 ### **Statistics**
-- **Equipment Rigs**: See usage for each complete setup
-- **Component Level**: Track individual harness, canopy, and lineset usage
-- **Drop Zones**: Your most visited locations
+- **Component level**: Track usage by canopy and lineset
+- **Drop zones**: Your most visited locations
 
-This system gives you detailed insights into your gear usage patterns and helps track equipment lifecycles realistically.
+This system gives you detailed insights into your gear usage and helps track equipment lifecycles.
 
 ## Google Sheets Setup (Optional)
 1. See `config/README.md` for detailed setup instructions

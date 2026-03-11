@@ -10,9 +10,8 @@ This project is a personal mobile-friendly web application for tracking skydivin
 
 ## Key Features
 - Jump logging with auto-incrementing numbers
-- Component-based equipment system (harnesses, canopies, linesets)
-- Equipment rigs with archiving capability
-- Component-level and rig-level statistics
+- Equipment archiving (harness, canopies)
+- Component-level statistics (canopy, lineset)
 - Location analytics and usage tracking
 - Offline capability with sync
 - Export functionality
@@ -43,11 +42,9 @@ This project is a personal mobile-friendly web application for tracking skydivin
 ✅ Custom equipment management added
 ✅ Statistics and analytics implemented
 ✅ Navigation between views added
-✅ Component-based equipment system implemented
+✅ Component-based equipment system (harnesses, canopies, linesets) implemented
 ✅ Equipment archiving functionality added
 ✅ Component-level statistics added
-✅ Advanced equipment rigs system
-✅ Data migration from simple to component system
 ✅ Documentation created
 ✅ Hosting guides provided
 ✅ App successfully launched

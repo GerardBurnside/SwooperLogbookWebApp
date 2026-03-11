@@ -41,73 +41,6 @@ class SkydivingLogbook {
         this.init();
     }
 
-    /**
-     * Migrate from the old rig-based equipment system to the new canopy-lineset system.
-     * Transfers lineset info from rigs to canopies and updates jump references.
-     * Safe to call multiple times — no-ops if already migrated.
-     */
-    migrateFromRigsToCanopyLinesets() {
-        const rigsJson = localStorage.getItem('skydiving-equipment-rigs');
-        if (!rigsJson) return; // already migrated or fresh install
-        
-        const rigs = JSON.parse(rigsJson);
-        if (!Array.isArray(rigs) || rigs.length === 0) {
-            localStorage.removeItem('skydiving-equipment-rigs');
-            return;
-        }
-        
-        // Build lineset entries on canopies from rigs
-        rigs.forEach(rig => {
-            const canopy = this.canopies.find(c => c.id === rig.canopyId);
-            if (!canopy) return;
-            if (!Array.isArray(canopy.linesets)) canopy.linesets = [];
-            
-            const existing = canopy.linesets.find(ls => ls.number === (rig.linesetNumber || 1));
-            if (!existing) {
-                canopy.linesets.push({
-                    number: rig.linesetNumber || 1,
-                    hybrid: /-Hybrid$/i.test(rig.name || ''),
-                    previousJumps: rig.previousJumps || 0,
-                    archived: rig.archived || false
-                });
-            } else {
-                // Merge: keep higher previousJumps, preserve archived state
-                existing.previousJumps = Math.max(existing.previousJumps || 0, rig.previousJumps || 0);
-                if (rig.archived) existing.archived = true;
-                if (/-Hybrid$/i.test(rig.name || '')) existing.hybrid = true;
-            }
-        });
-        
-        // Sort linesets by number within each canopy
-        this.canopies.forEach(c => {
-            if (Array.isArray(c.linesets)) {
-                c.linesets.sort((a, b) => a.number - b.number);
-            }
-        });
-        
-        // Update jumps: convert equipment (rig ID) → canopyId / linesetNumber
-        this.jumps.forEach(jump => {
-            if (jump.equipment && jump.linesetNumber === undefined) {
-                const rig = rigs.find(r => r.id === jump.equipment);
-                if (rig) {
-                    jump.equipment = rig.canopyId;
-                    jump.linesetNumber = rig.linesetNumber || 1;
-                }
-            }
-        });
-        
-        // Persist migrated data to IndexedDB
-        DB.replaceAll('canopies', this.canopies).catch(err => console.error('[DB] Rig migration canopies save failed:', err));
-        DB.replaceAllJumps(this.jumps).catch(err => console.error('[DB] Rig migration jumps save failed:', err));
-        localStorage.removeItem('skydiving-equipment-rigs');
-        
-        // Mark data as dirty for sync
-        localStorage.setItem('skydiving-equipment-dirty', '1');
-        localStorage.setItem('skydiving-needs-sync', '1');
-        
-        console.log(`Migrated ${rigs.length} rig(s) to canopy-lineset system`);
-    }
-
     async init() {
         // Open IndexedDB and migrate from localStorage if needed
         try {
@@ -150,9 +83,6 @@ class SkydivingLogbook {
             if (loc.lat === undefined) loc.lat = null;
             if (loc.lng === undefined) loc.lng = null;
         });
-
-        // Migrate from old rig-based system to canopy-lineset system
-        this.migrateFromRigsToCanopyLinesets();
 
         // Ensure every canopy has a linesets array with at least one lineset
         this.canopies.forEach(canopy => {
@@ -278,10 +208,6 @@ class SkydivingLogbook {
 
         document.getElementById('resetAppBtn').addEventListener('click', () => {
             this.resetAppToFirstLaunch();
-        });
-
-        document.getElementById('restoreFromBackupBtn').addEventListener('click', () => {
-            this.restoreEquipmentFromBackup();
         });
 
         document.getElementById('useCurrentLocationBtn').addEventListener('click', () => {
@@ -911,28 +837,13 @@ class SkydivingLogbook {
         });
     }
 
-    async openSettingsModal() {
+    openSettingsModal() {
         document.getElementById('startingJumpNumber').value = this.settings.startingJumpNumber;
         document.getElementById('recentJumpsDays').value = this.settings.recentJumpsDays ?? 3;
         document.getElementById('standardRedThreshold').value = this.settings.standardRedThreshold ?? 160;
         document.getElementById('standardOrangeThreshold').value = this.settings.standardOrangeThreshold ?? 140;
         document.getElementById('hybridRedThreshold').value = this.settings.hybridRedThreshold ?? 80;
         document.getElementById('hybridOrangeThreshold').value = this.settings.hybridOrangeThreshold ?? 60;
-
-        const restoreBtn   = document.getElementById('restoreFromBackupBtn');
-        const restoreDesc  = document.getElementById('restoreFromBackupDesc');
-        const restoreTitle = document.getElementById('restoreFromBackupTitle');
-        restoreBtn.style.display   = 'none';
-        restoreDesc.style.display  = 'none';
-        restoreTitle.style.display = 'none';
-
-        if (navigator.onLine && window.SheetsAPI?.initialized && window.AuthManager?.isSignedIn()) {
-            const hasBackupRigsSheet = await window.SheetsAPI.hasBackupRigsSheet();
-            const vis = hasBackupRigsSheet ? 'block' : 'none';
-            restoreBtn.style.display   = vis;
-            restoreDesc.style.display  = vis;
-            restoreTitle.style.display = vis;
-        }
 
         document.getElementById('settingsModal').style.display = 'block';
     }
@@ -945,7 +856,6 @@ class SkydivingLogbook {
         const statusEl = document.getElementById('sheetsConfigStatus');
         const signedOutEl = document.getElementById('oauthSignedOut');
         const signedInEl = document.getElementById('oauthSignedIn');
-        const migrationEl = document.getElementById('oauthMigrationBanner');
 
         const isSignedIn = window.AuthManager?.isSignedIn();
         const spreadsheetId = localStorage.getItem('oauth-spreadsheet-id') || '';
@@ -974,10 +884,6 @@ class SkydivingLogbook {
             }
             statusEl.style.color = '#666';
         }
-
-        // Show migration banner if old Apps Script config exists
-        const legacyCfg = JSON.parse(localStorage.getItem('sheets-config') || '{}');
-        migrationEl.style.display = legacyCfg.webAppUrl ? 'block' : 'none';
 
         document.getElementById('sheetsModal').style.display = 'block';
     }
@@ -1008,9 +914,6 @@ class SkydivingLogbook {
                 spreadsheetId = await window.SheetsAPI.findOrCreateSpreadsheet();
             }
             window.SheetsAPI.reinitialize(spreadsheetId);
-            if (localStorage.getItem('sheets-config')) {
-                localStorage.removeItem('sheets-config');
-            }
             this.showMessage('Connected to Google Sheets!', 'success');
             window.SheetsAPI.syncWithSheet().catch(err =>
                 console.error('[Sheets] Post-redirect sync failed:', err)
@@ -1056,12 +959,6 @@ class SkydivingLogbook {
                 window.SheetsAPI.reinitialize(spreadsheetId);
             } else {
                 window.SheetsAPI.reinitialize(spreadsheetId);
-            }
-
-            // Clear legacy Apps Script config if migrating
-            if (localStorage.getItem('sheets-config')) {
-                localStorage.removeItem('sheets-config');
-                console.log('[Migration] Cleared legacy Apps Script config');
             }
 
             this.showMessage('Connected to Google Sheets!', 'success');
@@ -1163,32 +1060,6 @@ class SkydivingLogbook {
         
         this.closeModal();
         this.showMessage('Settings saved successfully!', 'success');
-    }
-
-    async restoreEquipmentFromBackup() {
-        if (!confirm('This will overwrite ALL local equipment data (harnesses, canopies, locations) with the data from the backupRigs sheet. Continue?')) {
-            return;
-        }
-
-        if (!window.SheetsAPI || !window.SheetsAPI.initialized) {
-            this.showMessage('Google Sheets is not connected. Configure it first.', 'error');
-            return;
-        }
-
-        this.showMessage('Restoring equipment from backup...', 'success');
-
-        try {
-            const success = await window.SheetsAPI.restoreEquipmentFromBackup();
-            if (success) {
-                this.showMessage('Equipment restored from backup successfully!', 'success');
-                this.closeModal();
-            } else {
-                this.showMessage('No data found in backupRigs sheet.', 'error');
-            }
-        } catch (err) {
-            console.error('Restore from backup failed:', err);
-            this.showMessage('Restore failed: ' + err.message, 'error');
-        }
     }
 
     getCurrentUtcTimestamp() {
@@ -2453,7 +2324,6 @@ class SkydivingLogbook {
 
             const hasAnySupportedData =
                 Array.isArray(payload.jumps)
-                || Array.isArray(payload.equipmentRigs)
                 || Array.isArray(payload.harnesses)
                 || Array.isArray(payload.canopies)
                 || Array.isArray(payload.locations)
@@ -2483,12 +2353,6 @@ class SkydivingLogbook {
                 this.settings.recentJumpsDays = 3;
             }
 
-            // Handle v1 imports that still have equipmentRigs
-            if (Array.isArray(payload.equipmentRigs) && payload.equipmentRigs.length > 0) {
-                localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(payload.equipmentRigs));
-                this.migrateFromRigsToCanopyLinesets();
-            }
-            
             // Ensure all canopies have linesets
             this.canopies.forEach(canopy => {
                 if (!Array.isArray(canopy.linesets)) canopy.linesets = [];

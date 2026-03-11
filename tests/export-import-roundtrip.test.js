@@ -96,7 +96,6 @@ function createHeadlessLogbook() {
 
     // Disable UI-heavy side effects for isolated unit testing.
     logbook.initializeCanopyLinesetJumpCounts = () => {};
-    logbook.migrateFromRigsToCanopyLinesets = () => {};
     logbook.saveToLocalStorage = () => {};
     logbook.saveComponentsToLocalStorage = () => {};
     logbook.markEquipmentModified = () => {};
@@ -182,67 +181,6 @@ test('export/import round trip restores jump and canopy data', async () => {
 
     // Settings are persisted during import.
     assert.ok(localStorage.getItem('skydiving-settings'));
-});
-
-test('import v1 format with equipmentRigs migrates to canopy linesets', async () => {
-    const { logbook, localStorage, SkydivingLogbook } = createHeadlessLogbook();
-
-    // Re-enable migration for this test (must use same sandbox's prototype)
-    logbook.migrateFromRigsToCanopyLinesets = SkydivingLogbook.prototype.migrateFromRigsToCanopyLinesets.bind(logbook);
-
-    const v1Payload = {
-        version: 1,
-        data: {
-            jumps: [{
-                id: 789,
-                jumpNumber: 1,
-                date: '2026-03-06',
-                location: 'Test DZ',
-                equipment: 'eq_old_1',
-                notes: 'v1 jump',
-                timestamp: '2026-03-06T00:00:00.000Z'
-            }],
-            equipmentRigs: [{
-                id: 'eq_old_1',
-                name: 'Harness-Canopy-Lineset#2-Hybrid',
-                harnessId: 'h_old_1',
-                canopyId: 'c_old_1',
-                linesetNumber: 2,
-                previousJumps: 50,
-                jumpCount: 1,
-                archived: false
-            }],
-            harnesses: [{ id: 'h_old_1', name: 'Old Harness' }],
-            canopies: [{ id: 'c_old_1', name: 'Old Canopy' }],
-            locations: [{ id: 'loc_old_1', name: 'Test DZ', lat: null, lng: null }],
-            settings: { startingJumpNumber: 1 }
-        }
-    };
-
-    const messages = [];
-    logbook.showMessage = (msg, type) => messages.push({ msg, type });
-
-    const event = {
-        target: {
-            files: [{ text: async () => JSON.stringify(v1Payload) }],
-            value: 'v1-backup.json'
-        }
-    };
-
-    await logbook.importData(event);
-
-    // The canopy should now have linesets with migrated data
-    assert.equal(logbook.canopies.length, 1);
-    assert.ok(logbook.canopies[0].linesets.length >= 1);
-    const migrated = logbook.canopies[0].linesets.find(ls => ls.number === 2);
-    assert.ok(migrated, 'Lineset #2 should exist after migration');
-    assert.equal(migrated.hybrid, true);
-    assert.equal(migrated.previousJumps, 50);
-
-    // Jump should reference canopy ID and have linesetNumber
-    assert.equal(logbook.jumps.length, 1);
-    assert.equal(logbook.jumps[0].equipment, 'c_old_1');
-    assert.equal(logbook.jumps[0].linesetNumber, 2);
 });
 
 test('import with invalid JSON keeps existing data unchanged', async () => {

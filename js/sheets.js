@@ -10,9 +10,6 @@ class SheetsAPI {
         this._pollTimer = null;
         this._syncInProgress = false;
 
-        // Legacy Apps Script support for migration detection
-        this.webAppUrl = '';
-
         this.ready = this.setupAPI();
     }
 
@@ -20,12 +17,6 @@ class SheetsAPI {
 
     async setupAPI() {
         try {
-            // Detect legacy Apps Script config (for migration)
-            const legacyCfg = JSON.parse(localStorage.getItem('sheets-config') || '{}');
-            if (legacyCfg.webAppUrl) {
-                this.webAppUrl = legacyCfg.webAppUrl;
-            }
-
             // Load OAuth-based spreadsheet ID
             this.spreadsheetId = localStorage.getItem('oauth-spreadsheet-id') || '';
 
@@ -377,7 +368,7 @@ class SheetsAPI {
             const localSynced   = localStorage.getItem('skydiving-data-synced') || '';
             const localModified = localStorage.getItem('skydiving-data-modified') || '';
 
-            const hasSheetData = !!(d.harnesses || d.canopies || d.rigs);
+            const hasSheetData = !!(d.harnesses || d.canopies);
             const sheetIsNewer = (sheetTs && sheetTs > localSynced) ||
                                  (hasSheetData && !localSynced && !sheetTs);
             const hasPending   = !!(localModified && localModified > localSynced);
@@ -511,7 +502,6 @@ class SheetsAPI {
         if (d.harnesses)  DB.replaceAll('harnesses', d.harnesses).catch(err => console.error('[Sync] IDB harnesses write failed:', err));
         if (d.canopies)   DB.replaceAll('canopies',  d.canopies).catch(err => console.error('[Sync] IDB canopies write failed:', err));
         if (d.locations)  DB.replaceAll('locations',  d.locations).catch(err => console.error('[Sync] IDB locations write failed:', err));
-        if (d.rigs && d.rigs.length > 0) localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(d.rigs));
         if (d.settings)   localStorage.setItem('skydiving-settings', JSON.stringify(d.settings));
 
         const sheetJumps = await this.getAllJumps();
@@ -541,7 +531,6 @@ class SheetsAPI {
                 logbook.locations.sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity));
             }
 
-            logbook.migrateFromRigsToCanopyLinesets();
             logbook.canopies.forEach(c => {
                 if (!Array.isArray(c.linesets)) c.linesets = [];
                 if (c.linesets.length === 0) c.linesets.push({ number: 1, hybrid: false, previousJumps: 0, jumpCount: 0, archived: false });
@@ -665,68 +654,6 @@ class SheetsAPI {
 
         // doStartupSync handles push/pull conflict detection and schedules the poll
         await this.doStartupSync();
-    }
-
-    // ── Backup rig sheet support ────────────────────────────────────────
-
-    async hasBackupRigsSheet() {
-        if (!this.initialized) return false;
-        try {
-            const meta = await this._apiCall('GET', '?fields=sheets.properties.title');
-            const sheets = meta.sheets || [];
-            return sheets.some(s => s.properties?.title === 'backupRigs');
-        } catch { return false; }
-    }
-
-    async restoreEquipmentFromBackup() {
-        if (!this.initialized) throw new Error('API not initialized');
-
-        const result = await this._apiCall('GET', '/values/backupRigs!A1:B6?majorDimension=ROWS');
-        const rows = result.values || [];
-        const d = {};
-        for (const row of rows) {
-            const key = (row[0] || '').trim();
-            if (!key) continue;
-            try { d[key] = JSON.parse(row[1] || '{}'); }
-            catch { d[key] = row[1]; }
-        }
-
-        const hasData = d.harnesses || d.canopies || d.rigs;
-        if (!hasData) return false;
-
-        if (d.harnesses)  await DB.replaceAll('harnesses', d.harnesses);
-        if (d.canopies)   await DB.replaceAll('canopies',  d.canopies);
-        if (d.locations)  await DB.replaceAll('locations', d.locations);
-        if (d.rigs && d.rigs.length > 0) localStorage.setItem('skydiving-equipment-rigs', JSON.stringify(d.rigs));
-        if (d.settings)   localStorage.setItem('skydiving-settings', JSON.stringify(d.settings));
-
-        const logbook = window.logbook;
-        if (logbook) {
-            if (d.harnesses)  logbook.harnesses = d.harnesses;
-            if (d.canopies)   logbook.canopies  = d.canopies;
-            if (d.settings)   logbook.settings  = d.settings;
-            if (d.locations)  logbook.locations  = d.locations;
-
-            logbook.migrateFromRigsToCanopyLinesets();
-            logbook.canopies.forEach(c => {
-                if (!Array.isArray(c.linesets)) c.linesets = [];
-                if (c.linesets.length === 0) c.linesets.push({ number: 1, hybrid: false, previousJumps: 0, jumpCount: 0, archived: false });
-            });
-            logbook.initializeCanopyLinesetJumpCounts();
-            logbook.updateEquipmentOptions();
-            logbook.updateLocationDatalist();
-            if (logbook.currentView === 'equipment') logbook.renderEquipmentView();
-            logbook.preFillFormWithLastJump();
-        }
-
-        const now = new Date().toISOString();
-        await this.syncEquipmentToSheet(now);
-
-        localStorage.setItem('skydiving-data-modified', now);
-        localStorage.setItem('skydiving-data-synced', now);
-
-        console.log('[Sheets] Equipment restored from backupRigs sheet');
-        return true;
     }
 
     // ── Polling ─────────────────────────────────────────────────────────
