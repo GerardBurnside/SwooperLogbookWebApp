@@ -503,8 +503,10 @@ class SkydivingLogbook {
 
     renderJumpsList() {
         const jumpsList = document.getElementById('jumpsList');
+        const totalEl = document.getElementById('recentJumpsTotal');
         
         if (this.jumps.length === 0) {
+            if (totalEl) totalEl.textContent = 'Total: 0';
             jumpsList.innerHTML = '<p class="no-jumps">No jumps logged yet. Add your first jump above!</p>';
             return;
         }
@@ -554,6 +556,7 @@ class SkydivingLogbook {
             html += `<button class="btn-secondary load-more-btn" id="loadMoreJumpsBtn" onclick="logbook.loadMoreJumps()">Load more (${remaining} remaining)</button>`;
         }
 
+        if (totalEl) totalEl.textContent = `Total: ${recentJumps.length}`;
         jumpsList.innerHTML = html;
     }
 

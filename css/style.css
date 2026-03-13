@@ -501,6 +501,16 @@ textarea {
 }
 
 /* Jump History */
+.jump-history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+.recent-jumps-total {
+    font-size: 0.875rem;
+    color: #000;
+}
+
 .jumps-list {
     margin-top: 1rem;
 }
