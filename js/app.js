@@ -2353,7 +2353,7 @@ class SkydivingLogbook {
             }
 
             if (this.settings.recentJumpsDays === undefined) {
-                this.settings.recentJumpsDays = 3;
+                this.settings.recentJumpsDays = 16;
             }
 
             // Ensure all canopies have linesets
