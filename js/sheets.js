@@ -665,7 +665,34 @@ class SheetsAPI {
         console.log('[Sync] Pulled and merged data from sheet, ts:', ts);
     }
 
-    /** Merge by jumpId. Only exclude jumps that are in deletedJumpIds. Local jumps not on sheet are kept (recovered). */
+    /**
+     * True if two jumps have the same jumpNumber and same values for all fields except jumpId/id.
+     * Used to avoid duplicating the same logical jump when local and sheet have different IDs.
+     */
+    _jumpContentEqual(a, b) {
+        if (!a || !b) return false;
+        const num = (n) => (typeof n === 'number' && !Number.isNaN(n)) ? n : parseInt(n, 10) || 0;
+        if (num(a.jumpNumber) !== num(b.jumpNumber)) return false;
+        const str = (s) => (s == null ? '' : String(s)).trim();
+        const dateNorm = (d) => {
+            const s = str(d);
+            if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+            const t = new Date(s).getTime();
+            return Number.isFinite(t) ? new Date(t).toISOString().slice(0, 10) : s;
+        };
+        return (
+            dateNorm(a.date) === dateNorm(b.date) &&
+            str(a.location) === str(b.location) &&
+            str(a.equipment) === str(b.equipment) &&
+            str(a.notes) === str(b.notes) &&
+            num(a.linesetNumber) === num(b.linesetNumber) &&
+            str(a.timestamp) === str(b.timestamp)
+        );
+    }
+
+    /** Merge by jumpId. Only exclude jumps that are in deletedJumpIds. Local jumps not on sheet are kept (recovered).
+     * If a local jump has the same jumpNumber and identical data as a sheet jump (only jumpId differs), we keep the
+     * sheet row and do not duplicate — effectively adopting the sheet's jumpId for that jump. */
     _mergeJumps(localJumps, sheetJumps, deletedJumpIds) {
         const deletedSet = deletedJumpIds instanceof Set ? deletedJumpIds : new Set(deletedJumpIds);
         const sheetJumpIds = new Set(
@@ -675,9 +702,12 @@ class SheetsAPI {
         for (const j of localJumps) {
             const jumpId = j.jumpId || SheetsAPI.generateJumpId();
             if (!j.jumpId) j.jumpId = jumpId;
-            if (!deletedSet.has(jumpId) && !sheetJumpIds.has(jumpId)) {
-                merged.push(j);
-            }
+            if (deletedSet.has(jumpId)) continue;
+            if (sheetJumpIds.has(jumpId)) continue; // already in merged from sheet
+            // Local-only by ID: check if any sheet jump is the same row (same jumpNumber + same content)
+            const sameOnSheet = merged.some(sheetJump => this._jumpContentEqual(j, sheetJump));
+            if (sameOnSheet) continue; // keep sheet version (with sheet's jumpId), do not duplicate
+            merged.push(j);
         }
         return merged;
     }
