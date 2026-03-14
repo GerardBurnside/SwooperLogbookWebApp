@@ -307,6 +307,20 @@
             </div>
         </div>
 
+        <!-- Import choice modal -->
+        <div id="importChoiceModal" class="modal">
+            <div class="modal-content">
+                <span id="importChoiceModalClose" class="close">&times;</span>
+                <h2>Import data</h2>
+                <p id="importChoiceModalMessage" class="import-choice-message"></p>
+                <p class="import-choice-warning">If you <strong>Replace all</strong>, jumps and equipment that exist only on this device (and are not in the import file) will be removed.</p>
+                <div class="import-choice-buttons">
+                    <button type="button" id="importChoiceMergeBtn" class="btn-secondary">Merge with current data</button>
+                    <button type="button" id="importChoiceReplaceBtn" class="btn-primary">Replace all data</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Footer -->
         <footer>
             <button id="settingsBtn" class="btn-secondary">Settings</button>

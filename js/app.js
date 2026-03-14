@@ -278,6 +278,15 @@ class SkydivingLogbook {
         document.getElementById('importFileInput').addEventListener('change', (e) => {
             this.importData(e);
         });
+        document.getElementById('importChoiceMergeBtn').addEventListener('click', () => {
+            this.applyImportChoice('merge');
+        });
+        document.getElementById('importChoiceReplaceBtn').addEventListener('click', () => {
+            this.applyImportChoice('replace');
+        });
+        document.getElementById('importChoiceModalClose').addEventListener('click', () => {
+            this.closeImportChoiceModal();
+        });
 
         // Navigation buttons
         document.getElementById('jumpsViewBtn').addEventListener('click', () => {
@@ -349,6 +358,10 @@ class SkydivingLogbook {
             }
             if (e.target === jumpNoteModal) {
                 this.closeJumpNotePopup();
+            }
+            const importChoiceModal = document.getElementById('importChoiceModal');
+            if (e.target === importChoiceModal) {
+                this.closeImportChoiceModal();
             }
         });
     }
@@ -2331,52 +2344,139 @@ class SkydivingLogbook {
                 return;
             }
 
-            const confirmed = confirm('Importing will overwrite local jumps and equipment data. Continue?');
-            if (!confirmed) return;
-
-            this.jumps = Array.isArray(payload.jumps) ? payload.jumps : [];
-            this.harnesses = Array.isArray(payload.harnesses) ? payload.harnesses : [];
-            this.canopies = Array.isArray(payload.canopies) ? payload.canopies : [];
-            this.locations = Array.isArray(payload.locations) ? payload.locations : [];
-
-            if (payload.settings && typeof payload.settings === 'object') {
-                this.settings = {
-                    ...this.settings,
-                    ...payload.settings
-                };
+            const importJumps = Array.isArray(payload.jumps) ? payload.jumps : [];
+            const numH = Array.isArray(payload.harnesses) ? payload.harnesses.length : 0;
+            const numC = Array.isArray(payload.canopies) ? payload.canopies.length : 0;
+            const numL = Array.isArray(payload.locations) ? payload.locations.length : 0;
+            const msg = document.getElementById('importChoiceModalMessage');
+            if (msg) {
+                msg.textContent = `The import file contains ${importJumps.length} jump(s), ${numH} harness(es), ${numC} canopy/canopies, and ${numL} location(s). Choose how to import.`;
             }
-
-            if (this.settings.recentJumpsDays === undefined) {
-                this.settings.recentJumpsDays = 16;
-            }
-
-            // Ensure all canopies have linesets
-            this.canopies.forEach(canopy => {
-                if (!Array.isArray(canopy.linesets)) canopy.linesets = [];
-                if (canopy.linesets.length === 0) {
-                    canopy.linesets.push({ number: 1, hybrid: false, previousJumps: 0, jumpCount: 0, archived: false });
-                }
-            });
-
-            this.initializeCanopyLinesetJumpCounts();
-            this.saveToLocalStorage();
-            this.saveComponentsToLocalStorage();
-            localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
-            this.markEquipmentModified();
-
-            this.updateEquipmentOptions();
-            this.renderJumpsList();
-            this.updateStats();
-            this.renderEquipmentView();
-            this.renderStats();
-
-            this.showMessage('Data imported successfully!', 'success');
+            this._pendingImportPayload = payload;
+            this.showImportChoiceModal();
         } catch (error) {
             console.error('Import failed:', error);
             this.showMessage('Import failed: invalid JSON file', 'error');
         } finally {
             event.target.value = '';
         }
+    }
+
+    showImportChoiceModal() {
+        const modal = document.getElementById('importChoiceModal');
+        if (modal) modal.style.display = 'block';
+    }
+
+    closeImportChoiceModal() {
+        const modal = document.getElementById('importChoiceModal');
+        if (modal) modal.style.display = 'none';
+        this._pendingImportPayload = null;
+    }
+
+    applyImportChoice(mode) {
+        const payload = this._pendingImportPayload;
+        this.closeImportChoiceModal();
+        if (!payload) return;
+        if (mode === 'merge') {
+            this.applyImportMerge(payload);
+        } else {
+            this.applyImportReplace(payload);
+        }
+    }
+
+    /** Merge import: keep local jumps and equipment; add/update from import (by jumpId / id). No deletions. */
+    applyImportMerge(payload) {
+        const importJumps = Array.isArray(payload.jumps) ? payload.jumps : [];
+        const importHarnesses = Array.isArray(payload.harnesses) ? payload.harnesses : [];
+        const importCanopies = Array.isArray(payload.canopies) ? payload.canopies : [];
+        const importLocations = Array.isArray(payload.locations) ? payload.locations : [];
+
+        const importJumpIds = new Set(importJumps.map(j => (j.jumpId || j.id || '').toString()).filter(Boolean));
+        const localOnlyJumps = this.jumps.filter(j => {
+            const id = (j.jumpId || j.id || '').toString();
+            return id && !importJumpIds.has(id);
+        });
+        const importJumpIdsSeen = new Set();
+        const mergedJumps = [...localOnlyJumps];
+        for (const j of importJumps) {
+            const id = (j.jumpId || j.id || '').toString();
+            if (id && !importJumpIdsSeen.has(id)) {
+                importJumpIdsSeen.add(id);
+                mergedJumps.push(j);
+            } else if (!id) {
+                mergedJumps.push(j);
+            }
+        }
+        this.jumps = mergedJumps;
+
+        const byId = (arr, idKey) => new Map((arr || []).map(x => [x[idKey] || x.id, x]));
+        const localH = byId(this.harnesses, 'id');
+        importHarnesses.forEach(h => { if (h.id) localH.set(h.id, h); });
+        this.harnesses = Array.from(localH.values());
+
+        const localC = byId(this.canopies, 'id');
+        importCanopies.forEach(c => { if (c.id) localC.set(c.id, c); });
+        this.canopies = Array.from(localC.values());
+
+        const localL = byId(this.locations, 'id');
+        importLocations.forEach(l => { if (l && (l.id || l.name)) localL.set(l.id || l.name, l); });
+        this.locations = Array.from(localL.values());
+
+        if (payload.settings && typeof payload.settings === 'object') {
+            this.settings = { ...this.settings, ...payload.settings };
+        }
+        if (this.settings.recentJumpsDays === undefined) this.settings.recentJumpsDays = 16;
+
+        this.canopies.forEach(canopy => {
+            if (!Array.isArray(canopy.linesets)) canopy.linesets = [];
+            if (canopy.linesets.length === 0) {
+                canopy.linesets.push({ number: 1, hybrid: false, previousJumps: 0, jumpCount: 0, archived: false });
+            }
+        });
+        this.ensureJumpIds();
+        this.initializeCanopyLinesetJumpCounts();
+        this.saveToLocalStorage();
+        this.saveComponentsToLocalStorage();
+        localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
+        this.markEquipmentModified();
+        this.updateEquipmentOptions();
+        this.renderJumpsList();
+        this.updateStats();
+        this.renderEquipmentView();
+        this.renderStats();
+        this.showMessage('Data merged successfully!', 'success');
+    }
+
+    /** Replace all: replace jumps and equipment with import file; merge settings. Local-only data is removed. */
+    applyImportReplace(payload) {
+        this.jumps = Array.isArray(payload.jumps) ? payload.jumps : [];
+        this.harnesses = Array.isArray(payload.harnesses) ? payload.harnesses : [];
+        this.canopies = Array.isArray(payload.canopies) ? payload.canopies : [];
+        this.locations = Array.isArray(payload.locations) ? payload.locations : [];
+
+        if (payload.settings && typeof payload.settings === 'object') {
+            this.settings = { ...this.settings, ...payload.settings };
+        }
+        if (this.settings.recentJumpsDays === undefined) this.settings.recentJumpsDays = 16;
+
+        this.canopies.forEach(canopy => {
+            if (!Array.isArray(canopy.linesets)) canopy.linesets = [];
+            if (canopy.linesets.length === 0) {
+                canopy.linesets.push({ number: 1, hybrid: false, previousJumps: 0, jumpCount: 0, archived: false });
+            }
+        });
+        this.ensureJumpIds();
+        this.initializeCanopyLinesetJumpCounts();
+        this.saveToLocalStorage();
+        this.saveComponentsToLocalStorage();
+        localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
+        this.markEquipmentModified();
+        this.updateEquipmentOptions();
+        this.renderJumpsList();
+        this.updateStats();
+        this.renderEquipmentView();
+        this.renderStats();
+        this.showMessage('Data imported successfully! (Replace all)', 'success');
     }
 
     updateOnlineStatus() {

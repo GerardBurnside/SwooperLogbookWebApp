@@ -1088,6 +1088,23 @@ textarea {
     overflow-y: auto;
 }
 
+.import-choice-message {
+    margin: 0 0 1rem;
+}
+.import-choice-warning {
+    margin: 1rem 0;
+    padding: 0.75rem;
+    background: #fff3cd;
+    border-radius: 8px;
+    font-size: 0.95rem;
+}
+.import-choice-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+}
+
 .jump-note-modal-content {
     max-width: 460px;
 }
