@@ -58,6 +58,13 @@ class SheetsAPI {
         }
     }
 
+    /** Generate a unique jump ID (stable across renumbers). */
+    static generateJumpId() {
+        return typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : 'jump-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+    }
+
     /**
      * Persistent device/browser identifier for sync. When the sheet's last write
      * was from this device, we can safely push only (no pull), avoiding data loss.
@@ -174,14 +181,26 @@ class SheetsAPI {
                         startRow: 0, startColumn: 0,
                         rowData: [{
                             values: [
-                                'Jump Number', 'Date', 'Location', 'Equipment',
+                                'Jump ID', 'Jump Number', 'Date', 'Location', 'Equipment',
                                 'Notes', 'Timestamp', 'Equipment ID', 'Lineset Number'
                             ].map(v => ({ userEnteredValue: { stringValue: v } }))
                         }]
                     }]
                 },
                 {
-                    properties: { title: 'Equipment', index: 1 },
+                    properties: { title: 'deletedJumps', index: 1 },
+                    data: [{
+                        startRow: 0, startColumn: 0,
+                        rowData: [{
+                            values: [
+                                { userEnteredValue: { stringValue: 'Jump ID' } },
+                                { userEnteredValue: { stringValue: 'Date deleted' } }
+                            ]
+                        }]
+                    }]
+                },
+                {
+                    properties: { title: 'Equipment', index: 2 },
                     data: [{
                         startRow: 0, startColumn: 0,
                         rowData: [
@@ -229,33 +248,52 @@ class SheetsAPI {
 
         const result = await this._apiCall(
             'GET',
-            '/values/Jumps!A2:H?majorDimension=ROWS'
+            '/values/Jumps!A2:I?majorDimension=ROWS'
         );
 
         const rows = result.values || [];
         if (rows.length === 0) return [];
 
         return rows.map((row, index) => {
+            const hasJumpIdColumn = row && row.length >= 9;
+            if (hasJumpIdColumn) {
+                const jumpId = (row[0] && String(row[0]).trim()) || SheetsAPI.generateJumpId();
+                const timestamp = row[6] || new Date().toISOString();
+                const parsedTime = new Date(timestamp).getTime();
+                const id = Number.isFinite(parsedTime) ? parsedTime : Date.now() + index;
+                const equipment = (row[7] && row[7] !== '') ? row[7] : row[4] || '';
+                let date = '';
+                if (row[2]) {
+                    const s = String(row[2]);
+                    if (/^\d{4}-\d{2}-\d{2}/.test(s)) date = s.slice(0, 10);
+                    else { const d = new Date(s); date = isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10); }
+                }
+                return {
+                    id,
+                    jumpId,
+                    jumpNumber: parseInt(row[1]) || 0,
+                    date,
+                    location: row[3] || '',
+                    equipment,
+                    linesetNumber: parseInt(row[8]) || 1,
+                    notes: row[5] || '',
+                    timestamp
+                };
+            }
+            // Backward compat: 8 columns (no Jump ID)
             const timestamp = row[5] || new Date().toISOString();
             const parsedTime = new Date(timestamp).getTime();
             const id = Number.isFinite(parsedTime) ? parsedTime : Date.now() + index;
-            // Column 6 (index 6) = Equipment ID; fall back to col 3 (display name)
             const equipment = (row[6] && row[6] !== '') ? row[6] : row[3] || '';
-
-            // Normalize date to YYYY-MM-DD
             let date = '';
             if (row[1]) {
                 const s = String(row[1]);
-                if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
-                    date = s.slice(0, 10);
-                } else {
-                    const d = new Date(s);
-                    date = isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10);
-                }
+                if (/^\d{4}-\d{2}-\d{2}/.test(s)) date = s.slice(0, 10);
+                else { const d = new Date(s); date = isNaN(d.getTime()) ? s : d.toISOString().slice(0, 10); }
             }
-
             return {
                 id,
+                jumpId: SheetsAPI.generateJumpId(),
                 jumpNumber: parseInt(row[0]) || 0,
                 date,
                 location: row[2] || '',
@@ -285,18 +323,77 @@ class SheetsAPI {
         return data;
     }
 
+    /** Ensure deletedJumps sheet exists (for existing spreadsheets created before this feature). */
+    async _ensureDeletedJumpsSheet() {
+        const meta = await this._apiCall('GET', '?fields=sheets(properties(title,sheetId))');
+        const hasDeletedJumps = (meta.sheets || []).some(s => (s.properties && s.properties.title) === 'deletedJumps');
+        if (hasDeletedJumps) return;
+        await this._apiCall('POST', ':batchUpdate', {
+            requests: [{
+                addSheet: {
+                    properties: { title: 'deletedJumps' },
+                    data: [{
+                        startRow: 0, startColumn: 0,
+                        rowData: [{
+                            values: [
+                                { userEnteredValue: { stringValue: 'Jump ID' } },
+                                { userEnteredValue: { stringValue: 'Date deleted' } }
+                            ]
+                        }]
+                    }]
+                }
+            }]
+        });
+        console.log('[Sheets] Added deletedJumps sheet');
+    }
+
+    /** Read deletedJumps sheet and return a Set of jump IDs. */
+    async getDeletedJumpIds() {
+        try {
+            const result = await this._apiCall('GET', '/values/deletedJumps!A2:A?majorDimension=ROWS');
+            const rows = result.values || [];
+            const ids = new Set();
+            for (const row of rows) {
+                const id = (row[0] && String(row[0]).trim()) || '';
+                if (id) ids.add(id);
+            }
+            return ids;
+        } catch (e) {
+            if (e.message && e.message.includes('404')) return new Set();
+            const meta = await this._apiCall('GET', '?fields=sheets(properties(title))');
+            const hasSheet = (meta.sheets || []).some(s => (s.properties && s.properties.title) === 'deletedJumps');
+            if (!hasSheet) return new Set();
+            throw e;
+        }
+    }
+
+    /** Append rows to deletedJumps sheet (one row per jumpId). Call _ensureDeletedJumpsSheet first if needed. */
+    async appendDeletedJumps(jumpIds) {
+        if (!jumpIds || jumpIds.length === 0) return;
+        await this._ensureDeletedJumpsSheet();
+        const now = new Date().toISOString();
+        const rows = [...jumpIds].map(id => [id, now]);
+        const result = await this._apiCall('GET', '/values/deletedJumps?majorDimension=ROWS');
+        const existing = (result.values || []).length;
+        const startRow = existing + 1;
+        const endRow = existing + rows.length;
+        const range = `deletedJumps!A${startRow}:B${endRow}`;
+        await this._apiCall('PUT', `/values/${encodeURIComponent(range)}?valueInputOption=RAW`, { values: rows });
+        console.log('[Sheets] Appended', jumpIds.length, 'deletion(s) to deletedJumps');
+    }
+
     // ── Write operations (Sheets API v4) ────────────────────────────────
 
     async uploadAllJumps(jumps) {
         if (!this.initialized) throw new Error('API not initialized');
         this.updateSyncStatus('Uploading jumps...');
 
-        // Build rows: header + data
-        const header = ['Jump Number', 'Date', 'Location', 'Equipment', 'Notes', 'Timestamp', 'Equipment ID', 'Lineset Number'];
-
+        const header = ['Jump ID', 'Jump Number', 'Date', 'Location', 'Equipment', 'Notes', 'Timestamp', 'Equipment ID', 'Lineset Number'];
         const sortedJumps = [...jumps].sort((a, b) => (a.jumpNumber || 0) - (b.jumpNumber || 0));
 
         const dataRows = sortedJumps.map(jump => {
+            const jumpId = jump.jumpId || SheetsAPI.generateJumpId();
+            if (!jump.jumpId) jump.jumpId = jumpId;
             let equipmentName = jump.equipment;
             if (window.logbook) {
                 const canopy = window.logbook.canopies.find(c => c.id === jump.equipment);
@@ -307,20 +404,20 @@ class SheetsAPI {
                 }
             }
             return [
+                jumpId,
                 jump.jumpNumber,
                 jump.date,
                 jump.location,
                 equipmentName,
                 jump.notes || '',
                 jump.timestamp,
-                jump.equipment,        // canopy ID
+                jump.equipment,
                 jump.linesetNumber || 1
             ];
         });
 
-        // Clear old data then write fresh
-        await this._apiCall('POST', '/values/Jumps!A1:H:clear', {});
-        await this._apiCall('PUT', '/values/Jumps!A1:H?valueInputOption=RAW', {
+        await this._apiCall('POST', '/values/Jumps!A1:I:clear', {});
+        await this._apiCall('PUT', '/values/Jumps!A1:I?valueInputOption=RAW', {
             values: [header, ...dataRows]
         });
 
@@ -519,31 +616,15 @@ class SheetsAPI {
         const localJumps = logbook ? [...logbook.jumps]
             : await DB.getAllJumps();
 
-        const localSettings = logbook ? logbook.settings
-            : JSON.parse(localStorage.getItem('skydiving-settings') || '{}');
-        const sheetSettings = d.settings || {};
-        const deletedTimestamps = [...new Set([
-            ...(localSettings.deletedJumpTimestamps || []),
-            ...(sheetSettings.deletedJumpTimestamps || [])
-        ])];
-
-        if (d.settings) {
-            d.settings.deletedJumpTimestamps = deletedTimestamps;
-        }
-
-        // Persist equipment to IndexedDB
         if (d.harnesses)  DB.replaceAll('harnesses', d.harnesses).catch(err => console.error('[Sync] IDB harnesses write failed:', err));
         if (d.canopies)   DB.replaceAll('canopies',  d.canopies).catch(err => console.error('[Sync] IDB canopies write failed:', err));
-        if (d.locations)  DB.replaceAll('locations',  d.locations).catch(err => console.error('[Sync] IDB locations write failed:', err));
-        if (d.settings)   localStorage.setItem('skydiving-settings', JSON.stringify(d.settings));
+        if (d.locations)   DB.replaceAll('locations',  d.locations).catch(err => console.error('[Sync] IDB locations write failed:', err));
+        if (d.settings)    localStorage.setItem('skydiving-settings', JSON.stringify(d.settings));
 
+        const deletedJumpIds = await this.getDeletedJumpIds();
         const sheetJumps = await this.getAllJumps();
-        const mergedJumps = this._mergeJumps(localJumps, sheetJumps, deletedTimestamps);
+        const mergedJumps = this._mergeJumps(localJumps, sheetJumps, deletedJumpIds);
         await DB.replaceAllJumps(mergedJumps);
-
-        // Detect whether tombstones removed any jumps that were still on the sheet.
-        const deletedSet = new Set(deletedTimestamps);
-        const tombstonedFromSheet = sheetJumps.some(j => j.timestamp && deletedSet.has(j.timestamp));
 
         const ts = sheetDataModified || new Date().toISOString();
         localStorage.setItem('skydiving-data-synced', ts);
@@ -581,31 +662,20 @@ class SheetsAPI {
             logbook.preFillFormWithLastJump();
         }
 
-        // If tombstones pruned jumps that were still in the sheet, re-upload the
-        // clean list immediately so the sheet reflects the deletions right away.
-        if (tombstonedFromSheet) {
-            console.log('[Sync] Tombstones pruned sheet jumps — re-uploading clean list');
-            const uploadTs = new Date().toISOString();
-            await this.uploadAllJumps(logbook ? logbook.jumps : mergedJumps);
-            localStorage.setItem('skydiving-data-synced', uploadTs);
-            localStorage.setItem('skydiving-data-modified', uploadTs);
-        }
-
         console.log('[Sync] Pulled and merged data from sheet, ts:', ts);
     }
 
-    _mergeJumps(localJumps, sheetJumps, deletedTimestamps) {
-        const deletedSet = new Set(deletedTimestamps);
-        const sheetTimestamps = new Set(
-            sheetJumps.map(j => j.timestamp).filter(Boolean)
+    /** Merge by jumpId. Only exclude jumps that are in deletedJumpIds. Local jumps not on sheet are kept (recovered). */
+    _mergeJumps(localJumps, sheetJumps, deletedJumpIds) {
+        const deletedSet = deletedJumpIds instanceof Set ? deletedJumpIds : new Set(deletedJumpIds);
+        const sheetJumpIds = new Set(
+            sheetJumps.map(j => j.jumpId).filter(Boolean)
         );
-        const merged = sheetJumps.filter(j =>
-            !j.timestamp || !deletedSet.has(j.timestamp)
-        );
+        const merged = sheetJumps.filter(j => !j.jumpId || !deletedSet.has(j.jumpId));
         for (const j of localJumps) {
-            if (j.timestamp
-                && !deletedSet.has(j.timestamp)
-                && !sheetTimestamps.has(j.timestamp)) {
+            const jumpId = j.jumpId || SheetsAPI.generateJumpId();
+            if (!j.jumpId) j.jumpId = jumpId;
+            if (!deletedSet.has(jumpId) && !sheetJumpIds.has(jumpId)) {
                 merged.push(j);
             }
         }

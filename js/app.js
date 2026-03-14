@@ -59,6 +59,7 @@ class SkydivingLogbook {
                 DB.getAll('locations')
             ]);
             this.jumps     = jumps.length     ? jumps     : [];
+            this.ensureJumpIds();
             this.canopies  = canopies.length  ? canopies  : [];
             this.canopies.sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity));
             this.harnesses = harnesses.length ? harnesses : [
@@ -420,6 +421,7 @@ class SkydivingLogbook {
 
         const jump = {
             id: Date.now() + Math.random(),
+            jumpId: window.SheetsAPI ? SheetsAPI.generateJumpId() : ('jump-' + Date.now() + '-' + Math.random().toString(36).slice(2)),
             jumpNumber: 0,          // assigned below by renumberJumps()
             date: data.date,
             location: data.location,
@@ -762,7 +764,6 @@ class SkydivingLogbook {
             return;
         }
         
-        // Find the jump to delete
         const jumpIndex = this.jumps.findIndex(jump => jump.id.toString() === jumpId.toString());
         if (jumpIndex === -1) {
             this.showMessage('Jump not found', 'error');
@@ -770,8 +771,9 @@ class SkydivingLogbook {
         }
         
         const deletedJump = this.jumps[jumpIndex];
-        
-        // Update canopy lineset jump count
+        const stableJumpId = deletedJump.jumpId || (window.SheetsAPI ? SheetsAPI.generateJumpId() : ('jump-' + Date.now() + '-' + Math.random().toString(36).slice(2)));
+        if (!deletedJump.jumpId) deletedJump.jumpId = stableJumpId;
+
         if (deletedJump.equipment) {
             const canopy = this.canopies.find(c => c.id === deletedJump.equipment);
             if (canopy) {
@@ -783,41 +785,16 @@ class SkydivingLogbook {
             }
         }
 
-        // Record deletion as a tombstone so other devices can sync the deletion.
-        // Tombstones are stored in settings (which sync bidirectionally via Equipment sheet).
-        if (deletedJump.timestamp) {
-            if (!Array.isArray(this.settings.deletedJumpTimestamps)) {
-                this.settings.deletedJumpTimestamps = [];
-            }
-            if (!this.settings.deletedJumpTimestamps.includes(deletedJump.timestamp)) {
-                this.settings.deletedJumpTimestamps.push(deletedJump.timestamp);
-            }
-            localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
-            this.markEquipmentModified();
-        }
-        
-        // Remove the jump
         this.jumps.splice(jumpIndex, 1);
-        
-        // Renumber all jumps
         this.renumberJumps();
-        
-        // Save to localStorage
         this.saveToLocalStorage();
-        
-        // Update UI
         this.updateStats();
         this.renderJumpsList();
-        
-        // Re-render equipment view if currently displayed
-        if (this.currentView === 'equipment') {
-            this.renderEquipmentView();
-        }
-        
+        if (this.currentView === 'equipment') this.renderEquipmentView();
         this.showMessage('Jump deleted successfully', 'success');
-        
-        // Sync the updated (renumbered) jump list to Google Sheets
+
         if (navigator.onLine && window.SheetsAPI?.initialized) {
+            window.SheetsAPI.appendDeletedJumps([stableJumpId]).catch(err => console.error('[Sync] appendDeletedJumps failed:', err));
             window.SheetsAPI.pushAllWithGuard();
         }
     }
@@ -1075,6 +1052,23 @@ class SkydivingLogbook {
 
     markEquipmentModified() {
         localStorage.setItem('skydiving-equipment-last-modified-utc', this.getCurrentUtcTimestamp());
+    }
+
+    /** Ensure every jump has a stable jumpId (for sync/deletedJumps). Persists if any were added. */
+    ensureJumpIds() {
+        const generator = () => (typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : 'jump-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+        let needsSave = false;
+        this.jumps.forEach(jump => {
+            if (!jump.jumpId) {
+                jump.jumpId = generator();
+                needsSave = true;
+            }
+        });
+        if (needsSave) {
+            DB.replaceAllJumps(this.jumps).catch(err => console.error('[DB] Failed to save jumps after jumpId migration:', err));
+        }
     }
 
     saveToLocalStorage() {
