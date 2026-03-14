@@ -328,21 +328,12 @@ class SheetsAPI {
         const meta = await this._apiCall('GET', '?fields=sheets(properties(title,sheetId))');
         const hasDeletedJumps = (meta.sheets || []).some(s => (s.properties && s.properties.title) === 'deletedJumps');
         if (hasDeletedJumps) return;
+        // AddSheetRequest only accepts properties, not data; writing header is done separately.
         await this._apiCall('POST', ':batchUpdate', {
-            requests: [{
-                addSheet: {
-                    properties: { title: 'deletedJumps' },
-                    data: [{
-                        startRow: 0, startColumn: 0,
-                        rowData: [{
-                            values: [
-                                { userEnteredValue: { stringValue: 'Jump ID' } },
-                                { userEnteredValue: { stringValue: 'Date deleted' } }
-                            ]
-                        }]
-                    }]
-                }
-            }]
+            requests: [{ addSheet: { properties: { title: 'deletedJumps' } } }]
+        });
+        await this._apiCall('PUT', '/values/deletedJumps!A1:B1?valueInputOption=RAW', {
+            values: [['Jump ID', 'Date deleted']]
         });
         console.log('[Sheets] Added deletedJumps sheet');
     }
