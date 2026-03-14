@@ -58,6 +58,22 @@ class SheetsAPI {
         }
     }
 
+    /**
+     * Persistent device/browser identifier for sync. When the sheet's last write
+     * was from this device, we can safely push only (no pull), avoiding data loss.
+     */
+    getDeviceId() {
+        const key = 'skydiving-device-id';
+        let id = localStorage.getItem(key);
+        if (!id) {
+            id = typeof crypto !== 'undefined' && crypto.randomUUID
+                ? crypto.randomUUID()
+                : 'browser-' + Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
+            localStorage.setItem(key, id);
+        }
+        return id;
+    }
+
     // ── Sheets API v4 transport layer ───────────────────────────────────
 
     /**
@@ -327,7 +343,7 @@ class SheetsAPI {
             ['rigs',       JSON.stringify([])],
             ['settings',   JSON.stringify(logbook.settings || {})],
             ['locations',  JSON.stringify(logbook.locations || [])],
-            ['_syncMeta',  JSON.stringify(dataModified ? { dataModified } : {})],
+            ['_syncMeta',  JSON.stringify(dataModified ? { dataModified, deviceId: this.getDeviceId() } : {})],
         ];
 
         try {
@@ -365,6 +381,7 @@ class SheetsAPI {
         try {
             const d             = await this._getEquipment();
             const sheetTs       = (d._syncMeta && d._syncMeta.dataModified) || '';
+            const sheetDeviceId = (d._syncMeta && d._syncMeta.deviceId) || null;
             const localSynced   = localStorage.getItem('skydiving-data-synced') || '';
             const localModified = localStorage.getItem('skydiving-data-modified') || '';
 
@@ -372,8 +389,9 @@ class SheetsAPI {
             const sheetIsNewer = (sheetTs && sheetTs > localSynced) ||
                                  (hasSheetData && !localSynced && !sheetTs);
             const hasPending   = !!(localModified && localModified > localSynced);
+            const lastWriteFromThisDevice = sheetDeviceId && sheetDeviceId === this.getDeviceId();
 
-            if (sheetIsNewer) {
+            if (sheetIsNewer && !lastWriteFromThisDevice) {
                 if (hasPending) {
                     console.warn('[Startup] Conflict — sheet is newer but local has changes, merging...');
                 } else {
@@ -384,6 +402,15 @@ class SheetsAPI {
                     const logbook = window.logbook;
                     if (logbook) logbook.showSyncConflictModal();
                 }
+            } else if (sheetIsNewer && lastWriteFromThisDevice) {
+                console.log('[Startup] Sheet newer but last write from this device — pushing only (no pull)');
+                const newTs   = new Date().toISOString();
+                const logbook = window.logbook;
+                await this.uploadAllJumps(logbook?.jumps || []);
+                await this.syncEquipmentToSheet(newTs);
+                localStorage.setItem('skydiving-data-synced', newTs);
+                localStorage.setItem('skydiving-data-modified', newTs);
+                console.log('[Sync] Startup push complete (same device), ts:', newTs);
             } else if (hasPending) {
                 console.log('[Startup] Pending local changes, pushing...');
                 const newTs   = new Date().toISOString();
@@ -449,15 +476,21 @@ class SheetsAPI {
         this.updateSyncStatus('Syncing...');
 
         try {
-            const d           = await this._getEquipment();
-            const sheetTs     = (d._syncMeta && d._syncMeta.dataModified) || '';
-            const localSynced = localStorage.getItem('skydiving-data-synced') || '';
+            const d             = await this._getEquipment();
+            const sheetTs       = (d._syncMeta && d._syncMeta.dataModified) || '';
+            const sheetDeviceId = (d._syncMeta && d._syncMeta.deviceId) || null;
+            const localSynced   = localStorage.getItem('skydiving-data-synced') || '';
 
-            if (sheetTs && sheetTs > localSynced) {
-                console.warn('[Sync] Sheet is newer — pulling and merging');
+            const lastWriteFromThisDevice = sheetDeviceId && sheetDeviceId === this.getDeviceId();
+
+            if (sheetTs && sheetTs > localSynced && !lastWriteFromThisDevice) {
+                console.warn('[Sync] Sheet is newer (other device) — pulling and merging');
                 await this._pullAllFromSheet(d, sheetTs);
                 this.updateSyncStatus('Online');
                 return;
+            }
+            if (sheetTs && sheetTs > localSynced && lastWriteFromThisDevice) {
+                console.log('[Sync] Sheet newer but last write from this device — pushing only');
             }
 
             const newTs   = new Date().toISOString();
@@ -591,11 +624,13 @@ class SheetsAPI {
 
             if (localModified && localModified > localSynced) {
                 this.updateSyncStatus('Syncing...');
-                const d       = await this._getEquipment();
-                const sheetTs = (d._syncMeta && d._syncMeta.dataModified) || '';
+                const d             = await this._getEquipment();
+                const sheetTs       = (d._syncMeta && d._syncMeta.dataModified) || '';
+                const sheetDeviceId = (d._syncMeta && d._syncMeta.deviceId) || null;
+                const lastWriteFromThisDevice = sheetDeviceId && sheetDeviceId === this.getDeviceId();
 
-                if (sheetTs && sheetTs > localSynced) {
-                    console.warn('[Poll] Sheet is newer — pulling and merging');
+                if (sheetTs && sheetTs > localSynced && !lastWriteFromThisDevice) {
+                    console.warn('[Poll] Sheet is newer (other device) — pulling and merging');
                     await this._pullAllFromSheet(d, sheetTs);
                 } else {
                     const newTs   = new Date().toISOString();
@@ -611,11 +646,13 @@ class SheetsAPI {
                 return;
             }
 
-            // No pending changes — quietly check if sheet is newer
-            const d       = await this._getEquipment();
-            const sheetTs = (d._syncMeta && d._syncMeta.dataModified) || '';
-            if (sheetTs && sheetTs > localSynced) {
-                console.log('[Poll] Sheet is newer, pulling and merging...');
+            // No pending changes — quietly check if sheet is newer (and from another device)
+            const d             = await this._getEquipment();
+            const sheetTs       = (d._syncMeta && d._syncMeta.dataModified) || '';
+            const sheetDeviceId = (d._syncMeta && d._syncMeta.deviceId) || null;
+            const lastWriteFromThisDevice = sheetDeviceId && sheetDeviceId === this.getDeviceId();
+            if (sheetTs && sheetTs > localSynced && !lastWriteFromThisDevice) {
+                console.log('[Poll] Sheet is newer (other device), pulling and merging...');
                 this.updateSyncStatus('Syncing...');
                 await this._pullAllFromSheet(d, sheetTs);
                 this.updateSyncStatus('Synced');
