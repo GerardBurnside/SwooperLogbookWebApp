@@ -832,6 +832,9 @@ class SkydivingLogbook {
 
     openSettingsModal() {
         document.getElementById('startingJumpNumber').value = this.settings.startingJumpNumber;
+        const prev = this.settings.startingJumpNumber;
+        const labelEl = document.getElementById('startingJumpNumberLabel');
+        labelEl.textContent = prev !== 0 ? `Starting Jump Number (previous=${prev})` : 'Starting Jump Number';
         document.getElementById('recentJumpsDays').value = this.settings.recentJumpsDays ?? 3;
         document.getElementById('standardRedThreshold').value = this.settings.standardRedThreshold ?? 160;
         document.getElementById('standardOrangeThreshold').value = this.settings.standardOrangeThreshold ?? 140;
@@ -998,7 +1001,7 @@ class SkydivingLogbook {
 
     // saveSheetsConfig is no longer needed — OAuth sign-in handles everything.
 
-    saveSettings() {
+    async saveSettings() {
         const startingJumpNumber = parseInt(document.getElementById('startingJumpNumber').value);
         
         if (!startingJumpNumber || startingJumpNumber < 1) {
@@ -1034,6 +1037,7 @@ class SkydivingLogbook {
             return;
         }
 
+        const previousStartingJumpNumber = this.settings.startingJumpNumber;
         this.settings.startingJumpNumber = startingJumpNumber;
         this.settings.recentJumpsDays = recentJumpsDays;
         this.settings.standardRedThreshold = standardRedThreshold;
@@ -1046,13 +1050,27 @@ class SkydivingLogbook {
         // Mark data as locally modified so the background poller detects pending changes.
         localStorage.setItem('skydiving-data-modified', new Date().toISOString());
 
+        // If starting jump number changed: renumber all jumps, persist, then refresh
+        if (previousStartingJumpNumber !== startingJumpNumber) {
+            this.renumberJumps();
+            await DB.replaceAllJumps(this.jumps).catch(err => console.error('[DB] Failed to save jumps after renumber:', err));
+            this.markJumpsModified();
+            localStorage.setItem('skydiving-needs-sync', '1');
+            localStorage.setItem('skydiving-data-modified', new Date().toISOString());
+        }
+
         // Push settings to Google Sheets if online (with timestamp so _syncMeta is updated)
         if (navigator.onLine && window.SheetsAPI?.initialized) {
             window.SheetsAPI.syncEquipmentToSheet(new Date().toISOString());
         }
         
         this.closeModal();
-        this.showMessage('Settings saved successfully!', 'success');
+        if (previousStartingJumpNumber !== startingJumpNumber) {
+            this.showMessage('Settings saved. Jump numbers updated. Reloading...', 'success');
+            setTimeout(() => window.location.reload(), 300);
+        } else {
+            this.showMessage('Settings saved successfully!', 'success');
+        }
     }
 
     getCurrentUtcTimestamp() {
