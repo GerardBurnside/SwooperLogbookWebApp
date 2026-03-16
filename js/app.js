@@ -832,9 +832,11 @@ class SkydivingLogbook {
 
     openSettingsModal() {
         document.getElementById('startingJumpNumber').value = this.settings.startingJumpNumber;
-        const prev = this.settings.startingJumpNumber;
+        const prev = this.settings.previousStartingJump;
+        const current = this.settings.startingJumpNumber;
         const labelEl = document.getElementById('startingJumpNumberLabel');
-        labelEl.textContent = prev !== 0 ? `Starting Jump Number (previous=${prev})` : 'Starting Jump Number';
+        const showPrevious = prev != null && prev !== 1 && prev !== current;
+        labelEl.textContent = showPrevious ? `Starting Jump Number (previous=${prev})` : 'Starting Jump Number';
         document.getElementById('recentJumpsDays').value = this.settings.recentJumpsDays ?? 3;
         document.getElementById('standardRedThreshold').value = this.settings.standardRedThreshold ?? 160;
         document.getElementById('standardOrangeThreshold').value = this.settings.standardOrangeThreshold ?? 140;
@@ -1039,6 +1041,9 @@ class SkydivingLogbook {
 
         const previousStartingJumpNumber = this.settings.startingJumpNumber;
         this.settings.startingJumpNumber = startingJumpNumber;
+        if (startingJumpNumber !== 1) {
+            this.settings.previousStartingJump = startingJumpNumber;
+        }
         this.settings.recentJumpsDays = recentJumpsDays;
         this.settings.standardRedThreshold = standardRedThreshold;
         this.settings.standardOrangeThreshold = standardOrangeThreshold;
