@@ -1041,10 +1041,8 @@ class SkydivingLogbook {
 
         const previousStartingJumpNumber = this.settings.startingJumpNumber;
         this.settings.startingJumpNumber = startingJumpNumber;
-        // Persist the value that was in effect before this save, so we can show (previous=XX) when opening settings
-        if (previousStartingJumpNumber !== 1) {
-            this.settings.previousStartingJump = previousStartingJumpNumber;
-        }
+        // Always persist the value we're leaving, so we can show (previous=XX) when opening settings; display hides it when 1 or when equal to current
+        this.settings.previousStartingJump = previousStartingJumpNumber;
         this.settings.recentJumpsDays = recentJumpsDays;
         this.settings.standardRedThreshold = standardRedThreshold;
         this.settings.standardOrangeThreshold = standardOrangeThreshold;
