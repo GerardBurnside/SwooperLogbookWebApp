@@ -48,6 +48,10 @@ class SkydivingLogbook {
             await DB.migrateFromLocalStorage();
         } catch (err) {
             console.error('[DB] IndexedDB unavailable, running in memory-only mode:', err);
+            // On Safari/iOS, storage may be blocked; offer Storage Access API flow
+            if (typeof document.requestStorageAccess === 'function') {
+                this.showStorageBlockedBanner();
+            }
         }
 
         // Load data from IndexedDB (falls back to defaults if empty / IDB failed)
@@ -2530,6 +2534,33 @@ class SkydivingLogbook {
         if (indicator) {
             indicator.classList.add('hidden');
         }
+    }
+
+    /**
+     * Show banner when storage (IndexedDB) is blocked (e.g. Safari/iOS).
+     * The "Enable storage" button requests access via Storage Access API (user gesture)
+     * then reopens the DB and reloads the page.
+     */
+    showStorageBlockedBanner() {
+        const banner = document.getElementById('storageAccessBanner');
+        const btn = document.getElementById('storageAccessBtn');
+        if (!banner || !btn) return;
+        banner.style.display = 'flex';
+        const once = async () => {
+            btn.disabled = true;
+            try {
+                await DB.requestStorageAccess();
+                await DB.open();
+                await DB.migrateFromLocalStorage();
+                window.location.reload();
+            } catch (e) {
+                console.error('[DB] Storage access request failed:', e);
+                this.showMessage('Could not enable storage. Try allowing storage for this site in Safari settings.', 'error');
+                btn.disabled = false;
+            }
+        };
+        btn.replaceWith(btn.cloneNode(true));
+        document.getElementById('storageAccessBtn').addEventListener('click', once);
     }
 
     showMessage(message, type = 'info') {

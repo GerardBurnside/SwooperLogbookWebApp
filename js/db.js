@@ -2,13 +2,29 @@
 // Manages jumps, canopies, harnesses, and locations stores.
 // Settings and sync metadata remain in localStorage.
 
+/**
+ * Ensure storage access when the Storage Access API is available (Safari/iOS).
+ * Requests access if we don't have it. Does not reject so that callers can
+ * still attempt IDB open; requestStorageAccess() may require a user gesture.
+ */
+function ensureStorageAccess() {
+    if (typeof document.hasStorageAccess !== 'function' || typeof document.requestStorageAccess !== 'function') {
+        return Promise.resolve();
+    }
+    return document.hasStorageAccess()
+        .then((has) => (has ? undefined : document.requestStorageAccess()))
+        .catch(() => { /* e.g. needs user gesture; caller will show banner and retry on tap */ });
+}
+
 const DB = (() => {
     const DB_NAME = 'swooper-logbook';
     const DB_VERSION = 1;
     let _db = null;
 
-    function open() {
-        if (_db) return Promise.resolve(_db);
+    async function open() {
+        if (_db) return _db;
+
+        await ensureStorageAccess();
 
         return new Promise((resolve, reject) => {
             const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -220,10 +236,20 @@ const DB = (() => {
         return true;
     }
 
+    /**
+     * Request storage access (Storage Access API). Call from a user gesture
+     * (e.g. button click) when storage was blocked; then call open() and reload.
+     */
+    function requestStorageAccess() {
+        if (typeof document.requestStorageAccess !== 'function') return Promise.resolve();
+        return document.requestStorageAccess();
+    }
+
     // ── Public API ──────────────────────────────────────────────────────
 
     return {
         open,
+        requestStorageAccess,
         getAllJumps,
         getJumpsByDateRange,
         putJump,

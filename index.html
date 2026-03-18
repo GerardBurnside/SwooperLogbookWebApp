@@ -337,6 +337,15 @@
     <script src="js/app.js"></script>
     <script src="js/sheets.js"></script>
 
+    <!-- Storage Access (Safari/iOS): shown when IndexedDB is blocked -->
+    <div id="storageAccessBanner" style="display:none; position:fixed; top:0; left:0; right:0;
+        background:#e65100; color:#fff; padding:12px 16px; z-index:9999;
+        align-items:center; justify-content:space-between; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,0.2); flex-wrap:wrap; gap:8px;">
+        <span>Data is not being saved. Tap the button below to enable storage for this site.</span>
+        <button type="button" id="storageAccessBtn" style="background:#fff; color:#e65100; border:none;
+            padding:8px 16px; border-radius:4px; font-weight:bold; cursor:pointer; white-space:nowrap;">Enable storage</button>
+    </div>
+
     <!-- PWA Install Prompt -->
     <div id="installBanner" style="display:none; position:fixed; bottom:0; left:0; right:0;
         background:#1976D2; color:#fff; padding:12px 16px; z-index:9999;
