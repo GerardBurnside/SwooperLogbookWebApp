@@ -396,11 +396,12 @@ class SkydivingLogbook {
             locationInput.value = lastJump.location;
         }
         
-        // Pre-fill canopy (equipment field now holds canopy ID)
+        // Pre-fill canopy only if it is still selectable in the dropdown
         const equipmentSelect = document.getElementById('equipment');
         if (lastJump.equipment && equipmentSelect) {
             const canopy = this.canopies.find(c => c.id === lastJump.equipment && !c.archived);
-            if (canopy) {
+            const activeLineset = this.getActiveLineset(lastJump.equipment);
+            if (canopy && activeLineset) {
                 equipmentSelect.value = lastJump.equipment;
                 this.updateLinesetHint();
             }
@@ -1220,18 +1221,31 @@ class SkydivingLogbook {
         const select = document.getElementById('equipment');
         select.innerHTML = '<option value="">Select Canopy</option>';
         
-        // Show active canopies that have at least one active lineset
-        const activeCanopies = this.canopies.filter(c => !c.archived);
+        // Show active canopies that still have at least one active lineset
+        const activeCanopies = this.canopies.filter(c =>
+            !c.archived && this.getActiveLineset(c.id)
+        );
         
         activeCanopies.forEach(canopy => {
-            const activeLineset = this.getActiveLinesetNumber(canopy.id);
-            const ls = canopy.linesets?.find(l => l.number === activeLineset);
+            const ls = this.getActiveLineset(canopy.id);
+            if (!ls) return;
             const hybridTag = ls?.hybrid ? ' (Hybrid)' : '';
             const option = document.createElement('option');
             option.value = canopy.id;
-            option.textContent = `${canopy.name} — Lineset #${activeLineset}${hybridTag}`;
+            option.textContent = `${canopy.name} — Lineset #${ls.number}${hybridTag}`;
             select.appendChild(option);
         });
+    }
+
+    getActiveLineset(canopyId) {
+        const canopy = this.canopies.find(c => c.id === canopyId);
+        if (!canopy || !Array.isArray(canopy.linesets)) return null;
+
+        const active = canopy.linesets.filter(ls => !ls.archived);
+        if (active.length === 0) return null;
+
+        const activeNumber = Math.max(...active.map(ls => ls.number));
+        return active.find(ls => ls.number === activeNumber) || null;
     }
 
     /**
@@ -1239,13 +1253,7 @@ class SkydivingLogbook {
      * Returns the highest active lineset number, or 1 if none exist.
      */
     getActiveLinesetNumber(canopyId) {
-        const canopy = this.canopies.find(c => c.id === canopyId);
-        if (!canopy || !Array.isArray(canopy.linesets)) return 1;
-        const active = canopy.linesets.filter(ls => !ls.archived);
-        if (active.length === 0) return canopy.linesets.length > 0
-            ? Math.max(...canopy.linesets.map(ls => ls.number))
-            : 1;
-        return Math.max(...active.map(ls => ls.number));
+        return this.getActiveLineset(canopyId)?.number || 1;
     }
 
     /**
@@ -1259,9 +1267,13 @@ class SkydivingLogbook {
             hint.style.display = 'none';
             return;
         }
-        const lsNum = this.getActiveLinesetNumber(canopyId);
-        const canopy = this.canopies.find(c => c.id === canopyId);
-        const ls = canopy?.linesets?.find(l => l.number === lsNum);
+        const ls = this.getActiveLineset(canopyId);
+        if (!ls) {
+            hint.style.display = 'none';
+            return;
+        }
+
+        const lsNum = ls.number;
         const hybridTag = ls?.hybrid ? ' (Hybrid)' : '';
         const total = (ls?.jumpCount || 0) + (ls?.previousJumps || 0);
         hint.textContent = `→ Lineset #${lsNum}${hybridTag} · ${total} total jumps`;
