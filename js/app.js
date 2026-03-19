@@ -35,6 +35,7 @@ class SkydivingLogbook {
         this.currentView = 'jumps'; // 'jumps', 'equipment', 'stats'
         this.equipmentSubView = 'canopies'; // 'canopies', 'harnesses', 'locations'
         this.showArchivedStats = false;
+        this.activeJumpNoteId = null;
         this._olderJumpsCache = []; // cached older jumps for lazy rendering
         this._renderedOlderCount = 0;
         
@@ -232,6 +233,13 @@ class SkydivingLogbook {
         if (jumpNoteClose) {
             jumpNoteClose.addEventListener('click', () => {
                 this.closeJumpNotePopup();
+            });
+        }
+
+        const jumpNoteSave = document.getElementById('jumpNoteSave');
+        if (jumpNoteSave) {
+            jumpNoteSave.addEventListener('click', () => {
+                this.saveJumpNote();
             });
         }
 
@@ -747,6 +755,7 @@ class SkydivingLogbook {
         const notePreview = hasNote
             ? `${compactNote.slice(0, 15)}${compactNote.length > 15 ? '...' : ''}`
             : '';
+        const encodedJumpId = encodeURIComponent(String(jump.id));
         const encodedFullNote = hasNote ? encodeURIComponent(noteText) : '';
 
         const canopyNameHtml = this.escapeHtml(canopyName).replace(/\d{2,}/g, '<b>$&</b>');
@@ -755,26 +764,59 @@ class SkydivingLogbook {
             <div class="jump-row">
                 <span class="jump-number">#${jump.jumpNumber}</span>
                 <span class="jump-canopy">🪂 ${canopyNameHtml}</span>
-                ${hasNote ? `<button type="button" class="jump-note-preview" onclick="logbook.openJumpNotePopup('${encodedFullNote}')" title="View full note">${this.escapeHtml(notePreview)}</button>` : ''}
+                ${hasNote ? `<button type="button" class="jump-note-preview" onclick="logbook.openJumpNotePopup('${encodedJumpId}', '${encodedFullNote}')" title="View or edit note">${this.escapeHtml(notePreview)}</button>` : ''}
                 <button class="delete-jump-btn" onclick="logbook.deleteJump('${jump.id}')" title="Delete jump">❌</button>
             </div>
         `;
     }
 
-    openJumpNotePopup(encodedNote) {
+    openJumpNotePopup(encodedJumpId, encodedNote) {
         const modal = document.getElementById('jumpNoteModal');
         const content = document.getElementById('jumpNoteContent');
         if (!modal || !content) return;
 
+        this.activeJumpNoteId = decodeURIComponent(encodedJumpId || '');
         const note = decodeURIComponent(encodedNote || '');
-        content.textContent = note;
+        content.value = note;
         modal.style.display = 'block';
+        content.focus();
+        content.setSelectionRange(content.value.length, content.value.length);
     }
 
     closeJumpNotePopup() {
         const modal = document.getElementById('jumpNoteModal');
+        const content = document.getElementById('jumpNoteContent');
         if (!modal) return;
+        this.activeJumpNoteId = null;
+        if (content) content.value = '';
         modal.style.display = 'none';
+    }
+
+    saveJumpNote() {
+        if (!this.activeJumpNoteId) {
+            this.showMessage('Jump not found', 'error');
+            return;
+        }
+
+        const content = document.getElementById('jumpNoteContent');
+        if (!content) return;
+
+        const jump = this.jumps.find(item => item.id.toString() === this.activeJumpNoteId.toString());
+        if (!jump) {
+            this.showMessage('Jump not found', 'error');
+            this.closeJumpNotePopup();
+            return;
+        }
+
+        jump.notes = content.value;
+        this.saveToLocalStorage();
+        this.renderJumpsList();
+        this.closeJumpNotePopup();
+        this.showMessage('Jump note saved', 'success');
+
+        if (navigator.onLine && window.SheetsAPI?.initialized) {
+            window.SheetsAPI.pushAllWithGuard();
+        }
     }
 
     deleteJump(jumpId) {

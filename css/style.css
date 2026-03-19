@@ -1117,6 +1117,23 @@ textarea {
     word-break: break-word;
 }
 
+.jump-note-editor {
+    width: 100%;
+    min-height: 180px;
+    resize: vertical;
+    padding: 0.75rem;
+    border: 1px solid #d7dce2;
+    border-radius: 8px;
+    font: inherit;
+    background: #fff;
+}
+
+.jump-note-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 1rem;
+}
+
 .local-storage-modal-content {
     max-width: 560px;
 }
