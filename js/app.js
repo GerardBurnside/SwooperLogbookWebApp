@@ -243,6 +243,20 @@ class SkydivingLogbook {
             });
         }
 
+        // Search Notes modal
+        document.getElementById('searchJumpsBtn').addEventListener('click', () => {
+            this.openSearchNotesModal();
+        });
+        document.getElementById('searchNotesClose').addEventListener('click', () => {
+            this.closeSearchNotesModal();
+        });
+        document.getElementById('searchNotesGoBtn').addEventListener('click', () => {
+            this.executeNoteSearch();
+        });
+        document.getElementById('searchNotesInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') this.executeNoteSearch();
+        });
+
         document.getElementById('googleSignInBtn').addEventListener('click', () => {
             this.handleGoogleSignIn();
         });
@@ -374,6 +388,10 @@ class SkydivingLogbook {
             const importChoiceModal = document.getElementById('importChoiceModal');
             if (e.target === importChoiceModal) {
                 this.closeImportChoiceModal();
+            }
+            const searchNotesModal = document.getElementById('searchNotesModal');
+            if (e.target === searchNotesModal) {
+                this.closeSearchNotesModal();
             }
         });
     }
@@ -820,6 +838,81 @@ class SkydivingLogbook {
         if (navigator.onLine && window.SheetsAPI?.initialized) {
             window.SheetsAPI.pushAllWithGuard();
         }
+    }
+
+    openSearchNotesModal() {
+        const modal = document.getElementById('searchNotesModal');
+        const input = document.getElementById('searchNotesInput');
+        if (!modal) return;
+        modal.style.display = 'block';
+        if (input) {
+            input.value = '';
+            input.focus();
+        }
+        document.getElementById('searchNotesResults').innerHTML =
+            '<p class="search-notes-placeholder">Enter a search term to find jumps by note text.</p>';
+    }
+
+    closeSearchNotesModal() {
+        const modal = document.getElementById('searchNotesModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    executeNoteSearch() {
+        const input = document.getElementById('searchNotesInput');
+        const resultsContainer = document.getElementById('searchNotesResults');
+        if (!input || !resultsContainer) return;
+
+        const query = input.value.trim();
+        if (!query) {
+            resultsContainer.innerHTML =
+                '<p class="search-notes-placeholder">Enter a search term to find jumps by note text.</p>';
+            return;
+        }
+
+        const lowerQuery = query.toLowerCase();
+        const matches = this.jumps
+            .filter(j => typeof j.notes === 'string' && j.notes.toLowerCase().includes(lowerQuery))
+            .sort((a, b) => b.jumpNumber - a.jumpNumber);
+
+        if (matches.length === 0) {
+            resultsContainer.innerHTML = '<p class="search-notes-placeholder">No jumps found matching that text.</p>';
+            return;
+        }
+
+        const escapedQuery = this.escapeHtml(query);
+        const queryRegex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+
+        let html = `<p class="search-notes-count">${matches.length} result${matches.length !== 1 ? 's' : ''} found</p>`;
+        matches.forEach(jump => {
+            const dateStr = new Date(jump.date + 'T00:00:00')
+                .toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+
+            let canopyName = jump.equipment || '';
+            const canopy = this.canopies.find(c => c.id === jump.equipment);
+            if (canopy) {
+                const ls = canopy.linesets?.find(l => l.number === jump.linesetNumber);
+                const hybridSuffix = ls?.hybrid ? ' (H)' : '';
+                canopyName = `${canopy.name} L#${jump.linesetNumber || 1}${hybridSuffix}`;
+            }
+
+            const noteHtml = this.escapeHtml(jump.notes).replace(queryRegex, m => `<mark>${m}</mark>`);
+
+            const encodedJumpId = encodeURIComponent(String(jump.id));
+            const encodedNote = encodeURIComponent(jump.notes);
+
+            html += `
+                <div class="search-result-item" onclick="logbook.closeSearchNotesModal(); logbook.openJumpNotePopup('${encodedJumpId}', '${encodedNote}')">
+                    <div class="search-result-header">
+                        <span class="search-result-jump-num">#${jump.jumpNumber}</span>
+                        <span class="search-result-date">${dateStr}</span>
+                    </div>
+                    ${canopyName ? `<div class="search-result-canopy">🪂 ${this.escapeHtml(canopyName)}</div>` : ''}
+                    <div class="search-result-note">${noteHtml}</div>
+                </div>`;
+        });
+
+        resultsContainer.innerHTML = html;
     }
 
     deleteJump(jumpId) {

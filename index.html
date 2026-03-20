@@ -91,6 +91,7 @@
                     <div id="jumpsList" class="jumps-list">
                         <p class="no-jumps">No jumps logged yet. Add your first jump above!</p>
                     </div>
+                    <button type="button" id="searchJumpsBtn" class="btn-secondary search-jumps-btn">🔍 Search Notes</button>
                 </section>
             </div>
 
@@ -306,6 +307,21 @@
                 <textarea id="jumpNoteContent" class="jump-note-content jump-note-editor" rows="8" placeholder="Add your note here..."></textarea>
                 <div class="jump-note-actions">
                     <button type="button" id="jumpNoteSave" class="btn-primary">Save Note</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Notes Modal -->
+        <div id="searchNotesModal" class="modal">
+            <div class="modal-content search-notes-modal-content">
+                <span id="searchNotesClose" class="close">&times;</span>
+                <h2>Search Notes</h2>
+                <div class="search-notes-input-row">
+                    <input type="text" id="searchNotesInput" placeholder="Search jump notes..." autocomplete="off">
+                    <button type="button" id="searchNotesGoBtn" class="btn-primary">Search</button>
+                </div>
+                <div id="searchNotesResults" class="search-notes-results">
+                    <p class="search-notes-placeholder">Enter a search term to find jumps by note text.</p>
                 </div>
             </div>
         </div>
