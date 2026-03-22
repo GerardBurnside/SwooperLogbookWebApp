@@ -550,6 +550,41 @@ class SkydivingLogbook {
         document.getElementById('totalJumps').textContent = `Latest Jump: #${latestJumpNumber}`;
     }
 
+    /** Calendar year of a jump from stored date (YYYY-MM-DD or parseable string). */
+    _jumpCalendarYear(jump) {
+        const s = jump.date;
+        if (typeof s === 'string' && /^\d{4}/.test(s)) return parseInt(s.slice(0, 4), 10);
+        return new Date(jump.date).getFullYear();
+    }
+
+    _updateJumpsYearSummary() {
+        const el = document.getElementById('jumpsYearSummary');
+        if (!el) return;
+        if (this.jumps.length === 0) {
+            el.textContent = '';
+            el.hidden = true;
+            return;
+        }
+        const y = new Date().getFullYear();
+        let thisYear = 0;
+        let lastYear = 0;
+        for (const jump of this.jumps) {
+            const jy = this._jumpCalendarYear(jump);
+            if (jy === y) thisYear++;
+            else if (jy === y - 1) lastYear++;
+        }
+        if (thisYear > 0) {
+            el.textContent = `Number of jumps this year: ${thisYear}`;
+            el.hidden = false;
+        } else if (lastYear > 0) {
+            el.textContent = `Number of jumps last year: ${lastYear}`;
+            el.hidden = false;
+        } else {
+            el.textContent = '';
+            el.hidden = true;
+        }
+    }
+
     renderJumpsList() {
         const jumpsList = document.getElementById('jumpsList');
         const totalEl = document.getElementById('recentJumpsTotal');
@@ -569,6 +604,7 @@ class SkydivingLogbook {
         if (this.jumps.length === 0) {
             updateRecentTotal(0);
             jumpsList.innerHTML = '<p class="no-jumps">No jumps logged yet. Add your first jump above!</p>';
+            this._updateJumpsYearSummary();
             return;
         }
 
@@ -622,6 +658,7 @@ class SkydivingLogbook {
 
         updateRecentTotal(recentJumps.length);
         jumpsList.innerHTML = html;
+        this._updateJumpsYearSummary();
     }
 
     /** Render a batch of older jumps as collapsed month groups. */
