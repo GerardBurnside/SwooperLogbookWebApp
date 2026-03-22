@@ -1232,6 +1232,7 @@ class SkydivingLogbook {
             setTimeout(() => window.location.reload(), 300);
         } else {
             this.showMessage('Settings saved successfully!', 'success');
+            this.renderJumpsList();
         }
     }
 
