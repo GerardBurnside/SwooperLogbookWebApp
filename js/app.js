@@ -553,9 +553,21 @@ class SkydivingLogbook {
     renderJumpsList() {
         const jumpsList = document.getElementById('jumpsList');
         const totalEl = document.getElementById('recentJumpsTotal');
-        
+        const allJumpsByMonth = this.settings.recentJumpsDays === 0;
+
+        const updateRecentTotal = (count) => {
+            if (!totalEl) return;
+            if (allJumpsByMonth) {
+                totalEl.textContent = '';
+                totalEl.style.display = 'none';
+            } else {
+                totalEl.style.display = '';
+                totalEl.textContent = `Total: ${count}`;
+            }
+        };
+
         if (this.jumps.length === 0) {
-            if (totalEl) totalEl.textContent = 'Total: 0';
+            updateRecentTotal(0);
             jumpsList.innerHTML = '<p class="no-jumps">No jumps logged yet. Add your first jump above!</p>';
             return;
         }
@@ -563,22 +575,25 @@ class SkydivingLogbook {
         // Show most recent jumps first
         const sortedJumps = [...this.jumps].sort((a, b) => b.jumpNumber - a.jumpNumber);
 
-        // Cutoff: configurable number of days ago at midnight
-        const cutoff = new Date();
-        cutoff.setHours(0, 0, 0, 0);
-        cutoff.setDate(cutoff.getDate() - (this.settings.recentJumpsDays || 3));
-
         const recentJumps = [];
         const olderJumps = [];
 
-        sortedJumps.forEach(jump => {
-            const jumpDate = new Date(jump.date);
-            if (jumpDate >= cutoff) {
-                recentJumps.push(jump);
-            } else {
-                olderJumps.push(jump);
-            }
-        });
+        if (allJumpsByMonth) {
+            sortedJumps.forEach(jump => olderJumps.push(jump));
+        } else {
+            const cutoff = new Date();
+            cutoff.setHours(0, 0, 0, 0);
+            cutoff.setDate(cutoff.getDate() - (this.settings.recentJumpsDays || 3));
+
+            sortedJumps.forEach(jump => {
+                const jumpDate = new Date(jump.date);
+                if (jumpDate >= cutoff) {
+                    recentJumps.push(jump);
+                } else {
+                    olderJumps.push(jump);
+                }
+            });
+        }
 
         // Cache older jumps for lazy "load more" rendering
         this._olderJumpsCache = olderJumps;
@@ -605,7 +620,7 @@ class SkydivingLogbook {
             html += `<button class="btn-secondary load-more-btn" id="loadMoreJumpsBtn" onclick="logbook.loadMoreJumps()">Load more (${remaining} remaining)</button>`;
         }
 
-        if (totalEl) totalEl.textContent = `Total: ${recentJumps.length}`;
+        updateRecentTotal(recentJumps.length);
         jumpsList.innerHTML = html;
     }
 
@@ -1154,8 +1169,8 @@ class SkydivingLogbook {
             return;
         }
 
-        const recentJumpsDays = parseInt(document.getElementById('recentJumpsDays').value);
-        if (!recentJumpsDays || recentJumpsDays < 0) {
+        const recentJumpsDays = parseInt(document.getElementById('recentJumpsDays').value, 10);
+        if (Number.isNaN(recentJumpsDays) || recentJumpsDays < 0) {
             this.showMessage('Please enter a valid number of days (0 or higher)', 'error');
             return;
         }

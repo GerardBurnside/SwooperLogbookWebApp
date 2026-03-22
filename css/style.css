@@ -1359,6 +1359,23 @@ footer {
     gap: 1rem;
 }
 
+/* Slim single-line legal link (below main app chrome) */
+footer.legal-footer {
+    justify-content: center;
+    padding: 0.25rem 0.5rem;
+    gap: 0;
+    flex-wrap: nowrap;
+}
+
+footer.legal-footer a {
+    color: #868e96;
+    font-size: 10px;
+    line-height: 1;
+    white-space: nowrap;
+    text-decoration: underline;
+    text-underline-offset: 1px;
+}
+
 /* Mobile Responsive */
 @media (max-width: 480px) {
     .container {
@@ -1434,9 +1451,13 @@ footer {
         flex: 1;
     }
     
-    footer {
+    footer:not(.legal-footer) {
         flex-direction: column;
         gap: 0.5rem;
+    }
+
+    footer.legal-footer {
+        flex-direction: row;
     }
     
     footer .sync-status {
