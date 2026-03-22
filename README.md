@@ -100,3 +100,6 @@ This is a personal project, but feel free to fork and customize for your needs!
 
 ## License
 Open source - use freely for personal projects.
+
+## Privacy Policy and Terms of Service:
+[https://gerardburnside.github.io/SwooperLogbookWebApp/privacy-policy.html]
