@@ -1507,6 +1507,7 @@ class SkydivingLogbook {
                             <button onclick="window.logbook.toggleArchiveLineset('${canopy.id}', ${ls.number})" class="btn-toggle btn-sm">
                                 ${ls.archived ? 'Unarchive' : 'Archive'}
                             </button>
+                            ${logged === 0 ? `<button type="button" onclick="window.logbook.deleteLineset('${canopy.id}', ${ls.number})" class="btn-delete btn-sm" title="Remove this lineset (no jumps logged in this app)">Delete</button>` : ''}
                         </span>
                     </div>
                 `;
@@ -1734,6 +1735,53 @@ class SkydivingLogbook {
         this.updateEquipmentOptions();
         this.renderEquipmentView();
         this.showMessage(`Lineset #${linesetNumber} ${lineset.archived ? 'archived' : 'unarchived'} successfully!`, 'success');
+    }
+
+    /**
+     * Remove a lineset that has no jumps recorded in this logbook for that canopy/lineset.
+     * Ensures at least one lineset remains (default #1).
+     */
+    deleteLineset(canopyId, linesetNumber) {
+        const canopy = this.canopies.find(c => c.id === canopyId);
+        if (!canopy || !Array.isArray(canopy.linesets)) return;
+        const lineset = canopy.linesets.find(ls => ls.number === linesetNumber);
+        if (!lineset) return;
+
+        const logged = this.jumps.filter(j =>
+            j.equipment === canopyId && j.linesetNumber === linesetNumber
+        ).length;
+        if (logged > 0) {
+            this.showMessage('Cannot delete a lineset that has jumps logged in this app. Archive it instead, or delete those jumps first.', 'error');
+            return;
+        }
+
+        const preApp = lineset.previousJumps || 0;
+        let msg = `Delete lineset #${linesetNumber} for ${canopy.name}? This cannot be undone.`;
+        if (preApp > 0) {
+            msg = `Delete lineset #${linesetNumber}? It has ${preApp} pre-app jump(s) recorded (none in this logbook). This cannot be undone.`;
+        }
+        if (!confirm(msg)) return;
+
+        const idx = canopy.linesets.findIndex(ls => ls.number === linesetNumber);
+        if (idx === -1) return;
+        canopy.linesets.splice(idx, 1);
+
+        if (canopy.linesets.length === 0) {
+            canopy.linesets.push({
+                number: 1,
+                hybrid: false,
+                previousJumps: 0,
+                jumpCount: 0,
+                archived: false
+            });
+        }
+
+        this.saveComponentsToLocalStorage();
+        this.updateEquipmentOptions();
+        this.renderEquipmentView();
+        this.updateLinesetHint();
+        if (navigator.onLine && window.SheetsAPI) window.SheetsAPI.syncEquipmentToSheet();
+        this.showMessage(`Lineset #${linesetNumber} deleted.`, 'success');
     }
 
     closeLinesetModal() {
