@@ -387,6 +387,130 @@ textarea {
     font-weight: 700;
 }
 
+/* Canopy picker (custom list replaces native <select> UI — reliable scroll on iOS) */
+.canopy-picker-wrap label {
+    cursor: pointer;
+}
+
+.canopy-picker {
+    position: relative;
+}
+
+.canopy-picker-native {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    border: 0;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.canopy-picker-toggle {
+    width: 100%;
+    padding: 0.75rem;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    font-size: 1rem;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    background: #fff;
+    color: #333;
+    cursor: pointer;
+    transition: border-color 0.3s ease;
+    font-family: inherit;
+}
+
+.canopy-picker-toggle:hover {
+    border-color: #bbb;
+}
+
+.canopy-picker-toggle:focus {
+    outline: none;
+    border-color: #2196F3;
+}
+
+.canopy-picker-toggle:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+    background: #f5f5f5;
+}
+
+.canopy-picker-toggle[aria-expanded="true"] {
+    border-color: #2196F3;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.canopy-picker-display {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.canopy-picker-chevron {
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    opacity: 0.65;
+    line-height: 1;
+}
+
+.canopy-picker-list {
+    display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    z-index: 160;
+    margin-top: -2px;
+    max-height: min(75dvh, 24rem);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    background: #fff;
+    border: 2px solid #2196F3;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
+.canopy-picker-list.open {
+    display: block;
+}
+
+.canopy-picker-option {
+    padding: 0.7rem 0.75rem;
+    cursor: pointer;
+    font-size: 1rem;
+    border-bottom: 1px solid #eee;
+    line-height: 1.35;
+}
+
+.canopy-picker-option:last-child {
+    border-bottom: none;
+}
+
+.canopy-picker-option:hover,
+.canopy-picker-option:focus {
+    background: #e3f2fd;
+    outline: none;
+}
+
+.canopy-picker-option[aria-selected="true"] {
+    background: #bbdefb;
+}
+
 /* Buttons */
 .jump-submit-row {
     display: flex;

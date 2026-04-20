@@ -168,6 +168,10 @@ class SkydivingLogbook {
                 equipment: form.elements['equipment'].value,
                 notes: form.elements['notes'].value || ''
             };
+            if (!jumpData.equipment) {
+                this.showMessage('Please select a canopy.', 'error');
+                return;
+            }
             for (let i = 0; i < multiplier; i++) {
                 this.addJump(jumpData, multiplier > 1);
             }
@@ -394,6 +398,8 @@ class SkydivingLogbook {
                 this.closeSearchNotesModal();
             }
         });
+
+        this.setupCanopyPicker();
     }
 
     setCurrentDate() {
@@ -415,26 +421,25 @@ class SkydivingLogbook {
 
     preFillFormWithLastJump() {
         const lastJump = this.getLastJumpData();
-        if (!lastJump) {
-            return;
-        }
-        
-        // Pre-fill location
-        const locationInput = document.getElementById('location');
-        if (lastJump.location && locationInput) {
-            locationInput.value = lastJump.location;
-        }
-        
-        // Pre-fill canopy only if it is still selectable in the dropdown
-        const equipmentSelect = document.getElementById('equipment');
-        if (lastJump.equipment && equipmentSelect) {
-            const canopy = this.canopies.find(c => c.id === lastJump.equipment && !c.archived);
-            const activeLineset = this.getActiveLineset(lastJump.equipment);
-            if (canopy && activeLineset) {
-                equipmentSelect.value = lastJump.equipment;
-                this.updateLinesetHint();
+        if (lastJump) {
+            // Pre-fill location
+            const locationInput = document.getElementById('location');
+            if (lastJump.location && locationInput) {
+                locationInput.value = lastJump.location;
+            }
+
+            // Pre-fill canopy only if it is still selectable in the dropdown
+            const equipmentSelect = document.getElementById('equipment');
+            if (lastJump.equipment && equipmentSelect) {
+                const canopy = this.canopies.find(c => c.id === lastJump.equipment && !c.archived);
+                const activeLineset = this.getActiveLineset(lastJump.equipment);
+                if (canopy && activeLineset) {
+                    equipmentSelect.value = lastJump.equipment;
+                    this.updateLinesetHint();
+                }
             }
         }
+        this.syncCanopyPickerDisplay();
     }
 
     updateNextJumpNumber() { /* field removed — kept as no-op for safety */ }
@@ -1426,6 +1431,143 @@ class SkydivingLogbook {
             option.textContent = `${canopy.name} — Lineset #${ls.number}${hybridTag}`;
             select.appendChild(option);
         });
+
+        this.rebuildCanopyPickerOptions();
+    }
+
+    setupCanopyPicker() {
+        const wrap = document.getElementById('canopyPicker');
+        const toggle = document.getElementById('canopyPickerToggle');
+        const list = document.getElementById('canopyPickerList');
+        const select = document.getElementById('equipment');
+        if (!wrap || !toggle || !list || !select) return;
+        if (this._canopyPickerBound) return;
+        this._canopyPickerBound = true;
+
+        toggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (list.classList.contains('open')) {
+                this._closeCanopyPicker();
+            } else {
+                this._applyCanopyPickerMaxHeight();
+                list.classList.add('open');
+                list.setAttribute('aria-hidden', 'false');
+                toggle.setAttribute('aria-expanded', 'true');
+                this._highlightCanopyPickerSelection();
+                const sel = list.querySelector('.canopy-picker-option[aria-selected="true"]');
+                if (sel) sel.scrollIntoView({ block: 'nearest' });
+            }
+        });
+
+        list.addEventListener('click', (e) => {
+            const opt = e.target.closest('.canopy-picker-option');
+            if (!opt) return;
+            const value = opt.dataset.value;
+            if (value === undefined || value === '') return;
+            select.value = value;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            this.syncCanopyPickerDisplay();
+            this._closeCanopyPicker();
+            toggle.focus();
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!list.classList.contains('open')) return;
+            if (!wrap.contains(e.target)) this._closeCanopyPicker();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && list.classList.contains('open')) {
+                this._closeCanopyPicker();
+                toggle.focus();
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            if (list.classList.contains('open')) this._applyCanopyPickerMaxHeight();
+        });
+        window.addEventListener('orientationchange', () => {
+            if (list.classList.contains('open')) this._applyCanopyPickerMaxHeight();
+        });
+    }
+
+    _applyCanopyPickerMaxHeight() {
+        const list = document.getElementById('canopyPickerList');
+        const toggle = document.getElementById('canopyPickerToggle');
+        if (!list || !toggle) return;
+        const rect = toggle.getBoundingClientRect();
+        const vv = window.visualViewport;
+        const vh = (vv && vv.height) ? vv.height : (window.innerHeight || document.documentElement.clientHeight);
+        const margin = 12;
+        const spaceBelow = vh - rect.bottom - margin;
+        const maxH = Math.max(140, Math.min(spaceBelow, vh * 0.85));
+        list.style.maxHeight = `${Math.floor(maxH)}px`;
+    }
+
+    _closeCanopyPicker() {
+        const list = document.getElementById('canopyPickerList');
+        const toggle = document.getElementById('canopyPickerToggle');
+        if (list) {
+            list.classList.remove('open');
+            list.setAttribute('aria-hidden', 'true');
+            list.style.maxHeight = '';
+        }
+        if (toggle) toggle.setAttribute('aria-expanded', 'false');
+    }
+
+    _highlightCanopyPickerSelection() {
+        const list = document.getElementById('canopyPickerList');
+        const select = document.getElementById('equipment');
+        if (!list || !select) return;
+        const val = select.value;
+        list.querySelectorAll('.canopy-picker-option').forEach(el => {
+            el.setAttribute('aria-selected', el.dataset.value === val ? 'true' : 'false');
+        });
+    }
+
+    syncCanopyPickerDisplay() {
+        const select = document.getElementById('equipment');
+        const display = document.getElementById('canopyPickerDisplay');
+        const toggle = document.getElementById('canopyPickerToggle');
+        if (!select || !display) return;
+        const opt = select.selectedOptions[0];
+        display.textContent = opt && opt.value ? opt.textContent : 'Select Canopy';
+        if (toggle) {
+            const hasChoices = select.options.length > 1;
+            toggle.disabled = !hasChoices;
+        }
+    }
+
+    rebuildCanopyPickerOptions() {
+        const select = document.getElementById('equipment');
+        const list = document.getElementById('canopyPickerList');
+        if (!select || !list) return;
+
+        const wasOpen = list.classList.contains('open');
+        const keptValue = select.value;
+
+        list.innerHTML = '';
+        for (let i = 0; i < select.options.length; i++) {
+            const opt = select.options[i];
+            if (!opt.value) continue;
+            const div = document.createElement('div');
+            div.className = 'canopy-picker-option';
+            div.setAttribute('role', 'option');
+            div.dataset.value = opt.value;
+            div.textContent = opt.textContent;
+            list.appendChild(div);
+        }
+
+        const stillValid = Array.from(select.options).some(o => o.value === keptValue);
+        if (keptValue && !stillValid) {
+            select.value = '';
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        this.syncCanopyPickerDisplay();
+        this._highlightCanopyPickerSelection();
+
+        if (wasOpen) this._applyCanopyPickerMaxHeight();
     }
 
     getActiveLineset(canopyId) {
