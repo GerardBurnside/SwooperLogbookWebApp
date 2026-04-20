@@ -388,6 +388,11 @@ textarea {
 }
 
 /* Canopy picker (custom list replaces native <select> UI — reliable scroll on iOS) */
+.canopy-picker-wrap {
+    /* Breathing room when we scroll-into-view (Log jump block near top of screen) */
+    scroll-margin-top: 0.75rem;
+}
+
 .canopy-picker-wrap label {
     cursor: pointer;
 }
@@ -473,7 +478,6 @@ textarea {
     top: 100%;
     z-index: 160;
     margin-top: -2px;
-    max-height: min(75dvh, 24rem);
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;

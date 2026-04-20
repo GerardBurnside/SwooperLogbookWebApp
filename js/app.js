@@ -1449,13 +1449,19 @@ class SkydivingLogbook {
             if (list.classList.contains('open')) {
                 this._closeCanopyPicker();
             } else {
-                this._applyCanopyPickerMaxHeight();
+                this._scrollCanopyFieldToTopIfNeeded();
                 list.classList.add('open');
                 list.setAttribute('aria-hidden', 'false');
                 toggle.setAttribute('aria-expanded', 'true');
-                this._highlightCanopyPickerSelection();
-                const sel = list.querySelector('.canopy-picker-option[aria-selected="true"]');
-                if (sel) sel.scrollIntoView({ block: 'nearest' });
+                const finishOpen = () => {
+                    this._layoutCanopyPickerList();
+                    this._highlightCanopyPickerSelection();
+                    const sel = list.querySelector('.canopy-picker-option[aria-selected="true"]');
+                    if (sel) sel.scrollIntoView({ block: 'nearest' });
+                };
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(finishOpen);
+                });
             }
         });
 
@@ -1484,24 +1490,84 @@ class SkydivingLogbook {
         });
 
         window.addEventListener('resize', () => {
-            if (list.classList.contains('open')) this._applyCanopyPickerMaxHeight();
+            if (list.classList.contains('open')) this._layoutCanopyPickerList();
         });
         window.addEventListener('orientationchange', () => {
-            if (list.classList.contains('open')) this._applyCanopyPickerMaxHeight();
+            if (list.classList.contains('open')) this._layoutCanopyPickerList();
         });
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', () => {
+                if (list.classList.contains('open')) this._layoutCanopyPickerList();
+            });
+        }
     }
 
-    _applyCanopyPickerMaxHeight() {
+    /**
+     * If the list would not fit in the current space under the field, scroll the
+     * canopy form block toward the top so more viewport height is available below.
+     */
+    _canopyFieldNeedsTopScroll() {
+        const select = document.getElementById('equipment');
+        const toggle = document.getElementById('canopyPickerToggle');
+        if (!select || !toggle) return false;
+        const n = select.options.length - 1; // active canopies, excluding first placeholder
+        if (n <= 0) return false;
+
+        const rowEst = 50; // ~padding + line-height; conservative for multi-line labels
+        const estContent = n * rowEst;
+        const rect = toggle.getBoundingClientRect();
+        const margin = 12;
+        const vv = window.visualViewport;
+        const preSpace = vv
+            ? (vv.offsetTop + vv.height - margin - rect.bottom)
+            : ((window.innerHeight || document.documentElement.clientHeight) - rect.bottom - margin);
+
+        return estContent > preSpace;
+    }
+
+    _scrollCanopyFieldToTopIfNeeded() {
+        if (!this._canopyFieldNeedsTopScroll()) return;
+        const anchor = document.getElementById('canopyPickerScrollAnchor');
+        if (anchor) {
+            anchor.scrollIntoView({ block: 'start', behavior: 'auto' });
+        }
+    }
+
+    /**
+     * Set max-height from remaining space below the field (list always opens downward),
+     * then shrink when all options fit to avoid a tall empty box.
+     */
+    _layoutCanopyPickerList() {
         const list = document.getElementById('canopyPickerList');
         const toggle = document.getElementById('canopyPickerToggle');
         if (!list || !toggle) return;
+
         const rect = toggle.getBoundingClientRect();
         const vv = window.visualViewport;
-        const vh = (vv && vv.height) ? vv.height : (window.innerHeight || document.documentElement.clientHeight);
         const margin = 12;
-        const spaceBelow = vh - rect.bottom - margin;
-        const maxH = Math.max(140, Math.min(spaceBelow, vh * 0.85));
-        list.style.maxHeight = `${Math.floor(maxH)}px`;
+        let spaceBelow;
+        let vhCap;
+        if (vv) {
+            const visBottom = vv.offsetTop + vv.height - margin;
+            spaceBelow = visBottom - rect.bottom;
+            vhCap = vv.height;
+        } else {
+            const vh = window.innerHeight || document.documentElement.clientHeight;
+            spaceBelow = vh - rect.bottom - margin;
+            vhCap = vh;
+        }
+
+        const maxH = Math.max(140, Math.min(spaceBelow, vhCap * 0.92));
+        const floorMax = Math.floor(maxH);
+        list.style.maxHeight = `${floorMax}px`;
+
+        requestAnimationFrame(() => {
+            if (!list.classList.contains('open')) return;
+            const natural = list.scrollHeight;
+            if (natural > 0 && natural < floorMax - 1) {
+                list.style.maxHeight = `${natural}px`;
+            }
+        });
     }
 
     _closeCanopyPicker() {
@@ -1512,7 +1578,9 @@ class SkydivingLogbook {
             list.setAttribute('aria-hidden', 'true');
             list.style.maxHeight = '';
         }
-        if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        if (toggle) {
+            toggle.setAttribute('aria-expanded', 'false');
+        }
     }
 
     _highlightCanopyPickerSelection() {
@@ -1567,7 +1635,7 @@ class SkydivingLogbook {
         this.syncCanopyPickerDisplay();
         this._highlightCanopyPickerSelection();
 
-        if (wasOpen) this._applyCanopyPickerMaxHeight();
+        if (wasOpen) this._layoutCanopyPickerList();
     }
 
     getActiveLineset(canopyId) {
