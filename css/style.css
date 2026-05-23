@@ -804,13 +804,31 @@ textarea {
 .month-group-label {
     font-weight: 600;
     color: #333;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.month-group-location {
     flex: 1;
+    min-width: 0;
+    font-size: 0.9rem;
+    color: #666;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.month-group-location-empty {
+    font-style: italic;
+    color: #888;
 }
 
 .month-group-count {
     font-size: 0.85rem;
     color: #666;
     white-space: nowrap;
+    flex-shrink: 0;
+    margin-left: auto;
 }
 
 .month-group-body {

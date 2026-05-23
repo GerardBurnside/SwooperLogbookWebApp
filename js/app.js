@@ -650,7 +650,7 @@ class SkydivingLogbook {
             html += this.renderDayLocationGroups(recentJumps, { expandFirst: true });
         }
 
-        // Render initial page of older jumps grouped by month
+        // Render initial page of older jumps grouped by month + location
         if (initialOlder.length > 0) {
             html += this._renderOlderMonthGroups(initialOlder);
         }
@@ -666,29 +666,58 @@ class SkydivingLogbook {
         this._updateJumpsYearSummary();
     }
 
-    /** Render a batch of older jumps as collapsed month groups. */
+    /** Render a batch of older jumps as collapsed month + location groups. */
     _renderOlderMonthGroups(jumps) {
-        const monthGroups = new Map();
+        const pairKey = (monthKey, location) => `${monthKey}\x00${location.toLowerCase()}`;
+        const monthLocationGroups = new Map();
         jumps.forEach(jump => {
             const d = new Date(jump.date);
-            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-            if (!monthGroups.has(key)) {
-                monthGroups.set(key, { label: d.toLocaleDateString(undefined, { year: 'numeric', month: 'long' }), jumps: [] });
+            const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+            const location = (jump.location || '').trim();
+            const pk = pairKey(monthKey, location);
+            if (!monthLocationGroups.has(pk)) {
+                monthLocationGroups.set(pk, {
+                    monthKey,
+                    monthLabel: d.toLocaleDateString(undefined, { year: 'numeric', month: 'long' }),
+                    location,
+                    jumps: []
+                });
             }
-            monthGroups.get(key).jumps.push(jump);
+            monthLocationGroups.get(pk).jumps.push(jump);
         });
 
+        const entries = [...monthLocationGroups.values()].sort((a, b) => {
+            if (a.monthKey !== b.monthKey) return b.monthKey.localeCompare(a.monthKey);
+            const la = (a.location || '\uffff').toLowerCase();
+            const lb = (b.location || '\uffff').toLowerCase();
+            return la.localeCompare(lb);
+        });
+
+        const usedDomIds = new Set();
         let html = '';
-        for (const [key, group] of monthGroups) {
+        for (const group of entries) {
             const jumpCount = group.jumps.length;
+            const locSlug = (group.location || 'noloc').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_|_$/g, '') || 'noloc';
+            let domId = `month_${group.monthKey}_${locSlug}`;
+            let n = 1;
+            while (usedDomIds.has(domId)) {
+                domId = `month_${group.monthKey}_${locSlug}_${n++}`;
+            }
+            usedDomIds.add(domId);
+
+            const locationHtml = group.location
+                ? `<span class="month-group-location">📍 ${this.escapeHtml(group.location)}</span>`
+                : '<span class="month-group-location month-group-location-empty">No location</span>';
+
             html += `
-                <div class="month-group" data-month="${key}">
-                    <div class="month-group-header" onclick="logbook.toggleMonthGroup('${key}')">
-                        <span class="month-group-arrow" id="arrow-${key}">&#9654;</span>
-                        <span class="month-group-label">${group.label}</span>
+                <div class="month-group" data-month="${group.monthKey}" data-location="${this.escapeHtml(group.location)}">
+                    <div class="month-group-header" onclick="logbook.toggleMonthGroup('${domId}')">
+                        <span class="month-group-arrow" id="arrow-${domId}">&#9654;</span>
+                        <span class="month-group-label">${group.monthLabel}</span>
+                        ${locationHtml}
                         <span class="month-group-count">${jumpCount} jump${jumpCount !== 1 ? 's' : ''}</span>
                     </div>
-                    <div class="month-group-body" id="month-${key}" style="display:none;">
+                    <div class="month-group-body" id="month-${domId}" style="display:none;">
                         ${this.renderDayLocationGroups(group.jumps)}
                     </div>
                 </div>
@@ -730,7 +759,7 @@ class SkydivingLogbook {
         const btn = document.getElementById('loadMoreJumpsBtn');
         if (btn) btn.remove();
 
-        // Append new month groups
+        // Append new month + location groups
         const jumpsList = document.getElementById('jumpsList');
         const fragment = document.createElement('div');
         fragment.innerHTML = this._renderOlderMonthGroups(nextBatch);
@@ -748,9 +777,9 @@ class SkydivingLogbook {
         }
     }
 
-    toggleMonthGroup(key) {
-        const body = document.getElementById('month-' + key);
-        const arrow = document.getElementById('arrow-' + key);
+    toggleMonthGroup(domId) {
+        const body = document.getElementById('month-' + domId);
+        const arrow = document.getElementById('arrow-' + domId);
         if (!body) return;
         const open = body.style.display !== 'none';
         body.style.display = open ? 'none' : 'block';
