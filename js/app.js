@@ -670,7 +670,10 @@ class SkydivingLogbook {
     _renderOlderMonthGroups(jumps) {
         const pairKey = (monthKey, location) => `${monthKey}\x00${location.toLowerCase()}`;
         const monthLocationGroups = new Map();
-        jumps.forEach(jump => {
+        // `jumps` is sorted by jumpNumber descending; first encounter of a month+location
+        // is that group's newest jump — use its index so within a month, latest-logged
+        // location appears first (not alphabetical).
+        jumps.forEach((jump, idx) => {
             const d = new Date(jump.date);
             const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
             const location = (jump.location || '').trim();
@@ -680,6 +683,7 @@ class SkydivingLogbook {
                     monthKey,
                     monthLabel: d.toLocaleDateString(undefined, { year: 'numeric', month: 'long' }),
                     location,
+                    newestJumpListIndex: idx,
                     jumps: []
                 });
             }
@@ -688,9 +692,10 @@ class SkydivingLogbook {
 
         const entries = [...monthLocationGroups.values()].sort((a, b) => {
             if (a.monthKey !== b.monthKey) return b.monthKey.localeCompare(a.monthKey);
-            const la = (a.location || '\uffff').toLowerCase();
-            const lb = (b.location || '\uffff').toLowerCase();
-            return la.localeCompare(lb);
+            if (a.newestJumpListIndex !== b.newestJumpListIndex) {
+                return a.newestJumpListIndex - b.newestJumpListIndex;
+            }
+            return (a.location || '').localeCompare(b.location || '', undefined, { sensitivity: 'base' });
         });
 
         const usedDomIds = new Set();
