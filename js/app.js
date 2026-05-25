@@ -13,7 +13,8 @@ class SkydivingLogbook {
             standardRedThreshold: 160,
             standardOrangeThreshold: 140,
             hybridRedThreshold: 80,
-            hybridOrangeThreshold: 60
+            hybridOrangeThreshold: 60,
+            autoDetectDropZone: true
         };
         // Backfill for existing saved settings that predate these fields
         if (this.settings.recentJumpsDays === undefined) {
@@ -31,7 +32,10 @@ class SkydivingLogbook {
         if (this.settings.hybridOrangeThreshold === undefined) {
             this.settings.hybridOrangeThreshold = 60;
         }
-        
+        if (this.settings.autoDetectDropZone === undefined) {
+            this.settings.autoDetectDropZone = true;
+        }
+
         this.currentView = 'jumps'; // 'jumps', 'equipment', 'stats'
         this.equipmentSubView = 'canopies'; // 'canopies', 'harnesses', 'locations'
         this.showArchivedStats = false;
@@ -109,6 +113,7 @@ class SkydivingLogbook {
         this.updateEquipmentOptions();
         this.setupLocationAutocomplete();
         this.preFillFormWithLastJump();
+        this.applyAutoDetectDropZoneUi(true);
         this.showView('jumps');
         
         // Kick off background geocoding for any location missing coordinates
@@ -182,6 +187,7 @@ class SkydivingLogbook {
             form.reset();
             this.setCurrentDate();
             this.preFillFormWithLastJump();
+            this.applyAutoDetectDropZoneUi(true);
             if (multiplier > 1) {
                 this.showMessage(`${multiplier} jumps logged successfully!`, 'success');
                 // Sync all multiplier jumps at once
@@ -297,6 +303,8 @@ class SkydivingLogbook {
         const autoDetectChk = document.getElementById('autoDetectDZForm');
         if (autoDetectChk) {
             autoDetectChk.addEventListener('change', () => {
+                this.settings.autoDetectDropZone = autoDetectChk.checked;
+                localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
                 if (autoDetectChk.checked) this.detectNearestLocation(true);
             });
         }
@@ -480,6 +488,21 @@ class SkydivingLogbook {
             }
         }
         this.syncCanopyPickerDisplay();
+    }
+
+    /**
+     * Restore the "Auto" drop zone checkbox from saved settings.
+     * `form.reset()` clears the checkbox unless the default HTML has `checked`,
+     * so call this after any jump-form reset / pre-fill.
+     * @param {boolean} runDetect – when true and Auto is on, run GPS nearest-DZ (same as checking the box).
+     */
+    applyAutoDetectDropZoneUi(runDetect = false) {
+        const chk = document.getElementById('autoDetectDZForm');
+        if (!chk) return;
+        chk.checked = !!this.settings.autoDetectDropZone;
+        if (runDetect && chk.checked) {
+            this.detectNearestLocation(true);
+        }
     }
 
     updateNextJumpNumber() { /* field removed — kept as no-op for safety */ }
@@ -3330,6 +3353,7 @@ class SkydivingLogbook {
             this.settings = { ...this.settings, ...payload.settings };
         }
         if (this.settings.recentJumpsDays === undefined) this.settings.recentJumpsDays = 16;
+        if (this.settings.autoDetectDropZone === undefined) this.settings.autoDetectDropZone = true;
 
         this.canopies.forEach(canopy => {
             if (!Array.isArray(canopy.linesets)) canopy.linesets = [];
@@ -3348,6 +3372,7 @@ class SkydivingLogbook {
         this.updateStats();
         this.renderEquipmentView();
         this.renderStats();
+        this.applyAutoDetectDropZoneUi(false);
         this.showMessage('Data merged successfully!', 'success');
     }
 
@@ -3362,6 +3387,7 @@ class SkydivingLogbook {
             this.settings = { ...this.settings, ...payload.settings };
         }
         if (this.settings.recentJumpsDays === undefined) this.settings.recentJumpsDays = 16;
+        if (this.settings.autoDetectDropZone === undefined) this.settings.autoDetectDropZone = true;
 
         this.canopies.forEach(canopy => {
             if (!Array.isArray(canopy.linesets)) canopy.linesets = [];
@@ -3380,6 +3406,7 @@ class SkydivingLogbook {
         this.updateStats();
         this.renderEquipmentView();
         this.renderStats();
+        this.applyAutoDetectDropZoneUi(false);
         this.showMessage('Data imported successfully! (Replace all)', 'success');
     }
 
