@@ -650,6 +650,133 @@ textarea {
     line-height: 1.3;
 }
 
+.jumps-year-summary--clickable {
+    color: #1976d2;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.jumps-year-summary--clickable:hover {
+    color: #0d47a1;
+}
+
+.jumps-year-summary--clickable:focus {
+    outline: 2px solid #1976d2;
+    outline-offset: 2px;
+}
+
+/* Year statistics modal */
+.year-stats-modal-content {
+    max-width: 720px;
+    margin: 3% auto;
+}
+
+.year-stats-total {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #333;
+    margin: 0.25rem 0 1rem;
+}
+
+.year-stats-pies {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    align-items: start;
+}
+
+@media (max-width: 640px) {
+    .year-stats-pies {
+        grid-template-columns: 1fr;
+    }
+}
+
+.year-stats-pie-card h3 {
+    font-size: 1rem;
+    margin: 0 0 0.75rem;
+    color: #444;
+}
+
+.year-stats-pie-root {
+    min-height: 4rem;
+}
+
+.year-stats-pie-visual {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 0.75rem;
+}
+
+.year-stats-svg {
+    width: 180px;
+    height: 180px;
+    max-width: 100%;
+}
+
+.year-stats-pie-empty {
+    margin: 0.5rem 0;
+    font-size: 0.9rem;
+}
+
+.year-stats-legend {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 0.85rem;
+}
+
+.year-stats-legend li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.35rem;
+    line-height: 1.35;
+}
+
+.year-stats-legend .year-stats-swatch {
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.year-stats-legend .year-stats-legend-label {
+    flex: 1;
+    min-width: 0;
+    word-break: break-word;
+}
+
+.year-stats-legend .year-stats-legend-count {
+    font-weight: 700;
+    color: #222;
+    flex-shrink: 0;
+}
+
+.year-stats-prev-years {
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e9ecef;
+}
+
+.year-stats-prev-heading {
+    font-size: 0.95rem;
+    margin: 0 0 0.65rem;
+    color: #555;
+}
+
+.year-stats-year-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.year-stats-year-btn.is-active {
+    box-shadow: inset 0 0 0 2px #1976d2;
+    font-weight: 600;
+}
+
 /* ── Day + Location groups ── */
 .day-location-group {
     margin-bottom: 0.5rem;

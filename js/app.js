@@ -397,7 +397,33 @@ class SkydivingLogbook {
             if (e.target === searchNotesModal) {
                 this.closeSearchNotesModal();
             }
+            const yearStatsModal = document.getElementById('yearStatsModal');
+            if (e.target === yearStatsModal) {
+                this.closeYearStatisticsModal();
+            }
         });
+
+        document.getElementById('yearStatsClose')?.addEventListener('click', () => {
+            this.closeYearStatisticsModal();
+        });
+
+        const jumpsYearSummary = document.getElementById('jumpsYearSummary');
+        if (jumpsYearSummary) {
+            const openSummaryStats = () => {
+                if (!jumpsYearSummary.classList.contains('jumps-year-summary--clickable')) return;
+                const raw = jumpsYearSummary.getAttribute('data-stats-year');
+                const yr = raw != null ? parseInt(raw, 10) : NaN;
+                if (!Number.isFinite(yr)) return;
+                this.openYearStatisticsModal(yr);
+            };
+            jumpsYearSummary.addEventListener('click', openSummaryStats);
+            jumpsYearSummary.addEventListener('keydown', (e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                if (!jumpsYearSummary.classList.contains('jumps-year-summary--clickable')) return;
+                e.preventDefault();
+                openSummaryStats();
+            });
+        }
 
         this.setupCanopyPicker();
     }
@@ -568,6 +594,11 @@ class SkydivingLogbook {
         if (this.jumps.length === 0) {
             el.textContent = '';
             el.hidden = true;
+            el.classList.remove('jumps-year-summary--clickable');
+            el.removeAttribute('data-stats-year');
+            el.removeAttribute('role');
+            el.removeAttribute('tabindex');
+            el.removeAttribute('aria-label');
             return;
         }
         const y = new Date().getFullYear();
@@ -581,12 +612,183 @@ class SkydivingLogbook {
         if (thisYear > 0) {
             el.textContent = `Number of jumps this year: ${thisYear}`;
             el.hidden = false;
+            el.classList.add('jumps-year-summary--clickable');
+            el.setAttribute('data-stats-year', String(y));
+            el.setAttribute('role', 'button');
+            el.setAttribute('tabindex', '0');
+            el.setAttribute('aria-label', `Open jump statistics for ${y} (${thisYear} jumps)`);
         } else if (lastYear > 0) {
+            const prevY = y - 1;
             el.textContent = `Number of jumps last year: ${lastYear}`;
             el.hidden = false;
+            el.classList.add('jumps-year-summary--clickable');
+            el.setAttribute('data-stats-year', String(prevY));
+            el.setAttribute('role', 'button');
+            el.setAttribute('tabindex', '0');
+            el.setAttribute('aria-label', `Open jump statistics for ${prevY} (${lastYear} jumps)`);
         } else {
             el.textContent = '';
             el.hidden = true;
+            el.classList.remove('jumps-year-summary--clickable');
+            el.removeAttribute('data-stats-year');
+            el.removeAttribute('role');
+            el.removeAttribute('tabindex');
+            el.removeAttribute('aria-label');
+        }
+    }
+
+    /** Calendar years strictly before the current year that have at least one jump. Newest first. */
+    _getPreviousYearsWithJumps() {
+        const cy = new Date().getFullYear();
+        const years = new Set();
+        for (const jump of this.jumps) {
+            const jy = this._jumpCalendarYear(jump);
+            if (jy < cy) years.add(jy);
+        }
+        return [...years].sort((a, b) => b - a);
+    }
+
+    _jumpsInCalendarYear(year) {
+        return this.jumps.filter(j => this._jumpCalendarYear(j) === year);
+    }
+
+    _aggregateJumpsByLocationForYear(jumps) {
+        const map = new Map();
+        for (const j of jumps) {
+            const raw = (j.location != null ? String(j.location) : '').trim();
+            const key = raw || 'No location';
+            map.set(key, (map.get(key) || 0) + 1);
+        }
+        return [...map.entries()]
+            .map(([label, count]) => ({ label, count }))
+            .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+    }
+
+    /** Count jumps per canopy (equipment id), merging all linesets for the same canopy. */
+    _aggregateJumpsByCanopyForYear(jumps) {
+        const map = new Map();
+        for (const j of jumps) {
+            const id = j.equipment || '';
+            map.set(id, (map.get(id) || 0) + 1);
+        }
+        const rows = [...map.entries()].map(([equipmentId, count]) => {
+            const canopy = this.canopies.find(c => c.id === equipmentId);
+            const label = canopy ? canopy.name : 'Unknown canopy';
+            return { label, count, equipmentId };
+        });
+        rows.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+        return rows;
+    }
+
+    _yearStatsPieColors() {
+        return ['#1976D2', '#388E3C', '#F57C00', '#7B1FA2', '#C2185B', '#0097A7', '#5D4037', '#455A64', '#AFB42B', '#E91E63', '#3F51B5', '#689F38'];
+    }
+
+    _piePolar(cx, cy, r, rad) {
+        return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
+    }
+
+    /**
+     * @param {{ label: string, count: number }[]} entries
+     * @returns {string} HTML (pie SVG + legend with counts)
+     */
+    _renderPieChartBlock(entries) {
+        const filtered = (entries || []).filter(e => e.count > 0);
+        const total = filtered.reduce((s, e) => s + e.count, 0);
+        if (total === 0) {
+            return '<p class="no-items year-stats-pie-empty">No data for this chart.</p>';
+        }
+        const colors = this._yearStatsPieColors();
+        const cx = 100;
+        const cy = 100;
+        const r = 90;
+        let svgInner;
+        if (filtered.length === 1) {
+            const fill = colors[0];
+            svgInner = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="#fff" stroke-width="2"/>`;
+        } else {
+            let angle = -Math.PI / 2;
+            const paths = [];
+            filtered.forEach((e, i) => {
+                const sweep = (e.count / total) * Math.PI * 2;
+                const a0 = angle;
+                const a1 = angle + sweep;
+                const [sx, sy] = this._piePolar(cx, cy, r, a0);
+                const [ex, ey] = this._piePolar(cx, cy, r, a1);
+                const largeArc = sweep > Math.PI ? 1 : 0;
+                const fill = colors[i % colors.length];
+                paths.push(
+                    `<path d="M ${cx} ${cy} L ${sx.toFixed(3)} ${sy.toFixed(3)} A ${r} ${r} 0 ${largeArc} 1 ${ex.toFixed(3)} ${ey.toFixed(3)} Z" fill="${fill}" stroke="#fff" stroke-width="2"/>`
+                );
+                angle = a1;
+            });
+            svgInner = paths.join('');
+        }
+        const legendItems = filtered.map((e, i) => {
+            const c = colors[i % colors.length];
+            return `<li>
+                <span class="year-stats-swatch" style="background:${c}"></span>
+                <span class="year-stats-legend-label">${this.escapeHtml(e.label)}</span>
+                <span class="year-stats-legend-count">${e.count}</span>
+            </li>`;
+        }).join('');
+        return `
+            <div class="year-stats-pie-visual">
+                <svg viewBox="0 0 200 200" class="year-stats-svg" aria-hidden="true">${svgInner}</svg>
+            </div>
+            <ul class="year-stats-legend">${legendItems}</ul>
+        `;
+    }
+
+    openYearStatisticsModal(year) {
+        const modal = document.getElementById('yearStatsModal');
+        if (!modal) return;
+        this._renderYearStatisticsModalContent(year);
+        modal.style.display = 'block';
+    }
+
+    closeYearStatisticsModal() {
+        const modal = document.getElementById('yearStatsModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    _renderYearStatisticsModalContent(year) {
+        const heading = document.getElementById('yearStatsHeading');
+        const totalLine = document.getElementById('yearStatsTotalLine');
+        const locRoot = document.getElementById('yearStatsLocationPie');
+        const canRoot = document.getElementById('yearStatsCanopyPie');
+        const prevWrap = document.getElementById('yearStatsPrevYearsWrap');
+        const prevBar = document.getElementById('yearStatsPrevYearsBar');
+        if (!heading || !totalLine || !locRoot || !canRoot || !prevWrap || !prevBar) return;
+
+        const jumps = this._jumpsInCalendarYear(year);
+        const total = jumps.length;
+        heading.textContent = `Jump statistics — ${year}`;
+        totalLine.textContent = total === 1 ? '1 jump' : `${total} jumps`;
+
+        const byLoc = this._aggregateJumpsByLocationForYear(jumps);
+        const byCan = this._aggregateJumpsByCanopyForYear(jumps);
+        locRoot.innerHTML = this._renderPieChartBlock(byLoc);
+        canRoot.innerHTML = this._renderPieChartBlock(byCan.map(({ label, count }) => ({ label, count })));
+
+        const prevYears = this._getPreviousYearsWithJumps();
+        const cy = new Date().getFullYear();
+        const yearsForNav = [];
+        if (this._jumpsInCalendarYear(cy).length > 0) yearsForNav.push(cy);
+        for (const py of prevYears) {
+            if (!yearsForNav.includes(py)) yearsForNav.push(py);
+        }
+        yearsForNav.sort((a, b) => b - a);
+
+        if (yearsForNav.length <= 1) {
+            prevWrap.hidden = true;
+            prevBar.innerHTML = '';
+        } else {
+            prevWrap.hidden = false;
+            prevBar.innerHTML = yearsForNav.map(y => {
+                const active = y === year ? ' is-active' : '';
+                return `<button type="button" class="btn-secondary year-stats-year-btn${active}" onclick="logbook.openYearStatisticsModal(${y})">${y}</button>`;
+            }).join('');
         }
     }
 

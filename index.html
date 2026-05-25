@@ -334,6 +334,29 @@
             </div>
         </div>
 
+        <!-- Year jump statistics (pie charts by location & canopy) -->
+        <div id="yearStatsModal" class="modal">
+            <div class="modal-content year-stats-modal-content">
+                <span id="yearStatsClose" class="close" title="Close">&times;</span>
+                <h2 id="yearStatsHeading">Jump statistics</h2>
+                <p id="yearStatsTotalLine" class="year-stats-total"></p>
+                <div class="year-stats-pies">
+                    <div class="year-stats-pie-card">
+                        <h3>Jumps per location</h3>
+                        <div id="yearStatsLocationPie" class="year-stats-pie-root"></div>
+                    </div>
+                    <div class="year-stats-pie-card">
+                        <h3>Jumps per canopy</h3>
+                        <div id="yearStatsCanopyPie" class="year-stats-pie-root"></div>
+                    </div>
+                </div>
+                <div id="yearStatsPrevYearsWrap" class="year-stats-prev-years" hidden>
+                    <h4 class="year-stats-prev-heading">Browse by year</h4>
+                    <div id="yearStatsPrevYearsBar" class="year-stats-year-buttons"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Import choice modal -->
         <div id="importChoiceModal" class="modal">
             <div class="modal-content">
