@@ -881,6 +881,15 @@ button.jump-number.jump-number-btn:focus-visible {
     margin-top: 0.5rem;
 }
 
+/* Let location dropdown extend past the modal panel (parent .modal-content uses overflow:auto) */
+.edit-jump-modal-content {
+    overflow: visible;
+}
+
+.edit-jump-modal-content .autocomplete-dropdown.open {
+    z-index: 20;
+}
+
 .edit-jump-modal-content select#editJumpEquipment {
     width: 100%;
     max-width: 100%;

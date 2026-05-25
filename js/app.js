@@ -1261,6 +1261,8 @@ class SkydivingLogbook {
 
     closeEditJumpModal() {
         const modal = document.getElementById('editJumpModal');
+        const editDd = document.getElementById('editJumpLocationDropdown');
+        if (editDd) editDd.classList.remove('open');
         if (modal) modal.style.display = 'none';
         this.activeEditJumpId = null;
     }
@@ -2574,9 +2576,26 @@ class SkydivingLogbook {
     }
 
     setupLocationAutocomplete() {
-        const input = document.getElementById('location');
-        const dropdown = document.getElementById('locationDropdown');
-        if (!input || !dropdown) return;
+        const pairs = [
+            { input: document.getElementById('location'), dropdown: document.getElementById('locationDropdown') },
+            { input: document.getElementById('editJumpLocation'), dropdown: document.getElementById('editJumpLocationDropdown') }
+        ];
+        pairs.forEach(({ input, dropdown }) => {
+            if (input && dropdown) this._bindOneLocationAutocomplete(input, dropdown);
+        });
+    }
+
+    /**
+     * Location field + dropdown: same behavior for main jump form and edit-jump modal.
+     */
+    _bindOneLocationAutocomplete(input, dropdown) {
+        if (input.dataset.locationAutocompleteBound === '1') return;
+        input.dataset.locationAutocompleteBound = '1';
+
+        const wrap = input.closest('.location-autocomplete');
+        if (!wrap) {
+            console.warn('[logbook] location input missing .location-autocomplete wrapper', input.id);
+        }
 
         let activeIndex = -1;
 
@@ -2644,11 +2663,9 @@ class SkydivingLogbook {
             if (option) selectOption(option.dataset.value);
         });
 
-        // Close dropdown when clicking outside
         document.addEventListener('click', (e) => {
-            if (!e.target.closest('.location-autocomplete')) {
-                dropdown.classList.remove('open');
-            }
+            if (wrap && wrap.contains(e.target)) return;
+            dropdown.classList.remove('open');
         });
     }
 

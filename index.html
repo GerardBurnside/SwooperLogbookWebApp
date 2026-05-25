@@ -328,9 +328,10 @@
                     <label for="editJumpDate">Date</label>
                     <input type="date" id="editJumpDate" required>
                 </div>
-                <div class="form-group">
+                <div class="form-group location-autocomplete">
                     <label for="editJumpLocation">Drop zone / location</label>
-                    <input type="text" id="editJumpLocation" placeholder="e.g., Sky High DZ, California" autocomplete="off">
+                    <input type="text" id="editJumpLocation" placeholder="e.g., Sky High DZ, California" autocomplete="on">
+                    <div id="editJumpLocationDropdown" class="autocomplete-dropdown"></div>
                 </div>
                 <div class="form-group">
                     <label for="editJumpEquipment">Canopy &amp; lineset</label>
