@@ -633,6 +633,32 @@ textarea {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+}
+
+.jump-history-header-right {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.recent-jumps-group-wrap {
+    font-size: 0.875rem;
+}
+
+.recent-jumps-by-month-label {
+    cursor: pointer;
+    user-select: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: #333;
+}
+
+.recent-jumps-by-month-label input {
+    margin: 0;
 }
 .recent-jumps-total {
     font-size: 0.875rem;

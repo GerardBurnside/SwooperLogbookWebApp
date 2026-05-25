@@ -88,6 +88,7 @@ function createHeadlessLogbook() {
     logbook.settings = {
         startingJumpNumber: 1,
         recentJumpsDays: 3,
+        recentJumpsGroupByMonth: false,
         standardRedThreshold: 160,
         standardOrangeThreshold: 140,
         hybridRedThreshold: 80,

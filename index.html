@@ -93,7 +93,15 @@
                 <section class="jump-history">
                     <div class="jump-history-header">
                         <h2>Recent Jumps</h2>
-                        <span id="recentJumpsTotal" class="recent-jumps-total">Total: 0</span>
+                        <div class="jump-history-header-right">
+                            <span id="recentJumpsGroupByMonthWrap" class="recent-jumps-group-wrap" hidden>
+                                <label class="recent-jumps-by-month-label" title="Show recent jumps in collapsible month blocks (same as older history)">
+                                    <input type="checkbox" id="recentJumpsGroupByMonthToggle">
+                                    By month
+                                </label>
+                            </span>
+                            <span id="recentJumpsTotal" class="recent-jumps-total">Total: 0</span>
+                        </div>
                     </div>
                     <div id="jumpsList" class="jumps-list">
                         <p class="no-jumps">No jumps logged yet. Add your first jump above!</p>
@@ -231,6 +239,13 @@
                     <label for="recentJumpsDays">Recent jumps cutoff (days)</label>
                     <input type="number" id="recentJumpsDays" min="0" placeholder="e.g. 15">
                     <small style="color:#888; font-size:12px;">Jumps within this many days are shown individually/per day; older jumps are grouped by month. Set to 0 to always group.</small>
+                </div>
+                <div class="form-group">
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:normal;">
+                        <input type="checkbox" id="recentJumpsGroupByMonthSettings" style="width:auto;">
+                        Group recent jumps by month (collapsible blocks, same as older history)
+                    </label>
+                    <small style="color:#888; font-size:12px;">Only applies when the recent cutoff is greater than 0. You can also toggle this next to the jump list.</small>
                 </div>
 
                 <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">

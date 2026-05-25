@@ -10,6 +10,7 @@ class SkydivingLogbook {
         this.settings = JSON.parse(localStorage.getItem('skydiving-settings')) || {
             startingJumpNumber: 1,
             recentJumpsDays: 7,
+            recentJumpsGroupByMonth: false,
             standardRedThreshold: 160,
             standardOrangeThreshold: 140,
             hybridRedThreshold: 80,
@@ -20,6 +21,9 @@ class SkydivingLogbook {
         // Backfill for existing saved settings that predate these fields
         if (this.settings.recentJumpsDays === undefined) {
             this.settings.recentJumpsDays = 7;
+        }
+        if (this.settings.recentJumpsGroupByMonth === undefined) {
+            this.settings.recentJumpsGroupByMonth = false;
         }
         if (this.settings.statsPastMonthsWindow === undefined) {
             this.settings.statsPastMonthsWindow = 3;
@@ -310,6 +314,17 @@ class SkydivingLogbook {
                 this.settings.autoDetectDropZone = autoDetectChk.checked;
                 localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
                 if (autoDetectChk.checked) this.detectNearestLocation(true);
+            });
+        }
+
+        const recentByMonthTog = document.getElementById('recentJumpsGroupByMonthToggle');
+        if (recentByMonthTog) {
+            recentByMonthTog.addEventListener('change', () => {
+                this.settings.recentJumpsGroupByMonth = recentByMonthTog.checked;
+                const modalChk = document.getElementById('recentJumpsGroupByMonthSettings');
+                if (modalChk) modalChk.checked = recentByMonthTog.checked;
+                localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
+                this.renderJumpsList();
             });
         }
 
@@ -909,6 +924,7 @@ class SkydivingLogbook {
             updateRecentTotal(0);
             jumpsList.innerHTML = '<p class="no-jumps">No jumps logged yet. Add your first jump above!</p>';
             this._updateJumpsYearSummary();
+            this._updateRecentJumpsGroupByMonthUi();
             return;
         }
 
@@ -944,9 +960,18 @@ class SkydivingLogbook {
 
         let html = '';
 
-        // Render recent jumps grouped by day + location (latest day expanded)
+        // Recent jumps: by day (default) or same month+location blocks as older history
         if (recentJumps.length > 0) {
-            html += this.renderDayLocationGroups(recentJumps, { expandFirst: true });
+            const byMonth =
+                !allJumpsByMonth && this.settings.recentJumpsGroupByMonth;
+            if (byMonth) {
+                html += this._renderOlderMonthGroups(recentJumps, {
+                    idPrefix: 'recent-',
+                    expandFirstGroup: true
+                });
+            } else {
+                html += this.renderDayLocationGroups(recentJumps, { expandFirst: true });
+            }
         }
 
         // Render initial page of older jumps grouped by month + location
@@ -963,10 +988,17 @@ class SkydivingLogbook {
         updateRecentTotal(recentJumps.length);
         jumpsList.innerHTML = html;
         this._updateJumpsYearSummary();
+        this._updateRecentJumpsGroupByMonthUi();
     }
 
-    /** Render a batch of older jumps as collapsed month + location groups. */
-    _renderOlderMonthGroups(jumps) {
+    /**
+     * @param {object} [opts]
+     * @param {string} [opts.idPrefix] — prepended to DOM ids so recent vs older blocks never collide
+     * @param {boolean} [opts.expandFirstGroup] — open the first month block (newest) by default
+     */
+    _renderOlderMonthGroups(jumps, opts = {}) {
+        const idPrefix = opts.idPrefix || '';
+        const expandFirstGroup = !!opts.expandFirstGroup;
         const pairKey = (monthKey, location) => `${monthKey}\x00${location.toLowerCase()}`;
         const monthLocationGroups = new Map();
         // `jumps` is sorted by jumpNumber descending; first encounter of a month+location
@@ -999,15 +1031,20 @@ class SkydivingLogbook {
 
         const usedDomIds = new Set();
         let html = '';
-        for (const group of entries) {
+        for (let i = 0; i < entries.length; i++) {
+            const group = entries[i];
             const jumpCount = group.jumps.length;
             const locSlug = (group.location || 'noloc').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_|_$/g, '') || 'noloc';
-            let domId = `month_${group.monthKey}_${locSlug}`;
+            let domId = `${idPrefix}month_${group.monthKey}_${locSlug}`;
             let n = 1;
             while (usedDomIds.has(domId)) {
-                domId = `month_${group.monthKey}_${locSlug}_${n++}`;
+                domId = `${idPrefix}month_${group.monthKey}_${locSlug}_${n++}`;
             }
             usedDomIds.add(domId);
+
+            const expanded = expandFirstGroup && i === 0;
+            const arrowChar = expanded ? '&#9660;' : '&#9654;';
+            const bodyDisplay = expanded ? 'block' : 'none';
 
             const locationHtml = group.location
                 ? `<span class="month-group-location">📍 ${this.escapeHtml(group.location)}</span>`
@@ -1016,12 +1053,12 @@ class SkydivingLogbook {
             html += `
                 <div class="month-group" data-month="${group.monthKey}" data-location="${this.escapeHtml(group.location)}">
                     <div class="month-group-header" onclick="logbook.toggleMonthGroup('${domId}')">
-                        <span class="month-group-arrow" id="arrow-${domId}">&#9654;</span>
+                        <span class="month-group-arrow" id="arrow-${domId}">${arrowChar}</span>
                         <span class="month-group-label">${group.monthLabel}</span>
                         ${locationHtml}
                         <span class="month-group-count">${jumpCount} jump${jumpCount !== 1 ? 's' : ''}</span>
                     </div>
-                    <div class="month-group-body" id="month-${domId}" style="display:none;">
+                    <div class="month-group-body" id="month-${domId}" style="display:${bodyDisplay};">
                         ${this.renderDayLocationGroups(group.jumps)}
                     </div>
                 </div>
@@ -1088,6 +1125,17 @@ class SkydivingLogbook {
         const open = body.style.display !== 'none';
         body.style.display = open ? 'none' : 'block';
         if (arrow) arrow.innerHTML = open ? '&#9654;' : '&#9660;';
+    }
+
+    _updateRecentJumpsGroupByMonthUi() {
+        const wrap = document.getElementById('recentJumpsGroupByMonthWrap');
+        const toggle = document.getElementById('recentJumpsGroupByMonthToggle');
+        const settingsChk = document.getElementById('recentJumpsGroupByMonthSettings');
+        const hasRecentSection = (this.settings.recentJumpsDays || 0) > 0;
+        if (wrap) wrap.hidden = !hasRecentSection;
+        const val = !!this.settings.recentJumpsGroupByMonth;
+        if (toggle) toggle.checked = val;
+        if (settingsChk) settingsChk.checked = val;
     }
 
     renderDayLocationGroups(jumps, { expandFirst = false } = {}) {
@@ -1540,6 +1588,8 @@ class SkydivingLogbook {
         const showPrevious = prev != null && prev !== 1 && prev !== current;
         labelEl.textContent = showPrevious ? `Starting Jump Number (previous=${prev})` : 'Starting Jump Number';
         document.getElementById('recentJumpsDays').value = this.settings.recentJumpsDays ?? 3;
+        const recentGrp = document.getElementById('recentJumpsGroupByMonthSettings');
+        if (recentGrp) recentGrp.checked = !!this.settings.recentJumpsGroupByMonth;
         document.getElementById('standardRedThreshold').value = this.settings.standardRedThreshold ?? 160;
         document.getElementById('standardOrangeThreshold').value = this.settings.standardOrangeThreshold ?? 140;
         document.getElementById('hybridRedThreshold').value = this.settings.hybridRedThreshold ?? 80;
@@ -1746,6 +1796,10 @@ class SkydivingLogbook {
         // Always persist the value we're leaving, so we can show (previous=XX) when opening settings; display hides it when 1 or when equal to current
         this.settings.previousStartingJump = previousStartingJumpNumber;
         this.settings.recentJumpsDays = recentJumpsDays;
+        const recentGrpSettings = document.getElementById('recentJumpsGroupByMonthSettings');
+        if (recentGrpSettings) {
+            this.settings.recentJumpsGroupByMonth = recentGrpSettings.checked;
+        }
         this.settings.standardRedThreshold = standardRedThreshold;
         this.settings.standardOrangeThreshold = standardOrangeThreshold;
         this.settings.hybridRedThreshold = hybridRedThreshold;
@@ -3430,6 +3484,7 @@ class SkydivingLogbook {
             this.settings = { ...this.settings, ...payload.settings };
         }
         if (this.settings.recentJumpsDays === undefined) this.settings.recentJumpsDays = 16;
+        if (this.settings.recentJumpsGroupByMonth === undefined) this.settings.recentJumpsGroupByMonth = false;
         if (this.settings.autoDetectDropZone === undefined) this.settings.autoDetectDropZone = true;
 
         this.canopies.forEach(canopy => {
@@ -3464,6 +3519,7 @@ class SkydivingLogbook {
             this.settings = { ...this.settings, ...payload.settings };
         }
         if (this.settings.recentJumpsDays === undefined) this.settings.recentJumpsDays = 16;
+        if (this.settings.recentJumpsGroupByMonth === undefined) this.settings.recentJumpsGroupByMonth = false;
         if (this.settings.autoDetectDropZone === undefined) this.settings.autoDetectDropZone = true;
 
         this.canopies.forEach(canopy => {
