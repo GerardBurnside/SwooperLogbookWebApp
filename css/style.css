@@ -851,6 +851,41 @@ textarea {
     min-width: 2.5rem;
 }
 
+button.jump-number.jump-number-btn {
+    background: none;
+    border: none;
+    font: inherit;
+    color: inherit;
+    font-weight: bold;
+    cursor: pointer;
+    text-align: left;
+    padding: 0;
+    min-width: 2.5rem;
+}
+
+button.jump-number.jump-number-btn:hover {
+    text-decoration: underline;
+    color: #1976d2;
+}
+
+button.jump-number.jump-number-btn:focus-visible {
+    outline: 2px solid #2196f3;
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+.edit-jump-modal-content .edit-jump-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.edit-jump-modal-content select#editJumpEquipment {
+    width: 100%;
+    max-width: 100%;
+}
+
 .jump-canopy {
     flex: 1;
     font-size: 0.85rem;

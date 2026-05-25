@@ -36,6 +36,7 @@ class SkydivingLogbook {
         this.equipmentSubView = 'canopies'; // 'canopies', 'harnesses', 'locations'
         this.showArchivedStats = false;
         this.activeJumpNoteId = null;
+        this.activeEditJumpId = null;
         this._olderJumpsCache = []; // cached older jumps for lazy rendering
         this._renderedOlderCount = 0;
         
@@ -245,6 +246,19 @@ class SkydivingLogbook {
             jumpNoteSave.addEventListener('click', () => {
                 this.saveJumpNote();
             });
+        }
+
+        const editJumpClose = document.getElementById('editJumpClose');
+        if (editJumpClose) {
+            editJumpClose.addEventListener('click', () => this.closeEditJumpModal());
+        }
+        const editJumpCancel = document.getElementById('editJumpCancel');
+        if (editJumpCancel) {
+            editJumpCancel.addEventListener('click', () => this.closeEditJumpModal());
+        }
+        const editJumpSave = document.getElementById('editJumpSave');
+        if (editJumpSave) {
+            editJumpSave.addEventListener('click', () => this.saveEditedJump());
         }
 
         // Search Notes modal
@@ -1076,7 +1090,7 @@ class SkydivingLogbook {
 
         return `
             <div class="jump-row">
-                <span class="jump-number">#${jump.jumpNumber}</span>
+                <button type="button" class="jump-number jump-number-btn" onclick="logbook.openEditJumpModal('${encodedJumpId}')" title="Edit date, location, or canopy">#${jump.jumpNumber}</button>
                 <span class="jump-canopy">🪂 ${canopyNameHtml}</span>
                 ${hasNote ? `<button type="button" class="jump-note-preview" onclick="logbook.openJumpNotePopup('${encodedJumpId}', '${encodedFullNote}')" title="View or edit note">${this.escapeHtml(notePreview)}</button>` : ''}
                 <button class="delete-jump-btn" onclick="logbook.deleteJump('${jump.id}')" title="Delete jump">❌</button>
@@ -1127,6 +1141,173 @@ class SkydivingLogbook {
         this.renderJumpsList();
         this.closeJumpNotePopup();
         this.showMessage('Jump note saved', 'success');
+
+        if (navigator.onLine && window.SheetsAPI?.initialized) {
+            window.SheetsAPI.pushAllWithGuard();
+        }
+    }
+
+    _normalizeDateForInput(dateVal) {
+        if (dateVal == null || dateVal === '') return '';
+        const s = String(dateVal);
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+        const d = new Date(s);
+        if (isNaN(d.getTime())) return '';
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    }
+
+    /**
+     * Populate edit-jump canopy select. Option values are `canopyId:linesetNumber`
+     * (lineset is always last segment after the final ':').
+     */
+    fillEditJumpEquipmentSelect(canopyId, linesetNumber) {
+        const sel = document.getElementById('editJumpEquipment');
+        if (!sel) return;
+
+        sel.innerHTML = '';
+        const ph = document.createElement('option');
+        ph.value = '';
+        ph.textContent = 'Select canopy';
+        sel.appendChild(ph);
+
+        const wantLs = Number(linesetNumber) || 1;
+        let matchedValue = null;
+
+        const addOpt = (id, num, label) => {
+            const opt = document.createElement('option');
+            opt.value = `${id}:${num}`;
+            opt.textContent = label;
+            sel.appendChild(opt);
+            if (id === canopyId && Number(num) === wantLs) matchedValue = opt.value;
+        };
+
+        for (const canopy of this.canopies) {
+            if (canopy.archived) continue;
+            const lss = (canopy.linesets || []).filter(ls => !ls.archived).sort((a, b) => a.number - b.number);
+            for (const ls of lss) {
+                const hybridTag = ls.hybrid ? ' (Hybrid)' : '';
+                addOpt(canopy.id, ls.number, `${canopy.name} — Lineset #${ls.number}${hybridTag}`);
+            }
+        }
+
+        if (!matchedValue && canopyId) {
+            const c = this.canopies.find(x => x.id === canopyId);
+            const num = wantLs;
+            const labelBase = c ? c.name : 'Unknown canopy';
+            const extra = (!c || c.archived) ? ' (archived / inactive)' : '';
+            addOpt(canopyId, num, `${labelBase} — Lineset #${num}${extra}`);
+            matchedValue = `${canopyId}:${num}`;
+        }
+
+        if (sel.options.length === 1) {
+            ph.textContent = 'No canopies available';
+        }
+
+        sel.value = matchedValue != null && matchedValue !== '' ? matchedValue : '';
+    }
+
+    openEditJumpModal(encodedJumpId) {
+        const modal = document.getElementById('editJumpModal');
+        const dateInput = document.getElementById('editJumpDate');
+        const locInput = document.getElementById('editJumpLocation');
+        if (!modal || !dateInput || !locInput) return;
+
+        const id = decodeURIComponent(encodedJumpId || '');
+        const jump = this.jumps.find(j => j.id.toString() === id.toString());
+        if (!jump) {
+            this.showMessage('Jump not found', 'error');
+            return;
+        }
+
+        this.closeJumpNotePopup();
+        this.activeEditJumpId = id;
+
+        const label = document.getElementById('editJumpNumberLabel');
+        if (label) label.textContent = `#${jump.jumpNumber}`;
+
+        dateInput.value = this._normalizeDateForInput(jump.date);
+        locInput.value = jump.location || '';
+        this.fillEditJumpEquipmentSelect(jump.equipment, jump.linesetNumber);
+
+        modal.style.display = 'block';
+        dateInput.focus();
+    }
+
+    closeEditJumpModal() {
+        const modal = document.getElementById('editJumpModal');
+        if (modal) modal.style.display = 'none';
+        this.activeEditJumpId = null;
+    }
+
+    saveEditedJump() {
+        if (!this.activeEditJumpId) {
+            this.showMessage('Jump not found', 'error');
+            return;
+        }
+
+        const jump = this.jumps.find(j => j.id.toString() === this.activeEditJumpId.toString());
+        if (!jump) {
+            this.showMessage('Jump not found', 'error');
+            this.closeEditJumpModal();
+            return;
+        }
+
+        const dateInput = document.getElementById('editJumpDate');
+        const locInput = document.getElementById('editJumpLocation');
+        const eqSel = document.getElementById('editJumpEquipment');
+        if (!dateInput || !locInput || !eqSel) return;
+
+        const date = dateInput.value;
+        if (!date) {
+            this.showMessage('Please select a date', 'error');
+            return;
+        }
+
+        const eqVal = eqSel.value;
+        if (!eqVal) {
+            this.showMessage('Please select a canopy', 'error');
+            return;
+        }
+
+        const li = eqVal.lastIndexOf(':');
+        const equipment = li >= 0 ? eqVal.slice(0, li) : eqVal;
+        const linesetNumber = li >= 0 ? (parseInt(eqVal.slice(li + 1), 10) || 1) : 1;
+
+        const location = (locInput.value || '').trim();
+
+        jump.date = date;
+        jump.location = location;
+        jump.equipment = equipment;
+        jump.linesetNumber = linesetNumber;
+
+        if (location) {
+            const locationExists = this.locations.some(
+                loc => loc.name.toLowerCase() === location.toLowerCase()
+            );
+            if (!locationExists) {
+                const newId = 'loc_' + Date.now();
+                const newLoc = { id: newId, name: location, lat: null, lng: null };
+                this.locations.push(newLoc);
+                DB.putAll('locations', this.locations).catch(err => console.error('[DB] Failed to save locations:', err));
+                this.updateLocationDatalist();
+                this.geocodeLocation(newLoc);
+            }
+        }
+
+        this.renumberJumps();
+        this.initializeCanopyLinesetJumpCounts();
+        this.saveToLocalStorage();
+        this.updateStats();
+        this.renderJumpsList();
+        if (this.currentView === 'equipment') {
+            this.renderEquipmentView();
+        }
+
+        this.closeEditJumpModal();
+        this.showMessage('Jump updated', 'success');
 
         if (navigator.onLine && window.SheetsAPI?.initialized) {
             window.SheetsAPI.pushAllWithGuard();

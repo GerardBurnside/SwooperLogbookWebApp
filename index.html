@@ -319,6 +319,30 @@
             </div>
         </div>
 
+        <!-- Edit jump (date / location / canopy) -->
+        <div id="editJumpModal" class="modal">
+            <div class="modal-content edit-jump-modal-content">
+                <span id="editJumpClose" class="close">&times;</span>
+                <h2>Edit jump <span id="editJumpNumberLabel"></span></h2>
+                <div class="form-group">
+                    <label for="editJumpDate">Date</label>
+                    <input type="date" id="editJumpDate" required>
+                </div>
+                <div class="form-group">
+                    <label for="editJumpLocation">Drop zone / location</label>
+                    <input type="text" id="editJumpLocation" placeholder="e.g., Sky High DZ, California" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label for="editJumpEquipment">Canopy &amp; lineset</label>
+                    <select id="editJumpEquipment"></select>
+                </div>
+                <div class="jump-note-actions edit-jump-actions">
+                    <button type="button" id="editJumpSave" class="btn-primary">Save changes</button>
+                    <button type="button" id="editJumpCancel" class="btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Search Notes Modal -->
         <div id="searchNotesModal" class="modal">
             <div class="modal-content search-notes-modal-content">
