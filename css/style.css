@@ -666,6 +666,27 @@ textarea {
     outline-offset: 2px;
 }
 
+.jumps-past-months-row {
+    font-size: 0.875rem;
+    color: #868e96;
+    margin: 0.45rem 0 0;
+    line-height: 1.5;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.jumps-past-months-input {
+    width: 3.25rem;
+    padding: 0.15rem 0.35rem;
+    font-size: inherit;
+    line-height: 1.2;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    text-align: center;
+}
+
 /* Year statistics modal */
 .year-stats-modal-content {
     max-width: 720px;

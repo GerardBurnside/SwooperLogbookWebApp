@@ -14,11 +14,15 @@ class SkydivingLogbook {
             standardOrangeThreshold: 140,
             hybridRedThreshold: 80,
             hybridOrangeThreshold: 60,
-            autoDetectDropZone: true
+            autoDetectDropZone: true,
+            statsPastMonthsWindow: 3
         };
         // Backfill for existing saved settings that predate these fields
         if (this.settings.recentJumpsDays === undefined) {
             this.settings.recentJumpsDays = 7;
+        }
+        if (this.settings.statsPastMonthsWindow === undefined) {
+            this.settings.statsPastMonthsWindow = 3;
         }
         if (this.settings.standardRedThreshold === undefined) {
             this.settings.standardRedThreshold = 160;
@@ -447,6 +451,21 @@ class SkydivingLogbook {
             });
         }
 
+        const statsPastMonthsInput = document.getElementById('statsPastMonthsWindow');
+        if (statsPastMonthsInput) {
+            statsPastMonthsInput.value = String(this.settings.statsPastMonthsWindow ?? 3);
+            statsPastMonthsInput.addEventListener('input', () => this._updateJumpsPastMonthsSummary());
+            statsPastMonthsInput.addEventListener('change', () => {
+                let n = parseInt(statsPastMonthsInput.value, 10);
+                if (!Number.isFinite(n) || n < 1) n = this.settings.statsPastMonthsWindow ?? 3;
+                n = Math.min(240, Math.max(1, n));
+                statsPastMonthsInput.value = String(n);
+                this.settings.statsPastMonthsWindow = n;
+                localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
+                this._updateJumpsPastMonthsSummary();
+            });
+        }
+
         this.setupCanopyPicker();
     }
 
@@ -625,6 +644,45 @@ class SkydivingLogbook {
         return new Date(jump.date).getFullYear();
     }
 
+    /** Local midnight for the jump's calendar day (for range comparisons). */
+    _jumpDateAtLocalMidnight(jump) {
+        const s = jump.date;
+        if (typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s)) {
+            const y = parseInt(s.slice(0, 4), 10);
+            const m = parseInt(s.slice(5, 7), 10) - 1;
+            const d = parseInt(s.slice(8, 10), 10);
+            const dt = new Date(y, m, d);
+            return Number.isNaN(dt.getTime()) ? null : dt;
+        }
+        const t = new Date(jump.date);
+        if (Number.isNaN(t.getTime())) return null;
+        return new Date(t.getFullYear(), t.getMonth(), t.getDate());
+    }
+
+    _updateJumpsPastMonthsSummary() {
+        const row = document.getElementById('jumpsPastMonthsRow');
+        const countEl = document.getElementById('jumpsPastMonthsCount');
+        const input = document.getElementById('statsPastMonthsWindow');
+        if (!row || !countEl || !input) return;
+        if (this.jumps.length === 0) {
+            row.hidden = true;
+            return;
+        }
+        row.hidden = false;
+        let n = parseInt(input.value, 10);
+        if (!Number.isFinite(n) || n < 1) n = this.settings.statsPastMonthsWindow ?? 3;
+        n = Math.min(240, Math.max(1, n));
+        const cutoff = new Date();
+        cutoff.setHours(0, 0, 0, 0);
+        cutoff.setMonth(cutoff.getMonth() - n);
+        let count = 0;
+        for (const jump of this.jumps) {
+            const jd = this._jumpDateAtLocalMidnight(jump);
+            if (jd && jd >= cutoff) count++;
+        }
+        countEl.textContent = String(count);
+    }
+
     _updateJumpsYearSummary() {
         const el = document.getElementById('jumpsYearSummary');
         if (!el) return;
@@ -636,6 +694,7 @@ class SkydivingLogbook {
             el.removeAttribute('role');
             el.removeAttribute('tabindex');
             el.removeAttribute('aria-label');
+            this._updateJumpsPastMonthsSummary();
             return;
         }
         const y = new Date().getFullYear();
@@ -672,6 +731,7 @@ class SkydivingLogbook {
             el.removeAttribute('tabindex');
             el.removeAttribute('aria-label');
         }
+        this._updateJumpsPastMonthsSummary();
     }
 
     /** Calendar years strictly before the current year that have at least one jump. Newest first. */

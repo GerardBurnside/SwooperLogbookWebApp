@@ -99,6 +99,11 @@
                         <p class="no-jumps">No jumps logged yet. Add your first jump above!</p>
                     </div>
                     <p id="jumpsYearSummary" class="jumps-year-summary" hidden></p>
+                    <div id="jumpsPastMonthsRow" class="jumps-past-months-row" hidden>
+                        <span>Number of jumps in the past</span>
+                        <input type="number" id="statsPastMonthsWindow" class="jumps-past-months-input" min="1" max="240" value="3" inputmode="numeric" aria-label="Months for rolling jump count">
+                        <span>months: </span><strong id="jumpsPastMonthsCount">0</strong>
+                    </div>
                     <button type="button" id="searchJumpsBtn" class="btn-secondary search-jumps-btn">🔍 Search Notes</button>
                 </section>
             </div>
