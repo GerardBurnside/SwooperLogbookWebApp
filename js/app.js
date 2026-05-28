@@ -51,6 +51,9 @@ class SkydivingLogbook {
         this.activeEditJumpId = null;
         this._olderJumpsCache = []; // cached older jumps for lazy rendering
         this._renderedOlderCount = 0;
+        this._mergedJumpsCache = []; // recent + older when "by month" merges both
+        this._renderedMergedCount = 0;
+        this._useMergedListCache = false;
         
         this.init();
     }
@@ -951,36 +954,49 @@ class SkydivingLogbook {
             });
         }
 
-        // Cache older jumps for lazy "load more" rendering
-        this._olderJumpsCache = olderJumps;
+        const byMonth =
+            !allJumpsByMonth && this.settings.recentJumpsGroupByMonth;
+        const useMergedMonthList = byMonth && recentJumps.length > 0;
+
         const PAGE_SIZE = 100;
-        const endIndex = this._findMonthCompleteIndex(olderJumps, PAGE_SIZE);
-        const initialOlder = olderJumps.slice(0, endIndex);
-        this._renderedOlderCount = initialOlder.length;
-
         let html = '';
+        let remaining = 0;
 
-        // Recent jumps: by day (default) or same month+location blocks as older history
-        if (recentJumps.length > 0) {
-            const byMonth =
-                !allJumpsByMonth && this.settings.recentJumpsGroupByMonth;
-            if (byMonth) {
-                html += this._renderOlderMonthGroups(recentJumps, {
-                    idPrefix: 'recent-',
-                    expandFirstGroup: true
-                });
-            } else {
+        if (useMergedMonthList) {
+            // One month+location block per month/location across recent and older jumps
+            this._useMergedListCache = true;
+            this._mergedJumpsCache = [...recentJumps, ...olderJumps];
+            const targetFirst = Math.max(PAGE_SIZE, recentJumps.length);
+            const endIndex = this._findMonthCompleteIndex(this._mergedJumpsCache, targetFirst);
+            this._renderedMergedCount = endIndex;
+            this._olderJumpsCache = olderJumps;
+            this._renderedOlderCount = 0;
+
+            if (endIndex > 0) {
+                html += this._renderOlderMonthGroups(
+                    this._mergedJumpsCache.slice(0, endIndex)
+                );
+            }
+            remaining = this._mergedJumpsCache.length - this._renderedMergedCount;
+        } else {
+            this._useMergedListCache = false;
+            this._mergedJumpsCache = [];
+            this._renderedMergedCount = 0;
+
+            this._olderJumpsCache = olderJumps;
+            const endIndex = this._findMonthCompleteIndex(olderJumps, PAGE_SIZE);
+            const initialOlder = olderJumps.slice(0, endIndex);
+            this._renderedOlderCount = initialOlder.length;
+
+            if (recentJumps.length > 0) {
                 html += this.renderDayLocationGroups(recentJumps, { expandFirst: true });
             }
+            if (initialOlder.length > 0) {
+                html += this._renderOlderMonthGroups(initialOlder);
+            }
+            remaining = olderJumps.length - this._renderedOlderCount;
         }
 
-        // Render initial page of older jumps grouped by month + location
-        if (initialOlder.length > 0) {
-            html += this._renderOlderMonthGroups(initialOlder);
-        }
-
-        // "Load more" button if there are remaining older jumps
-        const remaining = olderJumps.length - this._renderedOlderCount;
         if (remaining > 0) {
             html += `<button class="btn-secondary load-more-btn" id="loadMoreJumpsBtn" onclick="logbook.loadMoreJumps()">Load more (${remaining} remaining)</button>`;
         }
@@ -991,14 +1007,8 @@ class SkydivingLogbook {
         this._updateRecentJumpsGroupByMonthUi();
     }
 
-    /**
-     * @param {object} [opts]
-     * @param {string} [opts.idPrefix] — prepended to DOM ids so recent vs older blocks never collide
-     * @param {boolean} [opts.expandFirstGroup] — open the first month block (newest) by default
-     */
-    _renderOlderMonthGroups(jumps, opts = {}) {
-        const idPrefix = opts.idPrefix || '';
-        const expandFirstGroup = !!opts.expandFirstGroup;
+    /** Render jumps as collapsed month + location groups (day groups inside are collapsed too). */
+    _renderOlderMonthGroups(jumps) {
         const pairKey = (monthKey, location) => `${monthKey}\x00${location.toLowerCase()}`;
         const monthLocationGroups = new Map();
         // `jumps` is sorted by jumpNumber descending; first encounter of a month+location
@@ -1031,20 +1041,15 @@ class SkydivingLogbook {
 
         const usedDomIds = new Set();
         let html = '';
-        for (let i = 0; i < entries.length; i++) {
-            const group = entries[i];
+        for (const group of entries) {
             const jumpCount = group.jumps.length;
             const locSlug = (group.location || 'noloc').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_|_$/g, '') || 'noloc';
-            let domId = `${idPrefix}month_${group.monthKey}_${locSlug}`;
+            let domId = `month_${group.monthKey}_${locSlug}`;
             let n = 1;
             while (usedDomIds.has(domId)) {
-                domId = `${idPrefix}month_${group.monthKey}_${locSlug}_${n++}`;
+                domId = `month_${group.monthKey}_${locSlug}_${n++}`;
             }
             usedDomIds.add(domId);
-
-            const expanded = expandFirstGroup && i === 0;
-            const arrowChar = expanded ? '&#9660;' : '&#9654;';
-            const bodyDisplay = expanded ? 'block' : 'none';
 
             const locationHtml = group.location
                 ? `<span class="month-group-location">📍 ${this.escapeHtml(group.location)}</span>`
@@ -1053,12 +1058,12 @@ class SkydivingLogbook {
             html += `
                 <div class="month-group" data-month="${group.monthKey}" data-location="${this.escapeHtml(group.location)}">
                     <div class="month-group-header" onclick="logbook.toggleMonthGroup('${domId}')">
-                        <span class="month-group-arrow" id="arrow-${domId}">${arrowChar}</span>
+                        <span class="month-group-arrow" id="arrow-${domId}">&#9654;</span>
                         <span class="month-group-label">${group.monthLabel}</span>
                         ${locationHtml}
                         <span class="month-group-count">${jumpCount} jump${jumpCount !== 1 ? 's' : ''}</span>
                     </div>
-                    <div class="month-group-body" id="month-${domId}" style="display:${bodyDisplay};">
+                    <div class="month-group-body" id="month-${domId}" style="display:none;">
                         ${this.renderDayLocationGroups(group.jumps)}
                     </div>
                 </div>
@@ -1082,9 +1087,36 @@ class SkydivingLogbook {
         return endIndex;
     }
 
-    /** Append the next page of older jumps to the list. */
+    /** Append the next page of jumps to the list. */
     loadMoreJumps() {
         const PAGE_SIZE = 100;
+        const btn = document.getElementById('loadMoreJumpsBtn');
+        if (btn) btn.remove();
+
+        const jumpsList = document.getElementById('jumpsList');
+        if (!jumpsList) return;
+
+        let remaining = 0;
+
+        if (this._useMergedListCache) {
+            const endIndex = this._findMonthCompleteIndex(
+                this._mergedJumpsCache,
+                this._renderedMergedCount + PAGE_SIZE
+            );
+            if (endIndex <= this._renderedMergedCount) return;
+            this._renderedMergedCount = endIndex;
+
+            let html = this._renderOlderMonthGroups(
+                this._mergedJumpsCache.slice(0, this._renderedMergedCount)
+            );
+            remaining = this._mergedJumpsCache.length - this._renderedMergedCount;
+            if (remaining > 0) {
+                html += `<button class="btn-secondary load-more-btn" id="loadMoreJumpsBtn" onclick="logbook.loadMoreJumps()">Load more (${remaining} remaining)</button>`;
+            }
+            jumpsList.innerHTML = html;
+            return;
+        }
+
         const endIndex = this._findMonthCompleteIndex(
             this._olderJumpsCache,
             this._renderedOlderCount + PAGE_SIZE
@@ -1096,18 +1128,11 @@ class SkydivingLogbook {
         if (nextBatch.length === 0) return;
         this._renderedOlderCount = endIndex;
 
-        // Remove existing load-more button
-        const btn = document.getElementById('loadMoreJumpsBtn');
-        if (btn) btn.remove();
-
-        // Append new month + location groups
-        const jumpsList = document.getElementById('jumpsList');
         const fragment = document.createElement('div');
         fragment.innerHTML = this._renderOlderMonthGroups(nextBatch);
         while (fragment.firstChild) jumpsList.appendChild(fragment.firstChild);
 
-        // Re-add button if more remain
-        const remaining = this._olderJumpsCache.length - this._renderedOlderCount;
+        remaining = this._olderJumpsCache.length - this._renderedOlderCount;
         if (remaining > 0) {
             const newBtn = document.createElement('button');
             newBtn.className = 'btn-secondary load-more-btn';
