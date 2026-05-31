@@ -817,7 +817,7 @@ class SkydivingLogbook {
         const cx = 100;
         const cy = 100;
         const r = 90;
-        const labelRadius = r * 0.58;
+        const labelRadius = r * 0.68;
         let svgInner;
         if (filtered.length === 1) {
             const fill = colors[0];
