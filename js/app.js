@@ -817,13 +817,17 @@ class SkydivingLogbook {
         const cx = 100;
         const cy = 100;
         const r = 90;
+        const labelRadius = r * 0.58;
         let svgInner;
         if (filtered.length === 1) {
             const fill = colors[0];
-            svgInner = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="#fff" stroke-width="2"/>`;
+            const c0 = filtered[0].count;
+            svgInner = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="#fff" stroke-width="2"/>
+                <text class="year-stats-pie-slice-value" x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle">${c0}</text>`;
         } else {
             let angle = -Math.PI / 2;
             const paths = [];
+            const labels = [];
             filtered.forEach((e, i) => {
                 const sweep = (e.count / total) * Math.PI * 2;
                 const a0 = angle;
@@ -835,9 +839,14 @@ class SkydivingLogbook {
                 paths.push(
                     `<path d="M ${cx} ${cy} L ${sx.toFixed(3)} ${sy.toFixed(3)} A ${r} ${r} 0 ${largeArc} 1 ${ex.toFixed(3)} ${ey.toFixed(3)} Z" fill="${fill}" stroke="#fff" stroke-width="2"/>`
                 );
+                const mid = angle + sweep / 2;
+                const [tx, ty] = this._piePolar(cx, cy, labelRadius, mid);
+                labels.push(
+                    `<text class="year-stats-pie-slice-value" x="${tx.toFixed(2)}" y="${ty.toFixed(2)}" text-anchor="middle" dominant-baseline="middle">${e.count}</text>`
+                );
                 angle = a1;
             });
-            svgInner = paths.join('');
+            svgInner = paths.join('') + labels.join('');
         }
         const legendItems = filtered.map((e, i) => {
             const c = colors[i % colors.length];
