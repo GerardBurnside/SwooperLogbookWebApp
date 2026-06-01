@@ -87,6 +87,7 @@ function createHeadlessLogbook() {
     logbook.locations = [];
     logbook.settings = {
         startingJumpNumber: 1,
+        resequenceJumpsFromStartingNumber: true,
         recentJumpsDays: 3,
         recentJumpsGroupByMonth: false,
         standardRedThreshold: 160,
@@ -186,6 +187,9 @@ test('export/import round trip restores jump and canopy data', async () => {
     assert.equal(event.target.value, '');
     assert.ok(messages.some(m => m.message === 'Data merged successfully!' && m.type === 'success'));
 
+    // Explicit jump #s in JSON turn off chronological renumbering from starting jump.
+    assert.equal(logbook.settings.resequenceJumpsFromStartingNumber, false);
+
     // Settings are persisted during import.
     assert.ok(localStorage.getItem('skydiving-settings'));
 });
@@ -241,4 +245,39 @@ test('import with invalid JSON keeps existing data unchanged', async () => {
     // Import flow should still reset input and show parse error feedback.
     assert.equal(event.target.value, '');
     assert.ok(messages.some(m => m.message === 'Import failed: invalid JSON file' && m.type === 'error'));
+});
+
+test('JSON replace import with explicit jump numbers disables resequencing; renumberJumps keeps stored #s', () => {
+    const { logbook } = createHeadlessLogbook();
+    logbook.showMessage = () => {};
+    const payload = {
+        jumps: [
+            { id: 10, jumpNumber: 5020, date: '2020-01-01', location: 'A', equipment: '', linesetNumber: 1, notes: '', timestamp: '2020-01-01T00:00:00.000Z', jumpId: 'j5020' },
+            { id: 11, jumpNumber: 5021, date: '2020-02-01', location: 'B', equipment: '', linesetNumber: 1, notes: '', timestamp: '2020-02-01T00:00:00.000Z', jumpId: 'j5021' }
+        ],
+        harnesses: [],
+        canopies: [],
+        locations: [],
+        settings: { startingJumpNumber: 99, resequenceJumpsFromStartingNumber: true }
+    };
+    logbook.applyImportReplace(payload);
+    assert.equal(logbook.settings.resequenceJumpsFromStartingNumber, false);
+    assert.equal(logbook.settings.startingJumpNumber, 99);
+    logbook.renumberJumps();
+    assert.deepEqual(
+        logbook.jumps.map(j => j.jumpNumber).sort((a, b) => a - b),
+        [5020, 5021]
+    );
+});
+
+test('renumberJumps assigns from starting jump when resequencing is enabled', () => {
+    const { logbook } = createHeadlessLogbook();
+    logbook.settings.resequenceJumpsFromStartingNumber = true;
+    logbook.settings.startingJumpNumber = 10;
+    logbook.jumps = [
+        { id: 1, jumpNumber: 99, date: '2021-02-01', location: 'X', equipment: '', linesetNumber: 1, notes: '', timestamp: '2021-02-01T12:00:00.000Z', jumpId: 'x1' },
+        { id: 2, jumpNumber: 1, date: '2021-01-01', location: 'Y', equipment: '', linesetNumber: 1, notes: '', timestamp: '2021-01-01T12:00:00.000Z', jumpId: 'x2' }
+    ];
+    logbook.renumberJumps();
+    assert.deepEqual(logbook.jumps.map(j => j.jumpNumber), [10, 11]);
 });

@@ -9,6 +9,8 @@ class SkydivingLogbook {
 
         this.settings = JSON.parse(localStorage.getItem('skydiving-settings')) || {
             startingJumpNumber: 1,
+            /** When true, add/edit/delete renumbers all jumps from startingJumpNumber in date order. When false, stored jump #s are kept; new jumps use max+1. */
+            resequenceJumpsFromStartingNumber: true,
             recentJumpsDays: 7,
             recentJumpsGroupByMonth: false,
             standardRedThreshold: 160,
@@ -42,6 +44,9 @@ class SkydivingLogbook {
         }
         if (this.settings.autoDetectDropZone === undefined) {
             this.settings.autoDetectDropZone = true;
+        }
+        if (this.settings.resequenceJumpsFromStartingNumber === undefined) {
+            this.settings.resequenceJumpsFromStartingNumber = true;
         }
 
         this.currentView = 'jumps'; // 'jumps', 'equipment', 'stats'
@@ -233,6 +238,11 @@ class SkydivingLogbook {
         document.getElementById('saveSettings').addEventListener('click', () => {
             this.saveSettings();
         });
+
+        const reseqChk = document.getElementById('settingsResequenceJumpsCheckbox');
+        if (reseqChk) {
+            reseqChk.addEventListener('change', () => this._updateStartingJumpUiState());
+        }
 
         document.getElementById('resetAppBtn').addEventListener('click', () => {
             this.resetAppToFirstLaunch();
@@ -559,8 +569,35 @@ class SkydivingLogbook {
     updateNextJumpNumber() { /* field removed — kept as no-op for safety */ }
 
     getNextJumpNumber() {
-        if (this.jumps.length === 0) return this.settings.startingJumpNumber;
+        if (this.jumps.length === 0) {
+            return this.settings.resequenceJumpsFromStartingNumber !== false
+                ? this.settings.startingJumpNumber
+                : 1;
+        }
         return Math.max(...this.jumps.map(j => j.jumpNumber)) + 1;
+    }
+
+    /**
+     * True when every jump in the import list has a positive finite jump # (typical app / backup JSON).
+     * Used to turn off chronological renumbering from "starting jump" after import.
+     */
+    static importJumpsHaveExplicitNumbers(jumps) {
+        if (!Array.isArray(jumps) || jumps.length === 0) return false;
+        return jumps.every(j => {
+            const n = typeof j.jumpNumber === 'number' ? j.jumpNumber : parseInt(j.jumpNumber, 10);
+            return Number.isFinite(n) && n > 0;
+        });
+    }
+
+    _updateStartingJumpUiState() {
+        const chk = document.getElementById('settingsResequenceJumpsCheckbox');
+        const input = document.getElementById('startingJumpNumber');
+        const row = document.getElementById('startingJumpNumberRow');
+        if (!chk || !input) return;
+        const on = chk.checked;
+        input.disabled = !on;
+        input.style.opacity = on ? '' : '0.5';
+        if (row) row.style.opacity = on ? '' : '0.72';
     }
 
     addJump(jumpData = null, silent = false) {
@@ -581,14 +618,15 @@ class SkydivingLogbook {
         }
         
         // Remember the highest jump number before insertion to detect a past-date entry
+        const reseq = this.settings.resequenceJumpsFromStartingNumber !== false;
         const maxBefore = this.jumps.length > 0
             ? Math.max(...this.jumps.map(j => j.jumpNumber))
-            : this.settings.startingJumpNumber - 1;
+            : (reseq ? this.settings.startingJumpNumber - 1 : 0);
 
         const jump = {
             id: Date.now() + Math.random(),
             jumpId: window.SheetsAPI ? SheetsAPI.generateJumpId() : ('jump-' + Date.now() + '-' + Math.random().toString(36).slice(2)),
-            jumpNumber: 0,          // assigned below by renumberJumps()
+            jumpNumber: reseq ? 0 : this.getNextJumpNumber(),
             date: data.date,
             location: data.location,
             equipment: data.equipment,  // canopy ID
@@ -624,9 +662,9 @@ class SkydivingLogbook {
             }
         }
         
-        // Insert then renumber everything chronologically by date
+        // Insert then sort by date; optionally renumber everything from startingJumpNumber
         this.jumps.push(jump);
-        this.renumberJumps(); // sorts by date, assigns numbers from startingJumpNumber
+        this.renumberJumps();
         
         // Save to localStorage
         this.saveToLocalStorage();
@@ -1654,6 +1692,9 @@ class SkydivingLogbook {
             return Date.parse(a.timestamp) - Date.parse(b.timestamp);
         });
 
+        if (this.settings.resequenceJumpsFromStartingNumber === false) {
+            return;
+        }
         // Renumber jumps starting from the configured starting number
         this.jumps.forEach((jump, index) => {
             jump.jumpNumber = this.settings.startingJumpNumber + index;
@@ -1662,6 +1703,11 @@ class SkydivingLogbook {
 
     openSettingsModal() {
         document.getElementById('startingJumpNumber').value = this.settings.startingJumpNumber;
+        const reseqChk = document.getElementById('settingsResequenceJumpsCheckbox');
+        if (reseqChk) {
+            reseqChk.checked = this.settings.resequenceJumpsFromStartingNumber !== false;
+            this._updateStartingJumpUiState();
+        }
         const prev = this.settings.previousStartingJump;
         const current = this.settings.startingJumpNumber;
         const labelEl = document.getElementById('startingJumpNumberLabel');
@@ -1844,11 +1890,19 @@ class SkydivingLogbook {
     // saveSheetsConfig is no longer needed — OAuth sign-in handles everything.
 
     async saveSettings() {
-        const startingJumpNumber = parseInt(document.getElementById('startingJumpNumber').value);
-        
-        if (!startingJumpNumber || startingJumpNumber < 1) {
-            this.showMessage('Please enter a valid starting jump number (1 or higher)', 'error');
-            return;
+        const reseqEl = document.getElementById('settingsResequenceJumpsCheckbox');
+        const nowResequence = reseqEl ? !!reseqEl.checked : true;
+        const wasResequence = this.settings.resequenceJumpsFromStartingNumber !== false;
+
+        const previousStartingJumpNumber = this.settings.startingJumpNumber;
+        let startingJumpNumber = previousStartingJumpNumber;
+
+        if (nowResequence) {
+            startingJumpNumber = parseInt(document.getElementById('startingJumpNumber').value, 10);
+            if (!startingJumpNumber || startingJumpNumber < 1) {
+                this.showMessage('Please enter a valid starting jump number (1 or higher)', 'error');
+                return;
+            }
         }
 
         const recentJumpsDays = parseInt(document.getElementById('recentJumpsDays').value, 10);
@@ -1879,10 +1933,12 @@ class SkydivingLogbook {
             return;
         }
 
-        const previousStartingJumpNumber = this.settings.startingJumpNumber;
-        this.settings.startingJumpNumber = startingJumpNumber;
-        // Always persist the value we're leaving, so we can show (previous=XX) when opening settings; display hides it when 1 or when equal to current
-        this.settings.previousStartingJump = previousStartingJumpNumber;
+        this.settings.resequenceJumpsFromStartingNumber = nowResequence;
+        if (nowResequence) {
+            this.settings.startingJumpNumber = startingJumpNumber;
+            // Persist the value we're leaving, so we can show (previous=XX) when opening settings
+            this.settings.previousStartingJump = previousStartingJumpNumber;
+        }
         this.settings.recentJumpsDays = recentJumpsDays;
         const recentGrpSettings = document.getElementById('recentJumpsGroupByMonthSettings');
         if (recentGrpSettings) {
@@ -1898,8 +1954,9 @@ class SkydivingLogbook {
         // Mark data as locally modified so the background poller detects pending changes.
         localStorage.setItem('skydiving-data-modified', new Date().toISOString());
 
-        // If starting jump number changed: renumber all jumps, persist, then refresh
-        if (previousStartingJumpNumber !== startingJumpNumber) {
+        const needsJumpsRenumber = nowResequence
+            && (!wasResequence || previousStartingJumpNumber !== this.settings.startingJumpNumber);
+        if (needsJumpsRenumber) {
             this.renumberJumps();
             await DB.replaceAllJumps(this.jumps).catch(err => console.error('[DB] Failed to save jumps after renumber:', err));
             this.markJumpsModified();
@@ -1913,7 +1970,7 @@ class SkydivingLogbook {
         }
         
         this.closeModal();
-        if (previousStartingJumpNumber !== startingJumpNumber) {
+        if (needsJumpsRenumber) {
             this.showMessage('Settings saved. Jump numbers updated. Reloading...', 'success');
             setTimeout(() => window.location.reload(), 300);
         } else {
@@ -3579,6 +3636,12 @@ class SkydivingLogbook {
         if (this.settings.recentJumpsDays === undefined) this.settings.recentJumpsDays = 16;
         if (this.settings.recentJumpsGroupByMonth === undefined) this.settings.recentJumpsGroupByMonth = false;
         if (this.settings.autoDetectDropZone === undefined) this.settings.autoDetectDropZone = true;
+        if (this.settings.resequenceJumpsFromStartingNumber === undefined) {
+            this.settings.resequenceJumpsFromStartingNumber = true;
+        }
+        if (importJumps.length && SkydivingLogbook.importJumpsHaveExplicitNumbers(importJumps)) {
+            this.settings.resequenceJumpsFromStartingNumber = false;
+        }
 
         this.canopies.forEach(canopy => {
             if (!Array.isArray(canopy.linesets)) canopy.linesets = [];
@@ -3603,7 +3666,8 @@ class SkydivingLogbook {
 
     /** Replace all: replace jumps and equipment with import file; merge settings. Local-only data is removed. */
     applyImportReplace(payload) {
-        this.jumps = Array.isArray(payload.jumps) ? payload.jumps : [];
+        const importJumps = Array.isArray(payload.jumps) ? payload.jumps : [];
+        this.jumps = importJumps;
         this.harnesses = Array.isArray(payload.harnesses) ? payload.harnesses : [];
         this.canopies = Array.isArray(payload.canopies) ? payload.canopies : [];
         this.locations = Array.isArray(payload.locations) ? payload.locations : [];
@@ -3614,6 +3678,12 @@ class SkydivingLogbook {
         if (this.settings.recentJumpsDays === undefined) this.settings.recentJumpsDays = 16;
         if (this.settings.recentJumpsGroupByMonth === undefined) this.settings.recentJumpsGroupByMonth = false;
         if (this.settings.autoDetectDropZone === undefined) this.settings.autoDetectDropZone = true;
+        if (this.settings.resequenceJumpsFromStartingNumber === undefined) {
+            this.settings.resequenceJumpsFromStartingNumber = true;
+        }
+        if (importJumps.length && SkydivingLogbook.importJumpsHaveExplicitNumbers(importJumps)) {
+            this.settings.resequenceJumpsFromStartingNumber = false;
+        }
 
         this.canopies.forEach(canopy => {
             if (!Array.isArray(canopy.linesets)) canopy.linesets = [];

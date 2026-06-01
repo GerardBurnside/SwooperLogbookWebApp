@@ -504,7 +504,8 @@
         if (csvMin == null || !Number.isFinite(csvMin)) return null;
         const below = logbook.jumps.filter(j => j.jumpNumber < csvMin).map(j => j.jumpNumber);
         const maxBelow = below.length > 0 ? Math.max(...below) : null;
-        const start = maxBelow != null ? maxBelow + 1 : (logbook.settings?.startingJumpNumber ?? 1);
+        const reseq = logbook.settings?.resequenceJumpsFromStartingNumber !== false;
+        const start = maxBelow != null ? maxBelow + 1 : (reseq ? (logbook.settings?.startingJumpNumber ?? 1) : 1);
         const end = csvMin - 1;
         if (end < start) return null;
         const maxBelowJump = maxBelow != null
