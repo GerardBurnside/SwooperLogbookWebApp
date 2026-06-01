@@ -1805,6 +1805,13 @@ button.jump-number.jump-number-btn:focus-visible {
     margin: 5% auto;
 }
 
+.settings-cache-version {
+    font-size: 11px;
+    color: #888;
+    margin: 12px 0 0;
+    text-align: center;
+}
+
 .conflict-item {
     border: 1px solid #e9ecef;
     border-radius: 8px;

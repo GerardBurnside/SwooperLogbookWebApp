@@ -1675,6 +1675,14 @@ class SkydivingLogbook {
         document.getElementById('hybridRedThreshold').value = this.settings.hybridRedThreshold ?? 80;
         document.getElementById('hybridOrangeThreshold').value = this.settings.hybridOrangeThreshold ?? 60;
 
+        const cacheVerEl = document.getElementById('settingsCacheVersion');
+        if (cacheVerEl) {
+            cacheVerEl.textContent =
+                typeof CACHE_VERSION !== 'undefined'
+                    ? `Cache version ${CACHE_VERSION}`
+                    : '';
+        }
+
         document.getElementById('settingsModal').style.display = 'block';
     }
 

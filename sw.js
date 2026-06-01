@@ -1,6 +1,5 @@
 // Service Worker for offline-first PWA functionality
-// Bump CACHE_VERSION whenever you deploy new code so users get the update
-const CACHE_VERSION = 36.7;
+importScripts('./js/cache-version.js');
 const CACHE_NAME = `skydiving-logbook-v${CACHE_VERSION}`;
 
 // All app shell files that must be cached for offline use
@@ -8,6 +7,7 @@ const urlsToCache = [
   './',
   './index.html',
   './css/style.css',
+  './js/cache-version.js',
   './js/db.js',
   './js/auth.js',
   './js/external-csv-import.js',
