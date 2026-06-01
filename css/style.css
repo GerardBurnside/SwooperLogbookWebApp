@@ -1514,6 +1514,33 @@ button.jump-number.jump-number-btn:focus-visible {
     cursor: pointer;
 }
 
+.import-external-csv-manual-pick {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.5rem;
+}
+
+.import-external-csv-manual-pick-label {
+    flex: 0 0 auto;
+}
+
+.import-external-csv-manual-select {
+    min-width: 11rem;
+    max-width: 100%;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    font: inherit;
+}
+
+.import-external-csv-suggested-hint {
+    margin: 0.75rem 0 0.25rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #555;
+}
+
 .import-external-csv-new-wrap {
     margin: 1rem 0;
 }

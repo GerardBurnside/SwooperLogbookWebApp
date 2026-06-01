@@ -327,6 +327,9 @@
 
             logbook._rejectExternalCsvEquipmentStep = finishReject;
 
+            const PICK_FROM_LIST_VALUE = '__pick__';
+            const MANUAL_CANOPY_SELECT_ID = 'importExternalCsvManualCanopySelect';
+
             logbook._resolveExternalCsvEquipmentStep = () => {
                 const picked = modal.querySelector('input[name="extCsvEquipPick"]:checked');
                 if (!picked) {
@@ -342,6 +345,17 @@
                     }
                     closeImportExternalCsvModal(logbook);
                     resolve({ type: 'new', name, lineset: parsed.lineset });
+                    return;
+                }
+                if (val === PICK_FROM_LIST_VALUE) {
+                    const dd = modal.querySelector('#' + MANUAL_CANOPY_SELECT_ID);
+                    const canopyId = (dd && dd.value) || '';
+                    if (!canopyId) {
+                        logbook.showMessage('Select a canopy from the list.', 'error');
+                        return;
+                    }
+                    closeImportExternalCsvModal(logbook);
+                    resolve({ type: 'existing', canopyId, lineset: parsed.lineset });
                     return;
                 }
                 if (val.startsWith('existing:')) {
@@ -371,14 +385,37 @@
 
             nameInput.value = parsed.suggestedCanopyName || parsed.canopySegment || equipRaw;
 
+            const allCanopies = (logbook.canopies || [])
+                .filter(c => !c.archived)
+                .slice()
+                .sort((a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' }));
+
+            const linesetHint = `(lineset #${parsed.lineset} from file name: lineset / line / -l)`;
+            const pickOpts = ['<option value="">Select canopy…</option>']
+                .concat(allCanopies.map(c =>
+                    `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`
+                ));
+
             const radios = [];
+            radios.push(
+                `<label class="import-external-csv-manual-pick">`
+                + `<input type="radio" name="extCsvEquipPick" value="${PICK_FROM_LIST_VALUE}"> `
+                + `<span class="import-external-csv-manual-pick-label">Choose canopy from list</span> `
+                + `<select id="${MANUAL_CANOPY_SELECT_ID}" class="import-external-csv-manual-select" disabled>`
+                + pickOpts.join('')
+                + `</select> <span class="import-external-csv-sub">${escapeHtml(linesetHint)}</span>`
+                + `</label>`
+            );
+            if (candidates.length) {
+                radios.push('<p class="import-external-csv-suggested-hint">Suggested matches</p>');
+            }
             for (const c of candidates) {
                 const fromSession = sessionIds.has(c.id);
                 const sub = fromSession
                     ? `(lineset #${parsed.lineset} from file — same canopy you added in this import)`
                     : `(lineset #${parsed.lineset})`;
                 radios.push(
-                    `<label><input type="radio" name="extCsvEquipPick" value="existing:${c.id}"> `
+                    `<label><input type="radio" name="extCsvEquipPick" value="existing:${escapeHtml(c.id)}"> `
                     + `${escapeHtml(c.name)} <span class="import-external-csv-sub">${escapeHtml(sub)}</span></label>`
                 );
             }
@@ -388,16 +425,34 @@
             );
             radioList.innerHTML = radios.join('');
 
+            const manualSelect = radioList.querySelector('#' + MANUAL_CANOPY_SELECT_ID);
+
             const syncNewState = () => {
                 const sel = modal.querySelector('input[name="extCsvEquipPick"]:checked');
                 const isNew = sel && sel.value === '__new__';
+                const isPickList = sel && sel.value === PICK_FROM_LIST_VALUE;
                 nameInput.disabled = !isNew;
                 if (newWrap) newWrap.style.opacity = isNew ? '1' : '0.65';
+                if (manualSelect) {
+                    manualSelect.disabled = !isPickList;
+                }
             };
 
             radioList.querySelectorAll('input[name="extCsvEquipPick"]').forEach(r => {
                 r.addEventListener('change', syncNewState);
             });
+
+            if (manualSelect) {
+                const checkPickListRadio = () => {
+                    const inp = radioList.querySelector(
+                        `input[name="extCsvEquipPick"][value="${PICK_FROM_LIST_VALUE}"]`
+                    );
+                    if (inp) inp.checked = true;
+                    syncNewState();
+                };
+                manualSelect.addEventListener('mousedown', checkPickListRadio);
+                manualSelect.addEventListener('focus', checkPickListRadio);
+            }
 
             const pickExistingValue = (wantVal) => {
                 const inputs = radioList.querySelectorAll('input[name="extCsvEquipPick"]');
@@ -410,17 +465,26 @@
                 return found;
             };
 
-            if (candidates.length === 0) {
-                pickExistingValue('__new__');
-            } else {
-                const preferSession = candidates.find(c => sessionIds.has(c.id));
-                const onlyOne = candidates.length === 1 ? candidates[0] : null;
-                const prefer = preferSession || onlyOne;
-                if (prefer) {
-                    pickExistingValue(`existing:${prefer.id}`);
+            pickExistingValue(PICK_FROM_LIST_VALUE);
+            if (manualSelect) {
+                manualSelect.disabled = false;
+                if (candidates.length === 1) {
+                    manualSelect.value = candidates[0].id;
+                } else {
+                    const preferSession = candidates.find(c => sessionIds.has(c.id));
+                    if (preferSession) {
+                        manualSelect.value = preferSession.id;
+                    } else {
+                        manualSelect.value = '';
+                    }
                 }
             }
-            syncNewState();
+            if (candidates.length === 0 && allCanopies.length === 0) {
+                pickExistingValue('__new__');
+                syncNewState();
+            } else {
+                syncNewState();
+            }
 
             modal.style.display = 'block';
         });
