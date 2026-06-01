@@ -54,6 +54,8 @@ class SkydivingLogbook {
         this.showArchivedStats = false;
         this.activeJumpNoteId = null;
         this.activeEditJumpId = null;
+        /** Trimmed location when edit jump modal was opened (for bulk same-day option). */
+        this.editJumpLocationAtOpen = null;
         this._olderJumpsCache = []; // cached older jumps for lazy rendering
         this._renderedOlderCount = 0;
         this._mergedJumpsCache = []; // recent + older when "by month" merges both
@@ -311,6 +313,17 @@ class SkydivingLogbook {
         const editJumpSave = document.getElementById('editJumpSave');
         if (editJumpSave) {
             editJumpSave.addEventListener('click', () => this.saveEditedJump());
+        }
+        const editJumpDateEl = document.getElementById('editJumpDate');
+        const editJumpLocEl = document.getElementById('editJumpLocation');
+        const syncApplyLoc = () => this.syncEditJumpApplyLocationToDayOption();
+        if (editJumpDateEl) {
+            editJumpDateEl.addEventListener('input', syncApplyLoc);
+            editJumpDateEl.addEventListener('change', syncApplyLoc);
+        }
+        if (editJumpLocEl) {
+            editJumpLocEl.addEventListener('input', syncApplyLoc);
+            editJumpLocEl.addEventListener('change', syncApplyLoc);
         }
 
         // Search Notes modal
@@ -1508,9 +1521,11 @@ class SkydivingLogbook {
 
         dateInput.value = this._normalizeDateForInput(jump.date);
         locInput.value = jump.location || '';
+        this.editJumpLocationAtOpen = (jump.location || '').trim();
         this.fillEditJumpEquipmentSelect(jump.equipment, jump.linesetNumber);
 
         modal.style.display = 'block';
+        this.syncEditJumpApplyLocationToDayOption();
         dateInput.focus();
     }
 
@@ -1520,6 +1535,55 @@ class SkydivingLogbook {
         if (editDd) editDd.classList.remove('open');
         if (modal) modal.style.display = 'none';
         this.activeEditJumpId = null;
+        this.editJumpLocationAtOpen = null;
+        const applyWrap = document.getElementById('editJumpApplyLocationToDayWrap');
+        const applyChk = document.getElementById('editJumpApplyLocationToSameDay');
+        if (applyWrap) applyWrap.hidden = true;
+        if (applyChk) applyChk.checked = false;
+    }
+
+    /**
+     * Show "apply location to all other jumps this day" when the location text changed
+     * and there is at least one other jump on the date currently selected in the modal.
+     */
+    syncEditJumpApplyLocationToDayOption() {
+        const wrap = document.getElementById('editJumpApplyLocationToDayWrap');
+        const chk = document.getElementById('editJumpApplyLocationToSameDay');
+        const dateInput = document.getElementById('editJumpDate');
+        const locInput = document.getElementById('editJumpLocation');
+        if (!wrap || !chk || !dateInput || !locInput || !this.activeEditJumpId) {
+            if (wrap) wrap.hidden = true;
+            if (chk) chk.checked = false;
+            return;
+        }
+
+        const day = dateInput.value;
+        const locNow = (locInput.value || '').trim();
+        const opened = this.editJumpLocationAtOpen != null ? this.editJumpLocationAtOpen : '';
+        const locChanged = locNow !== opened;
+
+        const othersOnDay = this.jumps.filter(j => {
+            if (j.id.toString() === this.activeEditJumpId.toString()) return false;
+            return this._normalizeDateForInput(j.date) === day;
+        });
+
+        const show = !!day && locChanged && othersOnDay.length > 0;
+        wrap.hidden = !show;
+        if (!show) {
+            chk.checked = false;
+            const cap = document.getElementById('editJumpApplyLocationToSameDayCaption');
+            if (cap) cap.textContent = 'Also apply this location to other jumps on this day';
+            return;
+        }
+
+        const cap = document.getElementById('editJumpApplyLocationToSameDayCaption');
+        if (cap && othersOnDay.length > 0) {
+            const n = othersOnDay.length;
+            cap.textContent =
+                n === 1
+                    ? 'Also apply this location to the other jump on this day'
+                    : `Also apply this location to all ${n} other jumps on this day`;
+        }
     }
 
     saveEditedJump() {
@@ -1557,11 +1621,20 @@ class SkydivingLogbook {
         const linesetNumber = li >= 0 ? (parseInt(eqVal.slice(li + 1), 10) || 1) : 1;
 
         const location = (locInput.value || '').trim();
+        const applyLocToSameDay = !!document.getElementById('editJumpApplyLocationToSameDay')?.checked;
 
         jump.date = date;
         jump.location = location;
         jump.equipment = equipment;
         jump.linesetNumber = linesetNumber;
+
+        if (applyLocToSameDay) {
+            for (const j of this.jumps) {
+                if (j.id.toString() === this.activeEditJumpId.toString()) continue;
+                if (this._normalizeDateForInput(j.date) !== date) continue;
+                j.location = location;
+            }
+        }
 
         if (location) {
             const locationExists = this.locations.some(
@@ -2947,6 +3020,7 @@ class SkydivingLogbook {
             input.value = value;
             dropdown.classList.remove('open');
             activeIndex = -1;
+            if (input.id === 'editJumpLocation') this.syncEditJumpApplyLocationToDayOption();
         };
 
         input.addEventListener('focus', showDropdown);
