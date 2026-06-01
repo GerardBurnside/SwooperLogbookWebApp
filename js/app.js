@@ -362,6 +362,16 @@ class SkydivingLogbook {
             this.closeImportChoiceModal();
         });
 
+        document.getElementById('importExternalCsvCancelBtn')?.addEventListener('click', () => {
+            this._rejectExternalCsvEquipmentStep?.();
+        });
+        document.getElementById('importExternalCsvModalClose')?.addEventListener('click', () => {
+            this._rejectExternalCsvEquipmentStep?.();
+        });
+        document.getElementById('importExternalCsvNextBtn')?.addEventListener('click', () => {
+            this._resolveExternalCsvEquipmentStep?.();
+        });
+
         // Navigation buttons
         document.getElementById('jumpsViewBtn').addEventListener('click', () => {
             this.showView('jumps');
@@ -436,6 +446,10 @@ class SkydivingLogbook {
             const importChoiceModal = document.getElementById('importChoiceModal');
             if (e.target === importChoiceModal) {
                 this.closeImportChoiceModal();
+            }
+            const importExternalCsvModal = document.getElementById('importExternalCsvModal');
+            if (e.target === importExternalCsvModal) {
+                this._rejectExternalCsvEquipmentStep?.();
             }
             const searchNotesModal = document.getElementById('searchNotesModal');
             if (e.target === searchNotesModal) {
@@ -817,7 +831,7 @@ class SkydivingLogbook {
         const cx = 100;
         const cy = 100;
         const r = 90;
-        const labelRadius = r * 0.68;
+        const labelRadius = r * 0.7;
         let svgInner;
         if (filtered.length === 1) {
             const fill = colors[0];
@@ -3416,6 +3430,11 @@ class SkydivingLogbook {
 
         try {
             const text = await file.text();
+            if (typeof ExternalCsvImport !== 'undefined'
+                && ExternalCsvImport.isExternalSkydivingLogbookCsv(text)) {
+                await ExternalCsvImport.importExternalLogbookCsv(this, text);
+                return;
+            }
             const parsed = JSON.parse(text);
             const payload = parsed?.data ? parsed.data : parsed;
 

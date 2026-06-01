@@ -97,6 +97,7 @@ function createHeadlessLogbook() {
 
     // Disable UI-heavy side effects for isolated unit testing.
     logbook.initializeCanopyLinesetJumpCounts = () => {};
+    logbook.ensureJumpIds = () => {};
     logbook.saveToLocalStorage = () => {};
     logbook.saveComponentsToLocalStorage = () => {};
     logbook.markEquipmentModified = () => {};
@@ -169,6 +170,11 @@ test('export/import round trip restores jump and canopy data', async () => {
 
     await logbook.importData(event);
 
+    const pending = logbook._pendingImportPayload;
+    assert.ok(pending, 'import should stage JSON payload for merge/replace choice');
+    logbook.applyImportMerge(pending);
+    logbook.closeImportChoiceModal();
+
     // Jump and canopy should be restored.
     assert.equal(logbook.jumps.length, 1);
     assert.equal(logbook.jumps[0].id, jump.id);
@@ -178,7 +184,7 @@ test('export/import round trip restores jump and canopy data', async () => {
 
     // Import flow should reset input value and report success.
     assert.equal(event.target.value, '');
-    assert.ok(messages.some(m => m.message === 'Data imported successfully!' && m.type === 'success'));
+    assert.ok(messages.some(m => m.message === 'Data merged successfully!' && m.type === 'success'));
 
     // Settings are persisted during import.
     assert.ok(localStorage.getItem('skydiving-settings'));
