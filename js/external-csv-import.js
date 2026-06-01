@@ -594,18 +594,35 @@
             return;
         }
         linesetSel.disabled = false;
-        /** Include archived linesets so gap-fill can match historical gear (still sorted by #). */
-        const lss = (canopy.linesets || []).slice().sort((a, b) => a.number - b.number);
-        for (const ls of lss) {
+        /** All linesets for this canopy (active + archived) so gap-fill can match historical gear. */
+        const all = (canopy.linesets || []).slice().sort((a, b) => a.number - b.number);
+        const activeLs = all.filter(ls => !ls.archived);
+        const archivedLs = all.filter(ls => ls.archived);
+
+        const appendLsOption = (parent, ls, inArchivedGroup) => {
             const opt = document.createElement('option');
             opt.value = String(ls.number);
             const hybridTag = ls.hybrid ? ' (Hybrid)' : '';
-            const archivedTag = ls.archived ? ' (archived)' : '';
+            const archivedTag = !inArchivedGroup && ls.archived ? ' (archived)' : '';
             opt.textContent = `Lineset #${ls.number}${hybridTag}${archivedTag}`;
-            linesetSel.appendChild(opt);
+            parent.appendChild(opt);
+        };
+
+        for (const ls of activeLs) {
+            appendLsOption(linesetSel, ls, false);
         }
-        if (lss.length === 1) {
-            linesetSel.value = String(lss[0].number);
+        if (archivedLs.length) {
+            const og = document.createElement('optgroup');
+            og.label = 'Older (archived) linesets';
+            for (const ls of archivedLs) {
+                appendLsOption(og, ls, true);
+            }
+            linesetSel.appendChild(og);
+        }
+
+        const combined = activeLs.concat(archivedLs);
+        if (combined.length === 1) {
+            linesetSel.value = String(combined[0].number);
         }
     }
 
@@ -791,9 +808,9 @@
             }
 
             if (gap.gapKind === 'betweenCsvMaxAndPreDbMin') {
-                explain.textContent = `Jump numbers #${gap.gapStart} through #${gap.gapEnd} (${gap.gapCount} jumps) are missing between the highest jump number in the CSV (#${gap.csvMax}) and your log before this import (which started at jump #${gap.preImportDbMinJump}). For each segment, set jump count, canopy, and lineset; optional per-segment date. Counts must add up exactly.`;
+                explain.textContent = `Jump numbers #${gap.gapStart} through #${gap.gapEnd} (${gap.gapCount} jumps) are missing between the highest jump number in the CSV (#${gap.csvMax}) and your log before this import (which started at jump #${gap.preImportDbMinJump}). For each segment, set jump count, canopy, and lineset; optional per-segment date. Counts must add up exactly. Archived (older) linesets appear under "Older (archived) linesets" in the lineset menu when present.`;
             } else {
-                explain.textContent = `Jump numbers #${gap.gapStart} through #${gap.gapEnd} (${gap.gapCount} jumps) are missing between your existing log and the imported block (starts at #${gap.csvMin}). For each segment, set jump count, canopy, and lineset; optional per-segment date. Counts must add up exactly.`;
+                explain.textContent = `Jump numbers #${gap.gapStart} through #${gap.gapEnd} (${gap.gapCount} jumps) are missing between your existing log and the imported block (starts at #${gap.csvMin}). For each segment, set jump count, canopy, and lineset; optional per-segment date. Counts must add up exactly. Archived (older) linesets appear under "Older (archived) linesets" in the lineset menu when present.`;
             }
 
             defaultDateInput.value = gap.suggestedDate || '';

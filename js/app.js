@@ -813,28 +813,53 @@ class SkydivingLogbook {
         return ['#1976D2', '#388E3C', '#F57C00', '#7B1FA2', '#C2185B', '#0097A7', '#5D4037', '#455A64', '#AFB42B', '#E91E63', '#3F51B5', '#689F38'];
     }
 
+    /**
+     * Stable canopy → color for year statistics pies, so the same equipment id keeps
+     * the same color when switching years (order no longer follows that year's slice index).
+     * Order: canopies by sortOrder, then any equipment ids seen on jumps but not in the list.
+     */
+    _yearStatsCanopyColorMap() {
+        const palette = this._yearStatsPieColors();
+        const bySort = [...this.canopies].sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity));
+        const orderedIds = bySort.map(c => c.id);
+        const fromJumps = new Set();
+        for (const j of this.jumps) {
+            fromJumps.add(j.equipment || '');
+        }
+        const extras = [...fromJumps].filter(id => !orderedIds.includes(id)).sort();
+        const allIds = [...orderedIds, ...extras];
+        const map = new Map();
+        allIds.forEach((id, i) => {
+            map.set(id, palette[i % palette.length]);
+        });
+        return map;
+    }
+
     _piePolar(cx, cy, r, rad) {
         return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
     }
 
     /**
-     * @param {{ label: string, count: number }[]} entries
+     * @param {{ label: string, count: number, equipmentId?: string }[]} entries
+     * @param {{ getColor?: (entry: { label: string, count: number }, index: number) => string }} [options]
      * @returns {string} HTML (pie SVG + legend with counts)
      */
-    _renderPieChartBlock(entries) {
+    _renderPieChartBlock(entries, options = {}) {
+        const { getColor } = options;
         const filtered = (entries || []).filter(e => e.count > 0);
         const total = filtered.reduce((s, e) => s + e.count, 0);
         if (total === 0) {
             return '<p class="no-items year-stats-pie-empty">No data for this chart.</p>';
         }
         const colors = this._yearStatsPieColors();
+        const colorAt = (e, i) => (getColor ? getColor(e, i) : colors[i % colors.length]);
         const cx = 100;
         const cy = 100;
         const r = 90;
         const labelRadius = r * 0.7;
         let svgInner;
         if (filtered.length === 1) {
-            const fill = colors[0];
+            const fill = colorAt(filtered[0], 0);
             const c0 = filtered[0].count;
             svgInner = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="#fff" stroke-width="2"/>
                 <text class="year-stats-pie-slice-value" x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle">${c0}</text>`;
@@ -849,7 +874,7 @@ class SkydivingLogbook {
                 const [sx, sy] = this._piePolar(cx, cy, r, a0);
                 const [ex, ey] = this._piePolar(cx, cy, r, a1);
                 const largeArc = sweep > Math.PI ? 1 : 0;
-                const fill = colors[i % colors.length];
+                const fill = colorAt(e, i);
                 paths.push(
                     `<path d="M ${cx} ${cy} L ${sx.toFixed(3)} ${sy.toFixed(3)} A ${r} ${r} 0 ${largeArc} 1 ${ex.toFixed(3)} ${ey.toFixed(3)} Z" fill="${fill}" stroke="#fff" stroke-width="2"/>`
                 );
@@ -863,7 +888,7 @@ class SkydivingLogbook {
             svgInner = paths.join('') + labels.join('');
         }
         const legendItems = filtered.map((e, i) => {
-            const c = colors[i % colors.length];
+            const c = colorAt(e, i);
             return `<li>
                 <span class="year-stats-swatch" style="background:${c}"></span>
                 <span class="year-stats-legend-label">${this.escapeHtml(e.label)}</span>
@@ -907,7 +932,14 @@ class SkydivingLogbook {
         const byLoc = this._aggregateJumpsByLocationForYear(jumps);
         const byCan = this._aggregateJumpsByCanopyForYear(jumps);
         locRoot.innerHTML = this._renderPieChartBlock(byLoc);
-        canRoot.innerHTML = this._renderPieChartBlock(byCan.map(({ label, count }) => ({ label, count })));
+        const canopyColorMap = this._yearStatsCanopyColorMap();
+        const palette = this._yearStatsPieColors();
+        canRoot.innerHTML = this._renderPieChartBlock(
+            byCan.map(({ label, count, equipmentId }) => ({ label, count, equipmentId })),
+            {
+                getColor: (e) => canopyColorMap.get(e.equipmentId) ?? palette[0]
+            }
+        );
 
         const prevYears = this._getPreviousYearsWithJumps();
         const cy = new Date().getFullYear();
