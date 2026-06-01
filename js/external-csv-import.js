@@ -560,11 +560,16 @@
         ph.value = '';
         ph.textContent = 'Select canopy';
         sel.appendChild(ph);
-        for (const canopy of logbook.canopies || []) {
-            if (canopy.archived) continue;
+        const canopies = (logbook.canopies || []).slice().sort((a, b) => {
+            const aArch = a.archived ? 1 : 0;
+            const bArch = b.archived ? 1 : 0;
+            if (aArch !== bArch) return aArch - bArch;
+            return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+        });
+        for (const canopy of canopies) {
             const opt = document.createElement('option');
             opt.value = canopy.id;
-            opt.textContent = canopy.name;
+            opt.textContent = canopy.archived ? `${canopy.name} (archived)` : canopy.name;
             sel.appendChild(opt);
         }
         return sel;
@@ -589,12 +594,14 @@
             return;
         }
         linesetSel.disabled = false;
-        const lss = (canopy.linesets || []).filter(ls => !ls.archived).sort((a, b) => a.number - b.number);
+        /** Include archived linesets so gap-fill can match historical gear (still sorted by #). */
+        const lss = (canopy.linesets || []).slice().sort((a, b) => a.number - b.number);
         for (const ls of lss) {
             const opt = document.createElement('option');
             opt.value = String(ls.number);
             const hybridTag = ls.hybrid ? ' (Hybrid)' : '';
-            opt.textContent = `Lineset #${ls.number}${hybridTag}`;
+            const archivedTag = ls.archived ? ' (archived)' : '';
+            opt.textContent = `Lineset #${ls.number}${hybridTag}${archivedTag}`;
             linesetSel.appendChild(opt);
         }
         if (lss.length === 1) {
