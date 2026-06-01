@@ -372,6 +372,17 @@
                     <label for="editJumpDate">Date</label>
                     <input type="date" id="editJumpDate" required>
                 </div>
+                <div id="editJumpShiftFollowingWrap" class="form-group edit-jump-shift-following" hidden>
+                    <div class="edit-jump-shift-following-row">
+                        <label class="edit-jump-shift-following-chk-label">
+                            <input type="checkbox" id="editJumpShiftFollowingChk">
+                            <span>Also shift the next</span>
+                        </label>
+                        <input type="number" id="editJumpShiftFollowingCount" class="edit-jump-shift-following-count" min="1" step="1" value="1" title="How many chronologically following jumps to move">
+                        <span class="edit-jump-shift-following-tail">jumps by the same calendar-day change.</span>
+                    </div>
+                    <p id="editJumpShiftFollowingHint" class="edit-jump-shift-following-hint"></p>
+                </div>
                 <div class="form-group location-autocomplete">
                     <label for="editJumpLocation">Drop zone / location</label>
                     <input type="text" id="editJumpLocation" placeholder="e.g., Sky High DZ, California" autocomplete="on">

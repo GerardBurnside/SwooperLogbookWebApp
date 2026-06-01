@@ -56,6 +56,8 @@ class SkydivingLogbook {
         this.activeEditJumpId = null;
         /** Trimmed location when edit jump modal was opened (for bulk same-day option). */
         this.editJumpLocationAtOpen = null;
+        /** `YYYY-MM-DD` when edit jump modal was opened (for bulk date-shift option). */
+        this.editJumpDateAtOpen = null;
         this._olderJumpsCache = []; // cached older jumps for lazy rendering
         this._renderedOlderCount = 0;
         this._mergedJumpsCache = []; // recent + older when "by month" merges both
@@ -316,14 +318,21 @@ class SkydivingLogbook {
         }
         const editJumpDateEl = document.getElementById('editJumpDate');
         const editJumpLocEl = document.getElementById('editJumpLocation');
-        const syncApplyLoc = () => this.syncEditJumpApplyLocationToDayOption();
+        const syncEditBulk = () => this.syncEditJumpModalBulkOptions();
         if (editJumpDateEl) {
-            editJumpDateEl.addEventListener('input', syncApplyLoc);
-            editJumpDateEl.addEventListener('change', syncApplyLoc);
+            editJumpDateEl.addEventListener('input', syncEditBulk);
+            editJumpDateEl.addEventListener('change', syncEditBulk);
         }
         if (editJumpLocEl) {
-            editJumpLocEl.addEventListener('input', syncApplyLoc);
-            editJumpLocEl.addEventListener('change', syncApplyLoc);
+            editJumpLocEl.addEventListener('input', syncEditBulk);
+            editJumpLocEl.addEventListener('change', syncEditBulk);
+        }
+        const editJumpShiftChk = document.getElementById('editJumpShiftFollowingChk');
+        const editJumpShiftCnt = document.getElementById('editJumpShiftFollowingCount');
+        if (editJumpShiftChk) editJumpShiftChk.addEventListener('change', syncEditBulk);
+        if (editJumpShiftCnt) {
+            editJumpShiftCnt.addEventListener('input', syncEditBulk);
+            editJumpShiftCnt.addEventListener('change', syncEditBulk);
         }
 
         // Search Notes modal
@@ -1450,6 +1459,41 @@ class SkydivingLogbook {
         return `${y}-${m}-${day}`;
     }
 
+    /** Same chronological order as `renumberJumps()` (date asc, then timestamp). */
+    _sortJumpsChronologically(jumps) {
+        return [...jumps].sort((a, b) => {
+            const da = Date.parse(a.date);
+            const db = Date.parse(b.date);
+            if (isNaN(da) && isNaN(db)) return 0;
+            if (isNaN(da)) return 1;
+            if (isNaN(db)) return -1;
+            if (da !== db) return da - db;
+            return Date.parse(a.timestamp) - Date.parse(b.timestamp);
+        });
+    }
+
+    /** Calendar-day difference `to - from` for `YYYY-MM-DD` strings (UTC date math). */
+    _isoDateDeltaDays(fromYyyyMmDd, toYyyyMmDd) {
+        const [y1, m1, d1] = fromYyyyMmDd.split('-').map(Number);
+        const [y2, m2, d2] = toYyyyMmDd.split('-').map(Number);
+        return (Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000;
+    }
+
+    /** Add signed day offset to a calendar date; accepts any jump date string via normalization. */
+    _addCalendarDaysToIsoDate(dateVal, dayDelta) {
+        if (!dayDelta) return this._normalizeDateForInput(dateVal);
+        const norm = /^\d{4}-\d{2}-\d{2}$/.test(String(dateVal).slice(0, 10))
+            ? String(dateVal).slice(0, 10)
+            : this._normalizeDateForInput(dateVal);
+        if (!norm) return norm;
+        const [y, m, d] = norm.split('-').map(Number);
+        const ms = Date.UTC(y, m - 1, d + dayDelta);
+        const dt = new Date(ms);
+        const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(dt.getUTCDate()).padStart(2, '0');
+        return `${dt.getUTCFullYear()}-${mm}-${dd}`;
+    }
+
     /**
      * Populate edit-jump canopy select. Option values are `canopyId:linesetNumber`
      * (lineset is always last segment after the final ':').
@@ -1522,10 +1566,11 @@ class SkydivingLogbook {
         dateInput.value = this._normalizeDateForInput(jump.date);
         locInput.value = jump.location || '';
         this.editJumpLocationAtOpen = (jump.location || '').trim();
+        this.editJumpDateAtOpen = this._normalizeDateForInput(jump.date);
         this.fillEditJumpEquipmentSelect(jump.equipment, jump.linesetNumber);
 
         modal.style.display = 'block';
-        this.syncEditJumpApplyLocationToDayOption();
+        this.syncEditJumpModalBulkOptions();
         dateInput.focus();
     }
 
@@ -1536,10 +1581,22 @@ class SkydivingLogbook {
         if (modal) modal.style.display = 'none';
         this.activeEditJumpId = null;
         this.editJumpLocationAtOpen = null;
+        this.editJumpDateAtOpen = null;
         const applyWrap = document.getElementById('editJumpApplyLocationToDayWrap');
         const applyChk = document.getElementById('editJumpApplyLocationToSameDay');
         if (applyWrap) applyWrap.hidden = true;
         if (applyChk) applyChk.checked = false;
+        const shiftWrap = document.getElementById('editJumpShiftFollowingWrap');
+        const shiftChk = document.getElementById('editJumpShiftFollowingChk');
+        const shiftCnt = document.getElementById('editJumpShiftFollowingCount');
+        if (shiftWrap) shiftWrap.hidden = true;
+        if (shiftChk) shiftChk.checked = false;
+        if (shiftCnt) shiftCnt.value = '1';
+    }
+
+    syncEditJumpModalBulkOptions() {
+        this.syncEditJumpApplyLocationToDayOption();
+        this.syncEditJumpShiftFollowingDatesOption();
     }
 
     /**
@@ -1586,6 +1643,56 @@ class SkydivingLogbook {
         }
     }
 
+    /**
+     * When the jump date is changed from when the modal opened, offer to shift the next N
+     * chronologically following jumps by the same calendar-day delta (same sort as renumber).
+     */
+    syncEditJumpShiftFollowingDatesOption() {
+        const wrap = document.getElementById('editJumpShiftFollowingWrap');
+        const chk = document.getElementById('editJumpShiftFollowingChk');
+        const cntEl = document.getElementById('editJumpShiftFollowingCount');
+        const hint = document.getElementById('editJumpShiftFollowingHint');
+        const dateInput = document.getElementById('editJumpDate');
+        if (!wrap || !chk || !cntEl || !dateInput || !this.activeEditJumpId || !this.editJumpDateAtOpen) {
+            if (wrap) wrap.hidden = true;
+            if (chk) chk.checked = false;
+            if (hint) hint.textContent = '';
+            return;
+        }
+
+        const dayNew = dateInput.value;
+        const dayOld = this.editJumpDateAtOpen;
+        const dateChanged = !!dayNew && !!dayOld && dayNew !== dayOld;
+
+        const sorted = this._sortJumpsChronologically(this.jumps);
+        const idx = sorted.findIndex(j => j.id.toString() === this.activeEditJumpId.toString());
+        const followingCount = idx >= 0 ? sorted.length - idx - 1 : 0;
+
+        const show = dateChanged && followingCount > 0;
+        wrap.hidden = !show;
+        if (!show) {
+            chk.checked = false;
+            if (hint) hint.textContent = '';
+            return;
+        }
+
+        cntEl.max = String(followingCount);
+        cntEl.min = '1';
+        let n = parseInt(cntEl.value, 10);
+        if (!Number.isFinite(n) || n < 1) n = 1;
+        if (n > followingCount) {
+            n = followingCount;
+            cntEl.value = String(n);
+        }
+
+        if (hint) {
+            hint.textContent =
+                followingCount === 1
+                    ? 'There is 1 later jump after this one in date order (ties broken by log order).'
+                    : `There are ${followingCount} later jumps after this one in date order (ties broken by log order).`;
+        }
+    }
+
     saveEditedJump() {
         if (!this.activeEditJumpId) {
             this.showMessage('Jump not found', 'error');
@@ -1623,10 +1730,38 @@ class SkydivingLogbook {
         const location = (locInput.value || '').trim();
         const applyLocToSameDay = !!document.getElementById('editJumpApplyLocationToSameDay')?.checked;
 
+        const oldDateNorm = this._normalizeDateForInput(jump.date);
+        const shiftChkEl = document.getElementById('editJumpShiftFollowingChk');
+        const shiftCntEl = document.getElementById('editJumpShiftFollowingCount');
+        const shiftFollowing =
+            !!shiftChkEl?.checked && !!oldDateNorm && date !== oldDateNorm;
+        let followerTargets = [];
+        let deltaDays = 0;
+        if (shiftFollowing) {
+            deltaDays = this._isoDateDeltaDays(oldDateNorm, date);
+            if (deltaDays !== 0) {
+                const sorted = this._sortJumpsChronologically(this.jumps);
+                const idx = sorted.findIndex(j => j.id.toString() === this.activeEditJumpId.toString());
+                const maxFollow = idx >= 0 ? sorted.length - idx - 1 : 0;
+                let n = parseInt(shiftCntEl?.value, 10) || 1;
+                n = Math.min(Math.max(1, n), Math.max(0, maxFollow));
+                for (let i = 1; i <= n && idx + i < sorted.length; i++) {
+                    followerTargets.push(sorted[idx + i]);
+                }
+            }
+        }
+
         jump.date = date;
         jump.location = location;
         jump.equipment = equipment;
         jump.linesetNumber = linesetNumber;
+
+        if (followerTargets.length && deltaDays !== 0) {
+            for (const j of followerTargets) {
+                const cur = this._normalizeDateForInput(j.date);
+                j.date = this._addCalendarDaysToIsoDate(cur, deltaDays);
+            }
+        }
 
         if (applyLocToSameDay) {
             for (const j of this.jumps) {
@@ -1660,7 +1795,13 @@ class SkydivingLogbook {
         }
 
         this.closeEditJumpModal();
-        this.showMessage('Jump updated', 'success');
+        const shiftN = followerTargets.length;
+        this.showMessage(
+            shiftN > 0
+                ? `Jump updated — ${shiftN} following jump${shiftN === 1 ? '' : 's'} shifted by the same calendar-day change.`
+                : 'Jump updated',
+            'success'
+        );
 
         if (navigator.onLine && window.SheetsAPI?.initialized) {
             window.SheetsAPI.pushAllWithGuard();
@@ -3020,7 +3161,7 @@ class SkydivingLogbook {
             input.value = value;
             dropdown.classList.remove('open');
             activeIndex = -1;
-            if (input.id === 'editJumpLocation') this.syncEditJumpApplyLocationToDayOption();
+            if (input.id === 'editJumpLocation') this.syncEditJumpModalBulkOptions();
         };
 
         input.addEventListener('focus', showDropdown);

@@ -969,6 +969,49 @@ button.jump-number.jump-number-btn:focus-visible {
     cursor: pointer;
 }
 
+.edit-jump-shift-following-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.5rem;
+    font-size: 0.9rem;
+    color: #444;
+}
+
+.edit-jump-shift-following-chk-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    user-select: none;
+    font-weight: normal;
+}
+
+.edit-jump-shift-following-chk-label input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.edit-jump-shift-following-count {
+    width: 3.25rem;
+    padding: 0.25rem 0.35rem;
+    text-align: center;
+}
+
+.edit-jump-shift-following-tail {
+    flex: 1 1 8rem;
+    min-width: 0;
+}
+
+.edit-jump-shift-following-hint {
+    margin: 0.35rem 0 0 0;
+    font-size: 0.8rem;
+    color: #666;
+    line-height: 1.35;
+}
+
 .jump-canopy {
     flex: 1;
     font-size: 0.85rem;
