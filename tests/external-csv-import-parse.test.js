@@ -130,6 +130,7 @@ test('computeJumpNumberGapInfo: missing numbers strictly below csvMin', () => {
         settings: { startingJumpNumber: 1 }
     };
     const gap = E.computeJumpNumberGapInfo(logbook, 100);
+    assert.equal(gap.gapKind, 'belowCsvBlock');
     assert.equal(gap.gapStart, 51);
     assert.equal(gap.gapEnd, 99);
     assert.equal(gap.gapCount, 49);
@@ -142,4 +143,37 @@ test('computeJumpNumberGapInfo: no gap when csvMin follows last lower jump', () 
     };
     const gap = E.computeJumpNumberGapInfo(logbook, 100);
     assert.equal(gap, null);
+});
+
+test('computeJumpNumberGapBetweenCsvMaxAndPreDbMin: bridge between CSV tail and prior log', () => {
+    const rows = [
+        { jumpNumber: 1, date: '2010-01-01' },
+        { jumpNumber: 100, date: '2015-06-15' }
+    ];
+    const gap = E.computeJumpNumberGapBetweenCsvMaxAndPreDbMin(rows, 500);
+    assert.equal(gap.gapKind, 'betweenCsvMaxAndPreDbMin');
+    assert.equal(gap.gapStart, 101);
+    assert.equal(gap.gapEnd, 499);
+    assert.equal(gap.gapCount, 399);
+    assert.equal(gap.csvMax, 100);
+    assert.equal(gap.preImportDbMinJump, 500);
+    assert.equal(gap.suggestedDate, '2015-06-15');
+});
+
+test('computeJumpNumberGapBetweenCsvMaxAndPreDbMin: no gap when ranges touch or overlap', () => {
+    assert.equal(
+        E.computeJumpNumberGapBetweenCsvMaxAndPreDbMin([{ jumpNumber: 50 }], 51),
+        null
+    );
+    assert.equal(
+        E.computeJumpNumberGapBetweenCsvMaxAndPreDbMin([{ jumpNumber: 100 }], 50),
+        null
+    );
+});
+
+test('computeJumpNumberGapBetweenCsvMaxAndPreDbMin: null when no prior log min', () => {
+    assert.equal(
+        E.computeJumpNumberGapBetweenCsvMaxAndPreDbMin([{ jumpNumber: 10 }], null),
+        null
+    );
 });

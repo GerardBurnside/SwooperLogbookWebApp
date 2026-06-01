@@ -465,18 +465,17 @@
                 return found;
             };
 
-            pickExistingValue(PICK_FROM_LIST_VALUE);
-            if (manualSelect) {
-                manualSelect.disabled = false;
-                if (candidates.length === 1) {
-                    manualSelect.value = candidates[0].id;
-                } else {
-                    const preferSession = candidates.find(c => sessionIds.has(c.id));
-                    if (preferSession) {
-                        manualSelect.value = preferSession.id;
-                    } else {
-                        manualSelect.value = '';
-                    }
+            if (candidates.length > 0) {
+                const preferSession = candidates.find(c => sessionIds.has(c.id));
+                const defaultCandidate = preferSession || candidates[0];
+                pickExistingValue(`existing:${defaultCandidate.id}`);
+                if (manualSelect) {
+                    manualSelect.value = defaultCandidate.id;
+                }
+            } else {
+                pickExistingValue(PICK_FROM_LIST_VALUE);
+                if (manualSelect) {
+                    manualSelect.value = '';
                 }
             }
             if (candidates.length === 0 && allCanopies.length === 0) {
@@ -513,11 +512,43 @@
             : null;
         const suggestedDate = normalizeDateYmd(maxBelowJump?.date);
         return {
+            gapKind: 'belowCsvBlock',
             gapStart: start,
             gapEnd: end,
             gapCount: end - start + 1,
             csvMin,
             maxBelow,
+            suggestedDate
+        };
+    }
+
+    /**
+     * Missing jump # range strictly above the CSV file's highest # and strictly below
+     * the smallest jump # that was in the log before import: (csvMax+1) .. (preImportDbMin-1).
+     * Typical case: importing an older CSV block (e.g. #1–100) while the log already had #500+.
+     */
+    function computeJumpNumberGapBetweenCsvMaxAndPreDbMin(parsedCsvRows, preImportDbMinJump) {
+        if (!parsedCsvRows || !parsedCsvRows.length) return null;
+        if (preImportDbMinJump == null || !Number.isFinite(preImportDbMinJump)) return null;
+        const csvMax = Math.max(...parsedCsvRows.map(r => r.jumpNumber));
+        if (!Number.isFinite(csvMax)) return null;
+        const start = csvMax + 1;
+        const end = preImportDbMinJump - 1;
+        if (end < start) return null;
+        let suggestedDate = '';
+        for (const r of parsedCsvRows) {
+            if (r.jumpNumber === csvMax) {
+                const d = normalizeDateYmd(r.date);
+                if (d) suggestedDate = d;
+            }
+        }
+        return {
+            gapKind: 'betweenCsvMaxAndPreDbMin',
+            gapStart: start,
+            gapEnd: end,
+            gapCount: end - start + 1,
+            csvMax,
+            preImportDbMinJump,
             suggestedDate
         };
     }
@@ -752,7 +783,11 @@
                 if (e.target === modal) finish(null);
             }
 
-            explain.textContent = `Jump numbers #${gap.gapStart} through #${gap.gapEnd} (${gap.gapCount} jumps) are missing between your existing log and the imported block (starts at #${gap.csvMin}). For each segment, set jump count, canopy, and lineset; optional per-segment date. Counts must add up exactly.`;
+            if (gap.gapKind === 'betweenCsvMaxAndPreDbMin') {
+                explain.textContent = `Jump numbers #${gap.gapStart} through #${gap.gapEnd} (${gap.gapCount} jumps) are missing between the highest jump number in the CSV (#${gap.csvMax}) and your log before this import (which started at jump #${gap.preImportDbMinJump}). For each segment, set jump count, canopy, and lineset; optional per-segment date. Counts must add up exactly.`;
+            } else {
+                explain.textContent = `Jump numbers #${gap.gapStart} through #${gap.gapEnd} (${gap.gapCount} jumps) are missing between your existing log and the imported block (starts at #${gap.csvMin}). For each segment, set jump count, canopy, and lineset; optional per-segment date. Counts must add up exactly.`;
+            }
 
             defaultDateInput.value = gap.suggestedDate || '';
 
@@ -778,21 +813,7 @@
         });
     }
 
-    async function maybeOfferJumpGapFill(logbook, appliedJumpNumbers) {
-        if (!appliedJumpNumbers.length) return;
-        const csvMin = Math.min(...appliedJumpNumbers);
-        const gap = computeJumpNumberGapInfo(logbook, csvMin);
-        if (!gap || gap.gapCount <= 0) return;
-
-        const segments = await promptJumpGapFillModal(logbook, gap);
-        if (!segments || !segments.length) return;
-
-        const genJumpId = () => ((typeof crypto !== 'undefined' && crypto.randomUUID)
-            ? crypto.randomUUID()
-            : 'jump-' + Date.now() + '-' + Math.random().toString(36).slice(2));
-
-        applyGapFillJumps(logbook, gap, segments, genJumpId);
-
+    function persistAfterGapFill(logbook) {
         logbook.ensureJumpIds();
         logbook.initializeCanopyLinesetJumpCounts();
         logbook.saveToLocalStorage();
@@ -810,7 +831,40 @@
         if (typeof navigator !== 'undefined' && navigator.onLine && global.SheetsAPI?.initialized) {
             global.SheetsAPI.pushAllWithGuard();
         }
+    }
 
+    async function maybeOfferJumpGapFill(logbook, appliedJumpNumbers) {
+        if (!appliedJumpNumbers.length) return;
+        const csvMin = Math.min(...appliedJumpNumbers);
+        const gap = computeJumpNumberGapInfo(logbook, csvMin);
+        if (!gap || gap.gapCount <= 0) return;
+
+        const segments = await promptJumpGapFillModal(logbook, gap);
+        if (!segments || !segments.length) return;
+
+        const genJumpId = () => ((typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : 'jump-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+
+        applyGapFillJumps(logbook, gap, segments, genJumpId);
+        persistAfterGapFill(logbook);
+        logbook.showMessage(`Added ${gap.gapCount} jump(s) for numbers #${gap.gapStart}–#${gap.gapEnd}.`, 'success');
+    }
+
+    /** Gap between max jump # in the CSV file and smallest # in the log before import (editable canopy/lineset in modal). */
+    async function maybeOfferJumpGapFillBetweenCsvMaxAndPreDbMin(logbook, parsedCsvRows, preImportDbMinJump) {
+        const gap = computeJumpNumberGapBetweenCsvMaxAndPreDbMin(parsedCsvRows, preImportDbMinJump);
+        if (!gap || gap.gapCount <= 0) return;
+
+        const segments = await promptJumpGapFillModal(logbook, gap);
+        if (!segments || !segments.length) return;
+
+        const genJumpId = () => ((typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : 'jump-' + Date.now() + '-' + Math.random().toString(36).slice(2));
+
+        applyGapFillJumps(logbook, gap, segments, genJumpId);
+        persistAfterGapFill(logbook);
         logbook.showMessage(`Added ${gap.gapCount} jump(s) for numbers #${gap.gapStart}–#${gap.gapEnd}.`, 'success');
     }
 
@@ -873,6 +927,10 @@
         const sessionCanopyIds = new Set();
 
         try {
+            const preImportDbMinJumpNumber = logbook.jumps.length
+                ? Math.min(...logbook.jumps.map(j => j.jumpNumber))
+                : null;
+
             for (let i = 0; i < equipNeedsPrompt.length; i++) {
                 const eq = equipNeedsPrompt[i];
                 const parsedEq = parseExternalEquipmentString(eq);
@@ -974,6 +1032,11 @@
 
             const appliedNums = [...new Set([...toImport, ...toMerge].map(r => r.jumpNumber))];
             await maybeOfferJumpGapFill(logbook, appliedNums);
+            await maybeOfferJumpGapFillBetweenCsvMaxAndPreDbMin(
+                logbook,
+                parsedCsv.rows,
+                preImportDbMinJumpNumber
+            );
         } catch (e) {
             if (e && e.code === 'EXT_CSV_CANCEL') {
                 logbook.showMessage('Import cancelled.', 'info');
@@ -994,6 +1057,7 @@
         collectExternalCsvCanopyCandidates,
         mergeExternalCsvRowIntoJump,
         importExternalLogbookCsv,
-        computeJumpNumberGapInfo
+        computeJumpNumberGapInfo,
+        computeJumpNumberGapBetweenCsvMaxAndPreDbMin
     };
 })(typeof window !== 'undefined' ? window : globalThis);
