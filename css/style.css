@@ -1812,6 +1812,49 @@ button.jump-number.jump-number-btn:focus-visible {
     text-align: center;
 }
 
+.reset-db-settings-btn {
+    width: 100%;
+    margin-top: 10px;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.reset-db-confirm-modal-content {
+    max-width: 420px;
+}
+
+.reset-db-confirm-warning {
+    margin: 0 0 0.25rem;
+    font-size: 0.95rem;
+    line-height: 1.45;
+    color: #333;
+}
+
+.reset-db-confirm-actions {
+    display: flex;
+    flex-direction: row;
+    gap: 0.75rem;
+    margin-top: 1.25rem;
+    align-items: stretch;
+}
+
+.reset-db-btn-cancel {
+    flex: 2;
+    min-height: 52px;
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+
+.reset-db-btn-proceed {
+    flex: 1;
+    min-height: 40px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding-left: 0.65rem;
+    padding-right: 0.65rem;
+}
+
 .conflict-item {
     border: 1px solid #e9ecef;
     border-radius: 8px;

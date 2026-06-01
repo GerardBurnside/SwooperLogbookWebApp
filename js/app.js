@@ -257,6 +257,16 @@ class SkydivingLogbook {
             this.openSheetsModal();
         });
 
+        document.getElementById('resetDbBtn')?.addEventListener('click', () => {
+            this.openResetDbConfirmModal();
+        });
+        document.getElementById('resetDbConfirmCancel')?.addEventListener('click', () => {
+            this.closeResetDbConfirmModal();
+        });
+        document.getElementById('resetDbConfirmProceed')?.addEventListener('click', () => {
+            this.confirmResetLocalDb();
+        });
+
         document.getElementById('sheetsClose').addEventListener('click', () => {
             this.closeSheetsModal();
         });
@@ -468,6 +478,10 @@ class SkydivingLogbook {
             const yearStatsModal = document.getElementById('yearStatsModal');
             if (e.target === yearStatsModal) {
                 this.closeYearStatisticsModal();
+            }
+            const resetDbConfirmModal = document.getElementById('resetDbConfirmModal');
+            if (e.target === resetDbConfirmModal) {
+                this.closeResetDbConfirmModal();
             }
         });
 
@@ -1864,17 +1878,45 @@ class SkydivingLogbook {
         }
     }
 
-    async handleGoogleSignOut() {
-        if (!confirm('Sign out and disconnect Google Sheets sync?')) return;
-
+    /** Disconnect OAuth and stop background sheet polling (no UI prompt). */
+    async _disconnectGoogleSheetsSync() {
         await window.AuthManager.signOut();
         window.SheetsAPI.initialized = false;
         window.SheetsAPI.spreadsheetId = '';
         window.SheetsAPI._cancelPoll();
         window.SheetsAPI.updateSyncStatus('Not signed in');
+    }
+
+    async handleGoogleSignOut() {
+        if (!confirm('Sign out and disconnect Google Sheets sync?')) return;
+
+        await this._disconnectGoogleSheetsSync();
 
         this.showMessage('Signed out from Google Sheets', 'success');
         this.openSheetsModal(); // refresh modal state
+    }
+
+    openResetDbConfirmModal() {
+        const modal = document.getElementById('resetDbConfirmModal');
+        if (modal) modal.style.display = 'block';
+    }
+
+    closeResetDbConfirmModal() {
+        const modal = document.getElementById('resetDbConfirmModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    async confirmResetLocalDb() {
+        await this._disconnectGoogleSheetsSync();
+        localStorage.clear();
+        try {
+            await DB.open();
+            await DB.clearAll();
+        } catch (_) { /* IDB may not be available */ }
+        this.closeResetDbConfirmModal();
+        this.closeModal();
+        this.showMessage('Local data removed. Reloading…', 'success');
+        setTimeout(() => window.location.reload(), 300);
     }
 
     async resetAppToFirstLaunch() {

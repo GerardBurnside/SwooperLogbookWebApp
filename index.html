@@ -284,6 +284,7 @@
 
                 <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
                 <button id="googleSheetsIntegrationBtn" class="btn-secondary" style="width:100%; padding:16px; font-size:18px; font-weight:600;">Google Sheet Integration</button>
+                <button type="button" id="resetDbBtn" class="btn-secondary reset-db-settings-btn">Reset DB</button>
 
                 <p id="settingsCacheVersion" class="settings-cache-version"></p>
 
@@ -319,6 +320,18 @@
                     <button id="googleSignOutBtn" class="btn-secondary" style="width:100%;">Sign out &amp; disconnect</button>
                 </div>
 
+            </div>
+        </div>
+
+        <!-- Reset local DB: confirm before clearing storage -->
+        <div id="resetDbConfirmModal" class="modal">
+            <div class="modal-content reset-db-confirm-modal-content">
+                <h3 style="margin-top:0;">Reset local data?</h3>
+                <p class="reset-db-confirm-warning">This will first turn off Google Sheets sync, then permanently remove <strong>everything</strong> this app keeps in your browser's <strong>localStorage</strong> (settings, sync state, and all other saved keys), along with the local jump/equipment database stored in this browser. This cannot be undone.</p>
+                <div class="reset-db-confirm-actions">
+                    <button type="button" id="resetDbConfirmCancel" class="btn-secondary reset-db-btn-cancel">Cancel</button>
+                    <button type="button" id="resetDbConfirmProceed" class="btn-danger reset-db-btn-proceed">Proceed</button>
+                </div>
             </div>
         </div>
 
