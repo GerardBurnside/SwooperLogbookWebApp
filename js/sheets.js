@@ -260,7 +260,9 @@ class SheetsAPI {
                 const jumpId = (row[0] && String(row[0]).trim()) || SheetsAPI.generateJumpId();
                 const timestamp = row[6] || new Date().toISOString();
                 const parsedTime = new Date(timestamp).getTime();
-                const id = Number.isFinite(parsedTime) ? parsedTime : Date.now() + index;
+                // IndexedDB keyPath is `id`. Many imports share the same timestamp (e.g. noon UTC per day);
+                // identical ids would overwrite each other in replaceAllJumps — include row index so ids are unique.
+                const id = Number.isFinite(parsedTime) ? parsedTime + index : Date.now() + index;
                 const equipment = (row[7] && row[7] !== '') ? row[7] : row[4] || '';
                 let date = '';
                 if (row[2]) {
@@ -283,7 +285,7 @@ class SheetsAPI {
             // Backward compat: 8 columns (no Jump ID)
             const timestamp = row[5] || new Date().toISOString();
             const parsedTime = new Date(timestamp).getTime();
-            const id = Number.isFinite(parsedTime) ? parsedTime : Date.now() + index;
+            const id = Number.isFinite(parsedTime) ? parsedTime + index : Date.now() + index;
             const equipment = (row[6] && row[6] !== '') ? row[6] : row[3] || '';
             let date = '';
             if (row[1]) {
