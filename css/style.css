@@ -1805,19 +1805,39 @@ button.jump-number.jump-number-btn:focus-visible {
     margin: 5% auto;
 }
 
+.settings-cache-reset-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 1.5rem;
+    flex-wrap: wrap;
+    touch-action: manipulation;
+}
+
 .settings-cache-version {
     font-size: 11px;
     color: #888;
-    margin: 12px 0 0;
-    text-align: center;
+    margin: 0;
+    text-align: left;
+    flex: 1;
+    min-width: 0;
 }
 
 .reset-db-settings-btn {
-    width: 100%;
-    margin-top: 10px;
-    padding: 8px 12px;
+    width: auto;
+    margin: 0;
+    padding: 6px 12px;
     font-size: 13px;
     font-weight: 500;
+    flex-shrink: 0;
+    white-space: nowrap;
+    touch-action: manipulation;
+}
+
+/* Stacked above other .modal overlays (same z-index broke confirm behind settings on Android WebKit). */
+#resetDbConfirmModal.modal {
+    z-index: 10001;
 }
 
 .reset-db-confirm-modal-content {
@@ -1844,6 +1864,7 @@ button.jump-number.jump-number-btn:focus-visible {
     min-height: 52px;
     font-size: 1.05rem;
     font-weight: 600;
+    touch-action: manipulation;
 }
 
 .reset-db-btn-proceed {
@@ -1853,6 +1874,7 @@ button.jump-number.jump-number-btn:focus-visible {
     font-weight: 500;
     padding-left: 0.65rem;
     padding-right: 0.65rem;
+    touch-action: manipulation;
 }
 
 .conflict-item {

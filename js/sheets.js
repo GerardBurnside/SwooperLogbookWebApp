@@ -377,7 +377,7 @@ class SheetsAPI {
 
     async uploadAllJumps(jumps) {
         if (!this.initialized) throw new Error('API not initialized');
-        this.updateSyncStatus('Uploading jumps...');
+        this.updateSyncStatus('Uploading data...');
 
         const header = ['Jump ID', 'Jump Number', 'Date', 'Location', 'Equipment', 'Notes', 'Timestamp', 'Equipment ID', 'Lineset Number'];
         const sortedJumps = [...jumps].sort((a, b) => (a.jumpNumber || 0) - (b.jumpNumber || 0));

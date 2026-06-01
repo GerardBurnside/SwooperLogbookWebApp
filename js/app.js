@@ -257,15 +257,30 @@ class SkydivingLogbook {
             this.openSheetsModal();
         });
 
-        document.getElementById('resetDbBtn')?.addEventListener('click', () => {
-            this.openResetDbConfirmModal();
-        });
-        document.getElementById('resetDbConfirmCancel')?.addEventListener('click', () => {
-            this.closeResetDbConfirmModal();
-        });
-        document.getElementById('resetDbConfirmProceed')?.addEventListener('click', () => {
-            this.confirmResetLocalDb();
-        });
+        // Reset DB: use capture on settings modal so taps work inside overflow-scroll (Android),
+        // and keep logic off a lone button listener that can be flaky on some WebViews.
+        const settingsModalEl = document.getElementById('settingsModal');
+        if (settingsModalEl) {
+            settingsModalEl.addEventListener(
+                'click',
+                (e) => {
+                    if (e.target.closest('#resetDbBtn')) this.openResetDbConfirmModal();
+                },
+                true
+            );
+        }
+
+        const resetDbConfirmModalEl = document.getElementById('resetDbConfirmModal');
+        if (resetDbConfirmModalEl) {
+            resetDbConfirmModalEl.addEventListener(
+                'click',
+                (e) => {
+                    if (e.target.closest('#resetDbConfirmCancel')) this.closeResetDbConfirmModal();
+                    else if (e.target.closest('#resetDbConfirmProceed')) this.confirmResetLocalDb();
+                },
+                true
+            );
+        }
 
         document.getElementById('sheetsClose').addEventListener('click', () => {
             this.closeSheetsModal();
