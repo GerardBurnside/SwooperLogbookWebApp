@@ -55,6 +55,61 @@
         return m ? m[1] : '';
     }
 
+    /** Lowercase, strip spaces / hyphens / underscores / + for loose canopy matching. */
+    function normalizeForCanopyMatch(str) {
+        return String(str || '').toLowerCase().replace(/[\s_\-+]/g, '');
+    }
+
+    /**
+     * Canopies that may match CSV equipment: trailing two-digit size on name or id,
+     * then normalized segment / suggested name against canopy name and id.
+     */
+    function collectExternalCsvCanopyCandidates(logbook, parsed) {
+        const active = (logbook.canopies || []).filter(c => !c.archived);
+        const ordered = [];
+        const pushUnique = (c) => {
+            if (!c || ordered.some(x => x.id === c.id)) return;
+            ordered.push(c);
+        };
+
+        const sizeDigits = (parsed.sizeDigits || '').trim();
+        if (sizeDigits) {
+            for (const c of active) {
+                if (extractTrailingTwoDigitSize(c.name) === sizeDigits) pushUnique(c);
+            }
+            for (const c of active) {
+                if (extractTrailingTwoDigitSize(c.id) === sizeDigits) pushUnique(c);
+            }
+        }
+
+        const seg = (parsed.canopySegment || '').trim();
+        const suggested = (parsed.suggestedCanopyName || '').trim();
+        const segN = normalizeForCanopyMatch(seg);
+        const sugN = normalizeForCanopyMatch(suggested);
+        const MIN_LEN = 4;
+
+        const textMatchesCanopy = (canopyName, canopyId) => {
+            const nameN = normalizeForCanopyMatch(canopyName);
+            const idN = normalizeForCanopyMatch(canopyId);
+            if (segN.length >= MIN_LEN) {
+                if (nameN === segN || idN === segN) return true;
+                if (nameN.includes(segN) || segN.includes(nameN)) return true;
+                if (idN.length >= MIN_LEN && (idN.includes(segN) || segN.includes(idN))) return true;
+            }
+            if (sugN.length >= MIN_LEN) {
+                if (nameN === sugN || idN === sugN) return true;
+                if (nameN.includes(sugN) || sugN.includes(nameN)) return true;
+            }
+            return false;
+        };
+
+        for (const c of active) {
+            if (textMatchesCanopy(c.name, c.id)) pushUnique(c);
+        }
+
+        return ordered;
+    }
+
     function parseExternalEquipmentString(raw) {
         const s = (raw || '').trim();
         const out = {
@@ -69,16 +124,24 @@
 
         let rest = s;
         const linesetRe = /^(.*?)[-\s]+lineset\s*(\d+)\s*$/i;
-        const linesetL = /^(.*?)-\s*l\s*(\d)\s*$/i;
+        /** Same intent as "lineset1" but some exports use "-line1" (not the word "lineset"). */
+        const lineNumSuffixRe = /^(.*?)[-\s]+line\s*(\d+)\s*$/i;
+        const linesetL = /^(.*?)-\s*l\s*(\d+)\s*$/i;
         let m = rest.match(linesetRe);
         if (m) {
             rest = m[1].trim();
             out.lineset = parseInt(m[2], 10) || 1;
         } else {
-            m = rest.match(linesetL);
+            m = rest.match(lineNumSuffixRe);
             if (m) {
                 rest = m[1].trim();
                 out.lineset = parseInt(m[2], 10) || 1;
+            } else {
+                m = rest.match(linesetL);
+                if (m) {
+                    rest = m[1].trim();
+                    out.lineset = parseInt(m[2], 10) || 1;
+                }
             }
         }
 
@@ -395,25 +458,53 @@
         };
     }
 
-    function buildEquipmentSelectElement(logbook) {
+    function buildGapFillCanopySelect(logbook) {
         const sel = document.createElement('select');
-        sel.className = 'import-gap-fill-eq';
+        sel.className = 'import-gap-fill-canopy';
         const ph = document.createElement('option');
         ph.value = '';
         ph.textContent = 'Select canopy';
         sel.appendChild(ph);
         for (const canopy of logbook.canopies || []) {
             if (canopy.archived) continue;
-            const lss = (canopy.linesets || []).filter(ls => !ls.archived).sort((a, b) => a.number - b.number);
-            for (const ls of lss) {
-                const opt = document.createElement('option');
-                opt.value = `${canopy.id}:${ls.number}`;
-                const hybridTag = ls.hybrid ? ' (Hybrid)' : '';
-                opt.textContent = `${canopy.name} — Lineset #${ls.number}${hybridTag}`;
-                sel.appendChild(opt);
-            }
+            const opt = document.createElement('option');
+            opt.value = canopy.id;
+            opt.textContent = canopy.name;
+            sel.appendChild(opt);
         }
         return sel;
+    }
+
+    /** Repopulate lineset dropdown for a segment row; disables until a canopy is chosen. */
+    function populateGapFillLinesetSelect(logbook, linesetSel, canopyId) {
+        while (linesetSel.firstChild) {
+            linesetSel.removeChild(linesetSel.firstChild);
+        }
+        const ph = document.createElement('option');
+        ph.value = '';
+        ph.textContent = 'Select lineset';
+        linesetSel.appendChild(ph);
+        if (!canopyId) {
+            linesetSel.disabled = true;
+            return;
+        }
+        const canopy = (logbook.canopies || []).find(c => c.id === canopyId);
+        if (!canopy) {
+            linesetSel.disabled = true;
+            return;
+        }
+        linesetSel.disabled = false;
+        const lss = (canopy.linesets || []).filter(ls => !ls.archived).sort((a, b) => a.number - b.number);
+        for (const ls of lss) {
+            const opt = document.createElement('option');
+            opt.value = String(ls.number);
+            const hybridTag = ls.hybrid ? ' (Hybrid)' : '';
+            opt.textContent = `Lineset #${ls.number}${hybridTag}`;
+            linesetSel.appendChild(opt);
+        }
+        if (lss.length === 1) {
+            linesetSel.value = String(lss[0].number);
+        }
     }
 
     function appendGapFillSegmentRow(logbook, segmentsRoot, onChange) {
@@ -431,13 +522,25 @@
         countIn.value = '';
         countLab.appendChild(countIn);
 
-        const eqWrap = document.createElement('div');
-        eqWrap.className = 'import-gap-fill-eq-wrap';
-        const eqLab = document.createElement('label');
-        eqLab.textContent = 'Canopy';
-        const eqSel = buildEquipmentSelectElement(logbook);
-        eqLab.appendChild(eqSel);
-        eqWrap.appendChild(eqLab);
+        const canopyWrap = document.createElement('div');
+        canopyWrap.className = 'import-gap-fill-canopy-wrap';
+        const canopyLab = document.createElement('label');
+        canopyLab.textContent = 'Canopy';
+        const canopySel = buildGapFillCanopySelect(logbook);
+        canopyLab.appendChild(canopySel);
+        canopyWrap.appendChild(canopyLab);
+
+        const linesetWrap = document.createElement('div');
+        linesetWrap.className = 'import-gap-fill-lineset-wrap';
+        const linesetLab = document.createElement('label');
+        linesetLab.textContent = 'Lineset';
+        const linesetSel = document.createElement('select');
+        linesetSel.className = 'import-gap-fill-lineset';
+        linesetSel.disabled = true;
+        populateGapFillLinesetSelect(logbook, linesetSel, '');
+
+        linesetLab.appendChild(linesetSel);
+        linesetWrap.appendChild(linesetLab);
 
         const dateLab = document.createElement('label');
         dateLab.textContent = 'Date (optional)';
@@ -459,13 +562,18 @@
         });
 
         row.appendChild(countLab);
-        row.appendChild(eqWrap);
+        row.appendChild(canopyWrap);
+        row.appendChild(linesetWrap);
         row.appendChild(dateLab);
         row.appendChild(rm);
 
         countIn.addEventListener('input', onChange);
         countIn.addEventListener('change', onChange);
-        eqSel.addEventListener('change', onChange);
+        canopySel.addEventListener('change', () => {
+            populateGapFillLinesetSelect(logbook, linesetSel, canopySel.value);
+            onChange();
+        });
+        linesetSel.addEventListener('change', onChange);
         dateIn.addEventListener('change', onChange);
 
         segmentsRoot.appendChild(row);
@@ -481,15 +589,17 @@
         let sum = 0;
         for (const row of rows) {
             const c = parseInt(row.querySelector('.import-gap-fill-count')?.value, 10);
-            const eqVal = row.querySelector('select.import-gap-fill-eq')?.value || '';
             const dateRaw = row.querySelector('.import-gap-fill-date')?.value || '';
             if (!Number.isFinite(c) || c <= 0) continue;
-            if (!eqVal || !eqVal.includes(':')) {
+            const canopyId = row.querySelector('select.import-gap-fill-canopy')?.value || '';
+            const linesetStr = row.querySelector('select.import-gap-fill-lineset')?.value || '';
+            if (!canopyId) {
                 return { error: 'Each segment with a jump count needs a canopy selected.' };
             }
-            const li = eqVal.lastIndexOf(':');
-            const canopyId = eqVal.slice(0, li);
-            const linesetNumber = parseInt(eqVal.slice(li + 1), 10) || 1;
+            if (!linesetStr) {
+                return { error: 'Each segment with a jump count needs a lineset selected.' };
+            }
+            const linesetNumber = parseInt(linesetStr, 10) || 1;
             const date = normalizeDateYmd(dateRaw) || defaultDate;
             segments.push({ count: c, equipment: canopyId, linesetNumber, date });
             sum += c;
@@ -554,8 +664,9 @@
                     segmentsRoot.querySelectorAll('.import-gap-fill-row').forEach(row => {
                         const c = parseInt(row.querySelector('.import-gap-fill-count')?.value, 10);
                         if (!Number.isFinite(c) || c <= 0) return;
-                        const eq = row.querySelector('select.import-gap-fill-eq')?.value;
-                        if (!eq) ok = false;
+                        const canopyId = row.querySelector('select.import-gap-fill-canopy')?.value;
+                        const ls = row.querySelector('select.import-gap-fill-lineset')?.value;
+                        if (!canopyId || !ls) ok = false;
                     });
                 }
                 applyBtn.disabled = !ok;
@@ -577,7 +688,7 @@
                 if (e.target === modal) finish(null);
             }
 
-            explain.textContent = `Jump numbers #${gap.gapStart} through #${gap.gapEnd} (${gap.gapCount} jumps) are missing between your existing log and the imported block (starts at #${gap.csvMin}). Split them across canopy segments; counts must add up exactly.`;
+            explain.textContent = `Jump numbers #${gap.gapStart} through #${gap.gapEnd} (${gap.gapCount} jumps) are missing between your existing log and the imported block (starts at #${gap.csvMin}). For each segment, set jump count, canopy, and lineset; optional per-segment date. Counts must add up exactly.`;
 
             defaultDateInput.value = gap.suggestedDate || '';
 
@@ -701,10 +812,7 @@
             for (let i = 0; i < equipNeedsPrompt.length; i++) {
                 const eq = equipNeedsPrompt[i];
                 const parsedEq = parseExternalEquipmentString(eq);
-                let candidates = parsedEq.sizeDigits
-                    ? logbook.canopies.filter(c => !c.archived
-                        && extractTrailingTwoDigitSize(c.name) === parsedEq.sizeDigits)
-                    : [];
+                let candidates = collectExternalCsvCanopyCandidates(logbook, parsedEq);
                 candidates = candidates.slice().sort((a, b) => {
                     const as = sessionCanopyIds.has(a.id) ? 0 : 1;
                     const bs = sessionCanopyIds.has(b.id) ? 0 : 1;
@@ -819,6 +927,7 @@
         parseExternalSkydivingCsv,
         parseExternalEquipmentString,
         extractTrailingTwoDigitSize,
+        collectExternalCsvCanopyCandidates,
         mergeExternalCsvRowIntoJump,
         importExternalLogbookCsv,
         computeJumpNumberGapInfo

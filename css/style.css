@@ -1585,8 +1585,9 @@ button.jump-number.jump-number-btn:focus-visible {
     width: 5rem;
 }
 
-.import-gap-fill-row select.import-gap-fill-eq {
-    min-width: 12rem;
+.import-gap-fill-row select.import-gap-fill-canopy,
+.import-gap-fill-row select.import-gap-fill-lineset {
+    min-width: 10rem;
     max-width: 100%;
 }
 

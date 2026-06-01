@@ -39,6 +39,35 @@ test('parseExternalEquipmentString: harness + PI-71 without lineset suffix', () 
     assert.equal(p.lineset, 1);
 });
 
+test('parseExternalEquipmentString: -lineN suffix (not the word lineset)', () => {
+    const p = E.parseExternalEquipmentString('Odyssey+Petra68-line1');
+    assert.equal(p.harness, 'Odyssey');
+    assert.equal(p.canopySegment, 'Petra68');
+    assert.equal(p.sizeDigits, '68');
+    assert.equal(p.lineset, 1);
+    assert.equal(p.suggestedCanopyName, 'Petra 68');
+});
+
+test('collectExternalCsvCanopyCandidates: Petra68-line1 maps to existing Petra68', () => {
+    const logbook = {
+        canopies: [{ id: 'canopy_abc', name: 'Petra68', archived: false }]
+    };
+    const p = E.parseExternalEquipmentString('Odyssey+Petra68-line1');
+    const c = E.collectExternalCsvCanopyCandidates(logbook, p);
+    assert.equal(c.length, 1);
+    assert.equal(c[0].id, 'canopy_abc');
+});
+
+test('collectExternalCsvCanopyCandidates: match by id substring when name differs', () => {
+    const logbook = {
+        canopies: [{ id: 'rig_main_petra68', name: 'Main sport', archived: false }]
+    };
+    const p = E.parseExternalEquipmentString('Odyssey+Petra68-line1');
+    const c = E.collectExternalCsvCanopyCandidates(logbook, p);
+    assert.equal(c.length, 1);
+    assert.equal(c[0].name, 'Main sport');
+});
+
 test('extractTrailingTwoDigitSize matches canopy names', () => {
     assert.equal(E.extractTrailingTwoDigitSize('Petra 65'), '65');
     assert.equal(E.extractTrailingTwoDigitSize('PI-71'), '71');
