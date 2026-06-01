@@ -237,8 +237,10 @@
             candidates,
             toImportCount,
             toMergeCount,
-            skippedFileDup
+            skippedFileDup,
+            sessionCanopyIds
         } = ctx;
+        const sessionIds = sessionCanopyIds instanceof Set ? sessionCanopyIds : new Set();
 
         return new Promise((resolve, reject) => {
             const modal = document.getElementById('importExternalCsvModal');
@@ -308,9 +310,13 @@
 
             const radios = [];
             for (const c of candidates) {
+                const fromSession = sessionIds.has(c.id);
+                const sub = fromSession
+                    ? `(lineset #${parsed.lineset} from file — same canopy you added in this import)`
+                    : `(lineset #${parsed.lineset})`;
                 radios.push(
                     `<label><input type="radio" name="extCsvEquipPick" value="existing:${c.id}"> `
-                    + `${escapeHtml(c.name)} <span class="import-external-csv-sub">(lineset #${parsed.lineset})</span></label>`
+                    + `${escapeHtml(c.name)} <span class="import-external-csv-sub">${escapeHtml(sub)}</span></label>`
                 );
             }
             radios.push(
@@ -330,10 +336,26 @@
                 r.addEventListener('change', syncNewState);
             });
 
-            if (candidates.length === 1) {
-                radioList.querySelector('input[value^="existing:"]').checked = true;
-            } else if (candidates.length === 0) {
-                radioList.querySelector('input[value="__new__"]').checked = true;
+            const pickExistingValue = (wantVal) => {
+                const inputs = radioList.querySelectorAll('input[name="extCsvEquipPick"]');
+                let found = false;
+                inputs.forEach(inp => {
+                    const on = inp.value === wantVal;
+                    inp.checked = on;
+                    if (on) found = true;
+                });
+                return found;
+            };
+
+            if (candidates.length === 0) {
+                pickExistingValue('__new__');
+            } else {
+                const preferSession = candidates.find(c => sessionIds.has(c.id));
+                const onlyOne = candidates.length === 1 ? candidates[0] : null;
+                const prefer = preferSession || onlyOne;
+                if (prefer) {
+                    pickExistingValue(`existing:${prefer.id}`);
+                }
             }
             syncNewState();
 
@@ -673,16 +695,24 @@
         });
         const equipNeedsPrompt = uniqueEquip.filter(eq => eq.length > 0);
 
+        const sessionCanopyIds = new Set();
+
         try {
             for (let i = 0; i < equipNeedsPrompt.length; i++) {
                 const eq = equipNeedsPrompt[i];
                 const parsedEq = parseExternalEquipmentString(eq);
-                const candidates = parsedEq.sizeDigits
+                let candidates = parsedEq.sizeDigits
                     ? logbook.canopies.filter(c => !c.archived
                         && extractTrailingTwoDigitSize(c.name) === parsedEq.sizeDigits)
                     : [];
+                candidates = candidates.slice().sort((a, b) => {
+                    const as = sessionCanopyIds.has(a.id) ? 0 : 1;
+                    const bs = sessionCanopyIds.has(b.id) ? 0 : 1;
+                    if (as !== bs) return as - bs;
+                    return (a.name || '').localeCompare(b.name || '');
+                });
 
-                const res = await promptExternalCsvEquipmentMapping(logbook, {
+                let res = await promptExternalCsvEquipmentMapping(logbook, {
                     equipRaw: eq,
                     parsed: parsedEq,
                     index: i + 1,
@@ -690,17 +720,20 @@
                     candidates,
                     toImportCount: toImport.length,
                     toMergeCount: toMerge.length,
-                    skippedFileDup
+                    skippedFileDup,
+                    sessionCanopyIds
                 });
+                if (res.type === 'new') {
+                    const id = createCanopyForExternalImport(logbook, res.name, res.lineset);
+                    sessionCanopyIds.add(id);
+                    res = { type: 'existing', canopyId: id, lineset: res.lineset };
+                }
                 equipResolution.set(eq, res);
             }
 
             for (const eq of uniqueEquip) {
                 const res = equipResolution.get(eq);
-                if (res && res.type === 'new') {
-                    const id = createCanopyForExternalImport(logbook, res.name, res.lineset);
-                    equipResolution.set(eq, { type: 'existing', canopyId: id, lineset: res.lineset });
-                } else if (res && res.type === 'existing') {
+                if (res && res.type === 'existing' && res.canopyId) {
                     ensureLinesetExistsOnCanopy(logbook, res.canopyId, res.lineset);
                 }
             }
