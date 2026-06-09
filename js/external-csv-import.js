@@ -1,5 +1,6 @@
 /**
- * One-off import for CSV exports from another logbook app (French columns).
+ * One-off import for CSV/TSV exports from another logbook app (French columns).
+ * Supports comma-separated "Saut #" exports and tab-separated "Numéro" Excel-style exports.
  * Intentionally isolated from app.js — safe to delete after a successful import.
  */
 (function (global) {
@@ -35,10 +36,36 @@
         return out;
     }
 
+    function parseTsvLine(line) {
+        return line.split('\t');
+    }
+
+    /** French-style DD/MM/YYYY → YYYY-MM-DD; returns null if not matched. */
+    function parseDdMmYyyyToIso(dateStr) {
+        const s = (dateStr || '').trim();
+        const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        if (!m) return null;
+        const d = parseInt(m[1], 10);
+        const mo = parseInt(m[2], 10);
+        const y = parseInt(m[3], 10);
+        if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${y}-${pad(mo)}-${pad(d)}`;
+    }
+
+    function isExternalExcelExportTsvHeaderLine(firstLine) {
+        if (!firstLine || firstLine.indexOf('\t') < 0) return false;
+        const cells = parseTsvLine(firstLine).map(c => c.trim().replace(/^\uFEFF/, ''));
+        return cells[0] === 'Numéro'
+            && cells.includes('Date')
+            && cells.includes('Principale');
+    }
+
     function isExternalSkydivingLogbookCsv(text) {
         if (!text || typeof text !== 'string') return false;
         const firstLine = text.replace(/^\uFEFF/, '').split(/\r?\n/).find(l => l.trim().length > 0);
         if (!firstLine) return false;
+        if (isExternalExcelExportTsvHeaderLine(firstLine)) return true;
         const cells = parseCsvLine(firstLine).map(c => c.trim().replace(/^\uFEFF/, ''));
         return cells[0] === 'Saut #'
             && cells[1] === 'Date'
@@ -163,11 +190,71 @@
         return out;
     }
 
+    function parseExternalSkydivingExcelTsv(lines) {
+        const header = parseTsvLine(lines[0]).map(c => c.trim().replace(/^\uFEFF/, ''));
+        const idx = (name) => header.indexOf(name);
+        const iNum = idx('Numéro');
+        const iDate = idx('Date');
+        const iLieu = idx('Lieu');
+        const iType = idx('Type');
+        const iLib = idx('Libération');
+        const iPrincipale = idx('Principale');
+        const iNotes = idx('Notes');
+        const iLibre = idx('Libre');
+        if (iNum < 0 || iDate < 0 || iPrincipale < 0) {
+            return { ok: false, rows: [], error: 'TSV is missing required columns (Numéro, Date, Principale)' };
+        }
+
+        const rows = [];
+        for (let li = 1; li < lines.length; li++) {
+            const cells = parseTsvLine(lines[li]);
+            const jumpNumber = parseInt((cells[iNum] || '').trim(), 10);
+            if (!Number.isFinite(jumpNumber)) continue;
+
+            const dateRaw = (cells[iDate] || '').trim();
+            let date = dateRaw;
+            const isoFromFrench = parseDdMmYyyyToIso(dateRaw);
+            if (isoFromFrench) {
+                date = isoFromFrench;
+            } else if (dateRaw && !/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) {
+                const d = new Date(dateRaw);
+                date = isNaN(d.getTime()) ? dateRaw : d.toISOString().slice(0, 10);
+            }
+
+            const location = iLieu >= 0 ? (cells[iLieu] || '').trim() : '';
+            const equipmentRaw = (cells[iPrincipale] || '').trim();
+            const lib = iLib >= 0 ? (cells[iLib] || '').trim().toLowerCase() : '';
+            const typeText = iType >= 0 ? (cells[iType] || '').trim() : '';
+            const noteText = iNotes >= 0 ? (cells[iNotes] || '').trim() : '';
+            const libreText = iLibre >= 0 ? (cells[iLibre] || '').trim() : '';
+
+            const noteParts = [];
+            if (lib === 'oui') noteParts.push('libération');
+            for (const part of [typeText, noteText, libreText]) {
+                if (part) noteParts.push(part);
+            }
+            const notesComposed = noteParts.join('\n');
+
+            rows.push({
+                jumpNumber,
+                date,
+                location,
+                equipmentRaw,
+                notesComposed
+            });
+        }
+        return { ok: true, rows, error: null };
+    }
+
     function parseExternalSkydivingCsv(text) {
         const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.length > 0);
         if (lines.length < 2) {
             return { ok: false, rows: [], error: 'CSV has no data rows' };
         }
+        if (isExternalExcelExportTsvHeaderLine(lines[0])) {
+            return parseExternalSkydivingExcelTsv(lines);
+        }
+
         const header = parseCsvLine(lines[0]).map(c => c.trim().replace(/^\uFEFF/, ''));
         const idx = (name) => header.indexOf(name);
         const iSaut = idx('Saut #');

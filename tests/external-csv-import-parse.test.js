@@ -23,6 +23,15 @@ test('isExternalSkydivingLogbookCsv detects sample export header', () => {
     assert.equal(E.isExternalSkydivingLogbookCsv('{"jumps":[]}'), false);
 });
 
+test('isExternalSkydivingLogbookCsv detects tab-separated Numéro / Principale export', () => {
+    const header = [
+        'Numéro', 'Date', 'Lieu', 'Avion', 'Hauteur', 'Type', 'Libération',
+        'excel-export-packer.person.compositeName', 'Parachute', 'Principale',
+        'Réserve', 'AAD', 'Notes', 'Libre'
+    ].join('\t');
+    assert.equal(E.isExternalSkydivingLogbookCsv(`${header}\n2560\t02/01/2011\tDZ`), true);
+});
+
 test('parseExternalEquipmentString: harness + canopy + lineset', () => {
     const p = E.parseExternalEquipmentString('Mutant+Petra65-lineset1');
     assert.equal(p.harness, 'Mutant');
@@ -92,6 +101,38 @@ test('Libération Oui adds cutaway note', () => {
     ].join('\n');
     const { rows } = E.parseExternalSkydivingCsv(csv);
     assert.equal(rows[0].notesComposed, 'cutaway\nhello');
+});
+
+test('parseExternalSkydivingCsv: Excel TSV maps columns and DD/MM/YYYY date', () => {
+    const tsv = [
+        [
+            'Numéro', 'Date', 'Lieu', 'Avion', 'Hauteur', 'Type', 'Libération',
+            'excel-export-packer.person.compositeName', 'Parachute', 'Principale',
+            'Réserve', 'AAD', 'Notes', 'Libre'
+        ].join('\t'),
+        [
+            '2560', '02/01/2011', 'Montbeliard ', 'F- GIVS', '2200 m', 'Free Fly', 'Non',
+            '', 'Javelin Odyssey', 'Performance Designs VE90', 'Performance Designs',
+            'Cypres 2', 'Saut avec Robert.', ''
+        ].join('\t')
+    ].join('\n');
+    const { ok, rows } = E.parseExternalSkydivingCsv(tsv);
+    assert.equal(ok, true);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].jumpNumber, 2560);
+    assert.equal(rows[0].date, '2011-01-02');
+    assert.equal(rows[0].location, 'Montbeliard');
+    assert.equal(rows[0].equipmentRaw, 'Performance Designs VE90');
+    assert.equal(rows[0].notesComposed, 'Free Fly\nSaut avec Robert.');
+});
+
+test('parseExternalSkydivingCsv: TSV Libération Oui prefixes libération in notes', () => {
+    const tsv = [
+        ['Numéro', 'Date', 'Lieu', 'Type', 'Libération', 'Principale', 'Notes', 'Libre'].join('\t'),
+        ['1', '15/06/2020', 'DZ', 'RW', 'Oui', 'Petra 68', 'ok', 'extra'].join('\t')
+    ].join('\n');
+    const { rows } = E.parseExternalSkydivingCsv(tsv);
+    assert.equal(rows[0].notesComposed, 'libération\nRW\nok\nextra');
 });
 
 test('mergeExternalCsvRowIntoJump appends notes and fills blanks only', () => {
