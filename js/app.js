@@ -2648,7 +2648,7 @@ class SkydivingLogbook {
 
         const lsNum = ls.number;
         const hybridTag = ls?.hybrid ? ' (Hybrid)' : '';
-        const total = (ls?.jumpCount || 0) + (ls?.previousJumps || 0);
+        const total = (ls?.jumpCount || 0) + (ls?.previousJumps ?? 0);
         hint.textContent = `→ Lineset #${lsNum}${hybridTag} · ${total} total jumps`;
         hint.style.display = 'block';
     }
@@ -2674,7 +2674,7 @@ class SkydivingLogbook {
 
             const renderLinesetRow = (ls) => {
                 const logged = ls.jumpCount || 0;
-                const preApp = ls.previousJumps || 0;
+                const preApp = ls.previousJumps ?? 0;
                 const total = logged + preApp;
                 const hybridBadge = ls.hybrid ? '<span class="hybrid-badge">Hybrid</span>' : '';
                 const archivedBadge = ls.archived ? '<span class="archived-badge">Archived</span>' : '';
@@ -2682,7 +2682,7 @@ class SkydivingLogbook {
                     <div class="lineset-row ${ls.archived ? 'archived' : ''}">
                         <span class="lineset-info">
                             Lineset #${ls.number} ${hybridBadge} ${archivedBadge}
-                            <span class="lineset-jumps">${total} jumps${preApp > 0 ? ` (${logged} logged + ${preApp} pre-app)` : ''}</span>
+                            <span class="lineset-jumps">${total} jumps${preApp !== 0 ? ` (${logged} logged + ${preApp} pre-app)` : ''}</span>
                         </span>
                         <span class="lineset-actions">
                             <button onclick="window.logbook.editLineset('${canopy.id}', ${ls.number})" class="btn-edit btn-sm">Edit</button>
@@ -2857,7 +2857,7 @@ class SkydivingLogbook {
         document.getElementById('linesetModalTitle').textContent = `Edit Lineset #${linesetNumber}`;
         document.getElementById('linesetNumber').value = linesetNumber;
         document.getElementById('linesetHybridCheck').checked = lineset.hybrid || false;
-        document.getElementById('linesetPreviousJumps').value = lineset.previousJumps || 0;
+        document.getElementById('linesetPreviousJumps').value = lineset.previousJumps ?? 0;
         
         document.getElementById('linesetModal').style.display = 'block';
     }
@@ -2867,7 +2867,9 @@ class SkydivingLogbook {
         const editNumber = document.getElementById('linesetEditNumber').value;
         const linesetNumber = parseInt(document.getElementById('linesetNumber').value) || 1;
         const hybrid = document.getElementById('linesetHybridCheck').checked;
-        const previousJumps = Math.max(0, parseInt(document.getElementById('linesetPreviousJumps').value) || 0);
+        const prevRaw = String(document.getElementById('linesetPreviousJumps').value).trim();
+        const prevParsed = parseInt(prevRaw, 10);
+        const previousJumps = Number.isFinite(prevParsed) ? prevParsed : 0;
         
         const canopy = this.canopies.find(c => c.id === canopyId);
         if (!canopy) return;
@@ -2937,10 +2939,12 @@ class SkydivingLogbook {
             return;
         }
 
-        const preApp = lineset.previousJumps || 0;
+        const preApp = lineset.previousJumps ?? 0;
         let msg = `Delete lineset #${linesetNumber} for ${canopy.name}? This cannot be undone.`;
         if (preApp > 0) {
             msg = `Delete lineset #${linesetNumber}? It has ${preApp} pre-app jump(s) recorded (none in this logbook). This cannot be undone.`;
+        } else if (preApp < 0) {
+            msg = `Delete lineset #${linesetNumber}? It has a negative pre-app adjustment (${preApp}). This cannot be undone.`;
         }
         if (!confirm(msg)) return;
 
@@ -3558,7 +3562,7 @@ class SkydivingLogbook {
         this.canopies.forEach(canopy => {
             (canopy.linesets || []).forEach(ls => {
                 const logged = this.jumps.filter(j => j.equipment === canopy.id && j.linesetNumber === ls.number).length;
-                const preApp = ls.previousJumps || 0;
+                const preApp = ls.previousJumps ?? 0;
                 const total = logged + preApp;
                 const hybridSuffix = ls.hybrid ? ' (Hybrid)' : '';
                 linesetStats.push({
@@ -3572,7 +3576,7 @@ class SkydivingLogbook {
             });
         });
         
-        const activeStats = linesetStats.filter(s => !s.archived && s.count > 0);
+        const activeStats = linesetStats.filter(s => !s.archived && (s.logged > 0 || s.preApp !== 0));
         const archivedStats = linesetStats.filter(s => s.archived);
         const sortedStats = this.showArchivedStats ? [...activeStats, ...archivedStats] : activeStats;
         
@@ -3599,7 +3603,7 @@ class SkydivingLogbook {
                 let barColorClass = '';
                 if (stat.count >= redThreshold) barColorClass = 'stat-fill-red';
                 else if (stat.count >= orangeThreshold) barColorClass = 'stat-fill-orange';
-                const breakdown = stat.preApp > 0
+                const breakdown = stat.preApp !== 0
                     ? `${stat.count} total (${stat.logged} logged + ${stat.preApp} pre-app)`
                     : `${stat.count} jumps`;
                 html += `
@@ -3623,9 +3627,9 @@ class SkydivingLogbook {
         // Add canopy aggregate statistics (preserve canopy order)
         const canopyTotalsArray = this.canopies.map(canopy => {
             const logged = this.jumps.filter(j => j.equipment === canopy.id).length;
-            const preApp = (canopy.linesets || []).reduce((sum, ls) => sum + (ls.previousJumps || 0), 0);
-            return { name: canopy.name, count: logged + preApp, archived: !!canopy.archived };
-        }).filter(s => s.count > 0);
+            const preApp = (canopy.linesets || []).reduce((sum, ls) => sum + (ls.previousJumps ?? 0), 0);
+            return { name: canopy.name, count: logged + preApp, logged, archived: !!canopy.archived };
+        }).filter(s => s.count > 0 || s.logged > 0);
         html += this.renderOrderedComponentStats('Canopy Totals', canopyTotalsArray);
         
         container.innerHTML = html;
@@ -3681,9 +3685,9 @@ class SkydivingLogbook {
         `;
 
         if (statsArray.length > 0) {
-            const maxCount = Math.max(...statsArray.map(s => s.count));
+            const maxCount = Math.max(...statsArray.map(s => s.count), 1);
             statsArray.forEach(stat => {
-                const percentage = (stat.count / maxCount) * 100;
+                const percentage = stat.count > 0 ? Math.min((stat.count / maxCount) * 100, 100) : 0;
                 html += `
                     <div class="stat-item${stat.archived ? ' archived' : ''}">
                         <div class="stat-info">
