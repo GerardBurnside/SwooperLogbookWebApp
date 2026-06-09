@@ -3048,12 +3048,14 @@ class SkydivingLogbook {
         }
         
         const collection = this[collectionName];
-        
+        let jumpsUpdatedForLocationRename = 0;
+
         if (id) {
             // Edit existing
             const component = collection.find(c => c.id === id);
             if (component) {
-                const nameChanged = type === 'location' && component.name !== name;
+                const prevLocationName = type === 'location' ? component.name : null;
+                const nameChanged = type === 'location' && (component.name || '').trim() !== name;
                 component.name = name;
                 component.notes = notes;
                 if (type === 'location') {
@@ -3064,6 +3066,17 @@ class SkydivingLogbook {
                     } else {
                         if (nameChanged) { component.lat = null; component.lng = null; }
                         if (component.lat == null) this.geocodeLocation(component);
+                    }
+                    if (nameChanged && prevLocationName != null) {
+                        const oldT = (prevLocationName || '').trim();
+                        if (oldT && oldT !== name) {
+                            for (const j of this.jumps) {
+                                if ((j.location || '').trim() === oldT) {
+                                    j.location = name;
+                                    jumpsUpdatedForLocationRename++;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -3102,7 +3115,19 @@ class SkydivingLogbook {
         // Refresh autocomplete if a location was saved
         if (type === 'location') this.updateLocationDatalist();
         if (navigator.onLine && window.SheetsAPI) window.SheetsAPI.syncEquipmentToSheet();
-        this.showMessage(`${type.charAt(0).toUpperCase() + type.slice(1)} saved successfully!`, 'success');
+        if (jumpsUpdatedForLocationRename > 0) {
+            this.saveToLocalStorage();
+            this.updateStats();
+            if (this.currentView === 'jumps') this.renderJumpsList();
+            if (navigator.onLine && window.SheetsAPI?.initialized) {
+                window.SheetsAPI.pushAllWithGuard();
+            }
+        }
+        let savedMsg = `${type.charAt(0).toUpperCase() + type.slice(1)} saved successfully!`;
+        if (jumpsUpdatedForLocationRename > 0) {
+            savedMsg += ` ${jumpsUpdatedForLocationRename} jump${jumpsUpdatedForLocationRename === 1 ? '' : 's'} updated to the new location name.`;
+        }
+        this.showMessage(savedMsg, 'success');
     }
     
     updateLocationDatalist() {
