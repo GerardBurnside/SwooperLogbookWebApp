@@ -247,6 +247,11 @@ class SkydivingLogbook {
             this.saveSettings();
         });
 
+        const repairJumpIdsBtn = document.getElementById('repairJumpLocalIdsBtn');
+        if (repairJumpIdsBtn) {
+            repairJumpIdsBtn.addEventListener('click', () => this.repairJumpLocalIdsFromSettings());
+        }
+
         const reseqChk = document.getElementById('settingsResequenceJumpsCheckbox');
         if (reseqChk) {
             reseqChk.addEventListener('change', () => this._updateStartingJumpUiState());
@@ -2364,6 +2369,7 @@ class SkydivingLogbook {
     /**
      * Ensure every jump has a unique local `id` (IndexedDB keyPath) and a stable `jumpId` (Sheets sync / backups).
      * Duplicate or missing `id` causes silent data loss on save; missing `jumpId` breaks sync and merge.
+     * @returns {{ repairedLocalIds: number, addedJumpIds: number }} counts of rows actually changed
      */
     ensureJumpIds() {
         const genJumpId = () => (typeof crypto !== 'undefined' && crypto.randomUUID)
@@ -2388,22 +2394,58 @@ class SkydivingLogbook {
         };
 
         let needsSave = false;
+        let repairedLocalIds = 0;
+        let addedJumpIds = 0;
         this.jumps.forEach((jump, idx) => {
             const idStr = jump.id != null && jump.id !== '' ? String(jump.id) : '';
             if (!idStr || seenLocalIds.has(idStr)) {
                 jump.id = allocUniqueLocalId(idx);
                 needsSave = true;
+                repairedLocalIds++;
             }
             seenLocalIds.add(String(jump.id));
 
             if (!jump.jumpId) {
                 jump.jumpId = genJumpId();
                 needsSave = true;
+                addedJumpIds++;
             }
         });
         if (needsSave) {
             DB.replaceAllJumps(this.jumps).catch(err => console.error('[DB] Failed to save jumps after jump id / jumpId fix:', err));
         }
+        return { repairedLocalIds, addedJumpIds };
+    }
+
+    /**
+     * One-click repair for duplicate or missing per-device jump `id` values (IndexedDB key) and missing `jumpId`.
+     * Does not change jump numbers, dates, locations, or sheet sync identity (`jumpId` is only added when absent).
+     */
+    repairJumpLocalIdsFromSettings() {
+        const { repairedLocalIds, addedJumpIds } = this.ensureJumpIds();
+        if (repairedLocalIds === 0 && addedJumpIds === 0) {
+            this.showMessage('No duplicate or missing jump IDs found. Your log is already consistent.', 'info');
+            return;
+        }
+        this.markJumpsModified();
+        if (this.currentView === 'jumps') {
+            this.renderJumpsList();
+        }
+        if (this.currentView === 'equipment') {
+            this.renderEquipmentView();
+        }
+        if (this.currentView === 'stats') {
+            this.renderStats();
+        }
+        this.updateStats();
+        const parts = [];
+        if (repairedLocalIds > 0) {
+            parts.push(`fixed ${repairedLocalIds} local storage id${repairedLocalIds === 1 ? '' : 's'} (missing or duplicate)`);
+        }
+        if (addedJumpIds > 0) {
+            parts.push(`added ${addedJumpIds} missing sync id${addedJumpIds === 1 ? '' : 's'} (jumpId)`);
+        }
+        this.showMessage(`Repair complete: ${parts.join('; ')}. Your data was saved.`, 'success');
     }
 
     saveToLocalStorage() {

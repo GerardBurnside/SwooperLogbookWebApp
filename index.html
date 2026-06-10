@@ -277,6 +277,14 @@
                     </div>
                 </div>
 
+                <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
+                <h3 style="margin-bottom: 8px;">Jump log storage</h3>
+                <p style="color:#666; font-size:13px; margin:0 0 10px 0; line-height:1.45;">
+                    If jumps vanished from the list or edits felt wrong, duplicate <strong>internal</strong> jump IDs may exist (this app’s per-device key, not your jump # or Google Sheet row id).
+                    This assigns new safe internal IDs and does not change jump numbers, dates, notes, or existing <code>jumpId</code> values used for sync.
+                </p>
+                <button type="button" id="repairJumpLocalIdsBtn" class="btn-secondary" style="width:100%;">Repair duplicate / missing jump IDs</button>
+
                 <button id="saveSettings" class="btn-primary" style="margin-top:16px;">Save Settings</button>
 
                 <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
