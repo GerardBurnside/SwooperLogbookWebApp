@@ -3663,8 +3663,10 @@ class SkydivingLogbook {
         
         html += '</div></div>';
         
-        // Add canopy aggregate statistics (preserve canopy order)
-        const canopyTotalsArray = this.canopies.map(canopy => {
+        // Add canopy aggregate statistics: same order as equipment (non-archived first, then archived;
+        // within each group, order matches the canopies list / sortOrder — see renderCanopiesWithLinesets).
+        const canopiesForTotals = [...this.canopies].sort((a, b) => !!a.archived - !!b.archived);
+        const canopyTotalsArray = canopiesForTotals.map(canopy => {
             const logged = this.jumps.filter(j => j.equipment === canopy.id).length;
             const preApp = (canopy.linesets || []).reduce((sum, ls) => sum + (ls.previousJumps ?? 0), 0);
             return { name: canopy.name, count: logged + preApp, logged, archived: !!canopy.archived };
