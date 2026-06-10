@@ -190,10 +190,14 @@ class SkydivingLogbook {
             const form = document.getElementById('jumpForm');
             const jumpData = {
                 date: form.elements['date'].value,
-                location: form.elements['location'].value,
+                location: (form.elements['location'].value || '').trim(),
                 equipment: form.elements['equipment'].value,
                 notes: form.elements['notes'].value || ''
             };
+            if (!jumpData.location) {
+                this.showMessage('Please enter a location.', 'error');
+                return;
+            }
             if (!jumpData.equipment) {
                 this.showMessage('Please select a canopy.', 'error');
                 return;
@@ -657,11 +661,16 @@ class SkydivingLogbook {
         // Use passed data or read from form
         const data = jumpData || {
             date: form.elements['date'].value,
-            location: form.elements['location'].value,
+            location: (form.elements['location'].value || '').trim(),
             equipment: form.elements['equipment'].value,
             notes: form.elements['notes'].value || ''
         };
-        
+        data.location = String(data.location ?? '').trim();
+        if (!data.location) {
+            this.showMessage('Please enter a location.', 'error');
+            return;
+        }
+
         // Determine the active lineset for the selected canopy
         let linesetNumber = data.linesetNumber; // may be pre-set by caller
         if (!linesetNumber && data.equipment) {
@@ -1814,6 +1823,10 @@ class SkydivingLogbook {
         const linesetNumber = li >= 0 ? (parseInt(eqVal.slice(li + 1), 10) || 1) : 1;
 
         const location = (locInput.value || '').trim();
+        if (!location) {
+            this.showMessage('Please enter a location.', 'error');
+            return;
+        }
         const applyLocToSameDay = !!document.getElementById('editJumpApplyLocationToSameDay')?.checked;
 
         const oldDateNorm = this._normalizeDateForInput(jump.date);
@@ -2357,14 +2370,28 @@ class SkydivingLogbook {
             ? crypto.randomUUID()
             : 'jump-' + Date.now() + '-' + Math.random().toString(36).slice(2);
         let seq = 0;
-        const genClientId = (idx) => Date.now() + Math.random() + idx * 1e-9 + (++seq) * 1e-12;
-
         const seenLocalIds = new Set();
+        /** New local id must not collide with any jump already processed (fixes reassignment clashing with existing ids). */
+        const allocUniqueLocalId = (idx) => {
+            if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+                const s = 'lb-' + crypto.randomUUID();
+                if (!seenLocalIds.has(s)) {
+                    return s;
+                }
+            }
+            let candidate;
+            let guard = 0;
+            do {
+                candidate = Date.now() + Math.random() + (++seq) * 1e-9 + idx * 1e-15 + (++guard) * 1e-18;
+            } while (seenLocalIds.has(String(candidate)));
+            return candidate;
+        };
+
         let needsSave = false;
         this.jumps.forEach((jump, idx) => {
             const idStr = jump.id != null && jump.id !== '' ? String(jump.id) : '';
             if (!idStr || seenLocalIds.has(idStr)) {
-                jump.id = genClientId(idx);
+                jump.id = allocUniqueLocalId(idx);
                 needsSave = true;
             }
             seenLocalIds.add(String(jump.id));
