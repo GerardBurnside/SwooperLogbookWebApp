@@ -3748,6 +3748,7 @@ class SkydivingLogbook {
         
         if (this.jumps.length === 0) {
             container.innerHTML = '<p class="no-items">No jumps logged yet.</p>';
+            this._updateJumpsYearSummary();
             return;
         }
         
@@ -3829,6 +3830,7 @@ class SkydivingLogbook {
         html += this.renderOrderedComponentStats('Canopy Totals', canopyTotalsArray);
         
         container.innerHTML = html;
+        this._updateJumpsYearSummary();
     }
     
     toggleArchivedStats() {

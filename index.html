@@ -106,7 +106,6 @@
                     <div id="jumpsList" class="jumps-list">
                         <p class="no-jumps">No jumps logged yet. Add your first jump above!</p>
                     </div>
-                    <p id="jumpsYearSummary" class="jumps-year-summary" hidden></p>
                     <div id="jumpsPastMonthsRow" class="jumps-past-months-row" hidden>
                         <span>Number of jumps in the past</span>
                         <input type="number" id="statsPastMonthsWindow" class="jumps-past-months-input" min="1" max="240" value="3" inputmode="numeric" aria-label="Months for rolling jump count">
@@ -147,6 +146,7 @@
             <div id="statsView" class="view" style="display: none;">
                 <section class="statistics">
                     <h2>Jump Statistics</h2>
+                    <p id="jumpsYearSummary" class="jumps-year-summary statistics-year-summary" hidden></p>
                     <div id="statsContent">
                         <p class="no-items">Loading...</p>
                     </div>
