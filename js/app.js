@@ -1110,6 +1110,7 @@ class SkydivingLogbook {
             // One month+location block per month/location across recent and older jumps
             this._useMergedListCache = true;
             this._mergedJumpsCache = [...recentJumps, ...olderJumps];
+            this._pastYearBuckets = null;
             const targetFirst = Math.max(PAGE_SIZE, recentJumps.length);
             const endIndex = this._findMonthCompleteIndex(this._mergedJumpsCache, targetFirst);
             this._renderedMergedCount = endIndex;
@@ -1127,28 +1128,99 @@ class SkydivingLogbook {
             this._mergedJumpsCache = [];
             this._renderedMergedCount = 0;
 
-            this._olderJumpsCache = olderJumps;
-            const endIndex = this._findMonthCompleteIndex(olderJumps, PAGE_SIZE);
-            const initialOlder = olderJumps.slice(0, endIndex);
+            const { sameYearOlder, pastYearBuckets } = this._splitOlderJumpsSameYearAndPastYears(olderJumps);
+            this._olderJumpsCache = sameYearOlder;
+            this._pastYearBuckets = pastYearBuckets;
+
+            const endIndex = this._findMonthCompleteIndex(sameYearOlder, PAGE_SIZE);
+            const initialOlder = sameYearOlder.slice(0, endIndex);
             this._renderedOlderCount = initialOlder.length;
 
             if (recentJumps.length > 0) {
                 html += this.renderDayLocationGroups(recentJumps, { expandFirst: true });
             }
-            if (initialOlder.length > 0) {
-                html += this._renderOlderMonthGroups(initialOlder);
+            if (sameYearOlder.length > 0) {
+                html += `<div id="olderSameYearMonthsWrap">${
+                    initialOlder.length ? this._renderOlderMonthGroups(initialOlder) : ''
+                }</div>`;
             }
-            remaining = olderJumps.length - this._renderedOlderCount;
+            remaining = sameYearOlder.length - this._renderedOlderCount;
         }
 
         if (remaining > 0) {
             html += `<button class="btn-secondary load-more-btn" id="loadMoreJumpsBtn" onclick="logbook.loadMoreJumps()">Load more (${remaining} remaining)</button>`;
         }
 
+        if (!this._useMergedListCache && this._pastYearBuckets && this._pastYearBuckets.length > 0) {
+            html += `<div id="olderPastYearsWrap">${this._renderPastYearCollapseGroups(this._pastYearBuckets)}</div>`;
+        }
+
         updateRecentTotal(recentJumps.length);
         jumpsList.innerHTML = html;
         this._updateJumpsYearSummary();
         this._updateRecentJumpsGroupByMonthUi();
+    }
+
+    /** Calendar year from jump `date` (YYYY-MM-DD), or null if unusable. */
+    _jumpCalendarYear(dateStr) {
+        if (!dateStr || typeof dateStr !== 'string') return null;
+        const s = dateStr.trim();
+        if (s.length < 4) return null;
+        const dt = new Date(s.includes('T') ? s : `${s.slice(0, 10)}T12:00:00`);
+        if (Number.isNaN(dt.getTime())) return null;
+        return dt.getFullYear();
+    }
+
+    /**
+     * Split non-recent jumps into (a) current calendar year — still paginated by month —
+     * and (b) prior calendar years — shown as collapsed year rows so users open one year at a time.
+     */
+    _splitOlderJumpsSameYearAndPastYears(olderJumps) {
+        const currentYear = new Date().getFullYear();
+        const sameYearOlder = [];
+        const byPastYear = new Map();
+
+        for (const jump of olderJumps) {
+            const y = this._jumpCalendarYear(jump.date);
+            if (y === null) {
+                if (!byPastYear.has('unknown')) byPastYear.set('unknown', []);
+                byPastYear.get('unknown').push(jump);
+            } else if (y >= currentYear) {
+                sameYearOlder.push(jump);
+            } else {
+                if (!byPastYear.has(y)) byPastYear.set(y, []);
+                byPastYear.get(y).push(jump);
+            }
+        }
+
+        const numericYears = [...byPastYear.keys()].filter(k => k !== 'unknown').sort((a, b) => b - a);
+        const pastYearBuckets = numericYears.map(year => ({ year, jumps: byPastYear.get(year) }));
+        if (byPastYear.has('unknown')) {
+            pastYearBuckets.push({ year: 'unknown', jumps: byPastYear.get('unknown') });
+        }
+        return { sameYearOlder, pastYearBuckets };
+    }
+
+    /** Collapsible headers for each past calendar year; body uses month+location groups. */
+    _renderPastYearCollapseGroups(pastYearBuckets) {
+        if (!pastYearBuckets.length) return '';
+        return pastYearBuckets.map(({ year, jumps }) => {
+            const slug = year === 'unknown' ? 'unknown' : String(year);
+            const label = year === 'unknown' ? 'Unknown date' : String(year);
+            const n = jumps.length;
+            const countStr = n === 1 ? '1 jump' : `${n} jumps`;
+            return `
+                <div class="year-group" data-year="${this.escapeHtml(slug)}">
+                    <div class="year-group-header" onclick="logbook.toggleYearGroup('${slug}')">
+                        <span class="year-group-arrow" id="arrow-year-${slug}">&#9654;</span>
+                        <span class="year-group-label">${this.escapeHtml(label)}</span>
+                        <span class="year-group-count">${countStr}</span>
+                    </div>
+                    <div class="year-group-body" id="year-group-body-${slug}" style="display:none;">
+                        ${this._renderOlderMonthGroups(jumps)}
+                    </div>
+                </div>`;
+        }).join('');
     }
 
     /** Render jumps as collapsed month + location groups (day groups inside are collapsed too). */
@@ -1272,9 +1344,12 @@ class SkydivingLogbook {
         if (nextBatch.length === 0) return;
         this._renderedOlderCount = endIndex;
 
+        const sameYearWrap = document.getElementById('olderSameYearMonthsWrap');
+        const pastWrap = document.getElementById('olderPastYearsWrap');
         const fragment = document.createElement('div');
         fragment.innerHTML = this._renderOlderMonthGroups(nextBatch);
-        while (fragment.firstChild) jumpsList.appendChild(fragment.firstChild);
+        const appendParent = sameYearWrap || jumpsList;
+        while (fragment.firstChild) appendParent.appendChild(fragment.firstChild);
 
         remaining = this._olderJumpsCache.length - this._renderedOlderCount;
         if (remaining > 0) {
@@ -1283,8 +1358,19 @@ class SkydivingLogbook {
             newBtn.id = 'loadMoreJumpsBtn';
             newBtn.textContent = `Load more (${remaining} remaining)`;
             newBtn.onclick = () => this.loadMoreJumps();
-            jumpsList.appendChild(newBtn);
+            if (pastWrap) pastWrap.insertAdjacentElement('beforebegin', newBtn);
+            else if (sameYearWrap) sameYearWrap.insertAdjacentElement('afterend', newBtn);
+            else jumpsList.appendChild(newBtn);
         }
+    }
+
+    toggleYearGroup(yearSlug) {
+        const body = document.getElementById(`year-group-body-${yearSlug}`);
+        const arrow = document.getElementById(`arrow-year-${yearSlug}`);
+        if (!body) return;
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : 'block';
+        if (arrow) arrow.innerHTML = open ? '&#9654;' : '&#9660;';
     }
 
     toggleMonthGroup(domId) {

@@ -1123,6 +1123,58 @@ button.jump-number.jump-number-btn:focus-visible {
     padding: 0.25rem;
 }
 
+/* Collapsed calendar years (jumps before Jan 1 of the current year) */
+.year-group {
+    margin-bottom: 0.5rem;
+    border: 1px solid #c5d4e8;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #fafcfe;
+}
+
+.year-group-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 0.85rem;
+    background: #dbe7f5;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.2s;
+}
+
+.year-group-header:hover {
+    background: #cddff0;
+}
+
+.year-group-arrow {
+    font-size: 0.75rem;
+    color: #444;
+    width: 1rem;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.year-group-label {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: #1a2d4d;
+    flex-shrink: 0;
+}
+
+.year-group-count {
+    font-size: 0.9rem;
+    color: #555;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.year-group-body {
+    padding: 0.35rem 0.25rem 0.5rem;
+    border-top: 1px solid #e2eaf4;
+}
+
 .no-jumps {
     text-align: center;
     color: #666;
