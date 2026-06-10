@@ -2262,20 +2262,34 @@ class SkydivingLogbook {
         localStorage.setItem('skydiving-equipment-last-modified-utc', this.getCurrentUtcTimestamp());
     }
 
-    /** Ensure every jump has a stable jumpId (for sync/deletedJumps). Persists if any were added. */
+    /**
+     * Ensure every jump has a unique local `id` (IndexedDB keyPath) and a stable `jumpId` (Sheets sync / backups).
+     * Duplicate or missing `id` causes silent data loss on save; missing `jumpId` breaks sync and merge.
+     */
     ensureJumpIds() {
-        const generator = () => (typeof crypto !== 'undefined' && crypto.randomUUID)
+        const genJumpId = () => (typeof crypto !== 'undefined' && crypto.randomUUID)
             ? crypto.randomUUID()
             : 'jump-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+        let seq = 0;
+        const genClientId = (idx) => Date.now() + Math.random() + idx * 1e-9 + (++seq) * 1e-12;
+
+        const seenLocalIds = new Set();
         let needsSave = false;
-        this.jumps.forEach(jump => {
+        this.jumps.forEach((jump, idx) => {
+            const idStr = jump.id != null && jump.id !== '' ? String(jump.id) : '';
+            if (!idStr || seenLocalIds.has(idStr)) {
+                jump.id = genClientId(idx);
+                needsSave = true;
+            }
+            seenLocalIds.add(String(jump.id));
+
             if (!jump.jumpId) {
-                jump.jumpId = generator();
+                jump.jumpId = genJumpId();
                 needsSave = true;
             }
         });
         if (needsSave) {
-            DB.replaceAllJumps(this.jumps).catch(err => console.error('[DB] Failed to save jumps after jumpId migration:', err));
+            DB.replaceAllJumps(this.jumps).catch(err => console.error('[DB] Failed to save jumps after jump id / jumpId fix:', err));
         }
     }
 
@@ -3893,7 +3907,11 @@ class SkydivingLogbook {
         }
     }
 
-    /** Merge import: keep local jumps and equipment; add/update from import (by jumpId / id). No deletions. */
+    /**
+     * Merge import: keep local jumps and equipment; add/update from import. No deletions.
+     * Rows are matched by `jumpId` when set, otherwise by legacy numeric `id` (same key twice drops a duplicate row).
+     * After import, `ensureJumpIds()` assigns missing `jumpId` and fixes duplicate/missing local `id` for IndexedDB.
+     */
     applyImportMerge(payload) {
         const importJumps = Array.isArray(payload.jumps) ? payload.jumps : [];
         const importHarnesses = Array.isArray(payload.harnesses) ? payload.harnesses : [];
