@@ -772,11 +772,28 @@ class SkydivingLogbook {
         document.getElementById('totalJumps').textContent = `Latest Jump: #${latestJumpNumber}`;
     }
 
-    /** Calendar year of a jump from stored date (YYYY-MM-DD or parseable string). */
-    _jumpCalendarYear(jump) {
-        const s = jump.date;
-        if (typeof s === 'string' && /^\d{4}/.test(s)) return parseInt(s.slice(0, 4), 10);
-        return new Date(jump.date).getFullYear();
+    /**
+     * Calendar year from a jump object or a raw date string (YYYY-MM-DD, ISO, etc.).
+     * @param {{ date?: string }|string|null|undefined} jumpOrDate
+     * @returns {number|null}
+     */
+    _jumpCalendarYear(jumpOrDate) {
+        const raw = jumpOrDate != null && typeof jumpOrDate === 'object' && 'date' in jumpOrDate
+            ? jumpOrDate.date
+            : jumpOrDate;
+        if (raw == null) return null;
+        const s = typeof raw === 'string' ? raw.trim() : String(raw);
+        if (s.length < 4) return null;
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+            const dt = new Date(s.includes('T') ? s : `${s.slice(0, 10)}T12:00:00`);
+            if (!Number.isNaN(dt.getTime())) return dt.getFullYear();
+        }
+        if (/^\d{4}/.test(s)) {
+            const y = parseInt(s.slice(0, 4), 10);
+            if (Number.isFinite(y)) return y;
+        }
+        const dt = new Date(s);
+        return Number.isNaN(dt.getTime()) ? null : dt.getFullYear();
     }
 
     /** Local midnight for the jump's calendar day (for range comparisons). */
@@ -875,7 +892,7 @@ class SkydivingLogbook {
         const years = new Set();
         for (const jump of this.jumps) {
             const jy = this._jumpCalendarYear(jump);
-            if (jy < cy) years.add(jy);
+            if (jy != null && jy < cy) years.add(jy);
         }
         return [...years].sort((a, b) => b - a);
     }
@@ -1175,16 +1192,6 @@ class SkydivingLogbook {
         this._updateRecentJumpsGroupByMonthUi();
     }
 
-    /** Calendar year from jump `date` (YYYY-MM-DD), or null if unusable. */
-    _jumpCalendarYear(dateStr) {
-        if (!dateStr || typeof dateStr !== 'string') return null;
-        const s = dateStr.trim();
-        if (s.length < 4) return null;
-        const dt = new Date(s.includes('T') ? s : `${s.slice(0, 10)}T12:00:00`);
-        if (Number.isNaN(dt.getTime())) return null;
-        return dt.getFullYear();
-    }
-
     /**
      * Split non-recent jumps into (a) current calendar year — still paginated by month —
      * and (b) prior calendar years — shown as collapsed year rows so users open one year at a time.
@@ -1195,7 +1202,7 @@ class SkydivingLogbook {
         const byPastYear = new Map();
 
         for (const jump of olderJumps) {
-            const y = this._jumpCalendarYear(jump.date);
+            const y = this._jumpCalendarYear(jump);
             if (y === null) {
                 if (!byPastYear.has('unknown')) byPastYear.set('unknown', []);
                 byPastYear.get('unknown').push(jump);
