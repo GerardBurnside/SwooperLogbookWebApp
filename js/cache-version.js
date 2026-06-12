@@ -3,4 +3,4 @@
  * Bump whenever you deploy new code so users get the update.
  * @type {number}
  */
-var CACHE_VERSION = 50.3
+var CACHE_VERSION = 50.4

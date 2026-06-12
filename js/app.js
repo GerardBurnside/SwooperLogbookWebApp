@@ -4183,7 +4183,7 @@ class SkydivingLogbook {
         const archivedTotal = archivedStats.length;
         const archivedBtnLabel = this.showArchivedStats ? 'Hide Archived' : `Show Archived (${archivedTotal})`;
         const archivedToggleBtn = hasArchivedLinesets
-            ? `<button class="btn-secondary btn-sm" onclick="window.logbook.toggleArchivedStats()">${archivedBtnLabel}</button>`
+            ? `<button type="button" class="btn-secondary btn-sm" onclick="window.logbook.toggleArchivedStats()">${archivedBtnLabel}</button>`
             : '';
 
         let html = `
@@ -4236,8 +4236,12 @@ class SkydivingLogbook {
         const canopyTotalsArray = this.showArchivedCanopyTotals
             ? canopyTotalsArrayAll
             : canopyTotalsArrayAll.filter(s => !s.archived);
+        const archivedCanopyTotalsCount = canopyTotalsArrayAll.filter(s => s.archived).length;
+        const canopyTotalsArchivedBtnLabel = this.showArchivedCanopyTotals
+            ? 'Hide Archived'
+            : `Show Archived (${archivedCanopyTotalsCount})`;
         const canopyTotalsHeaderExtra = hasArchivedCanopyTotals
-            ? `<label class="stats-show-archived-label"><input type="checkbox" class="stats-show-archived-input"${this.showArchivedCanopyTotals ? ' checked' : ''} onchange="window.logbook.setShowArchivedCanopyTotals(this.checked)"> Show archived canopies</label>`
+            ? `<button type="button" class="btn-secondary btn-sm" onclick="window.logbook.toggleArchivedCanopyTotals()">${canopyTotalsArchivedBtnLabel}</button>`
             : '';
         html += this.renderOrderedComponentStats('Canopy Totals', canopyTotalsArray, canopyTotalsHeaderExtra);
 
@@ -4266,8 +4270,12 @@ class SkydivingLogbook {
             : activeHarnessStats;
 
         const hasArchivedHarnesses = this.harnesses.some(h => h?.archived);
+        const archivedHarnessCount = archivedHarnessStats.length;
+        const harnessArchivedBtnLabel = this.showArchivedHarnessStats
+            ? 'Hide Archived'
+            : `Show Archived (${archivedHarnessCount})`;
         const harnessHeaderExtra = hasArchivedHarnesses
-            ? `<label class="stats-show-archived-label"><input type="checkbox" class="stats-show-archived-input"${this.showArchivedHarnessStats ? ' checked' : ''} onchange="window.logbook.setShowArchivedHarnessStats(this.checked)"> Show archived harnesses</label>`
+            ? `<button type="button" class="btn-secondary btn-sm" onclick="window.logbook.toggleArchivedHarnessStats()">${harnessArchivedBtnLabel}</button>`
             : '';
 
         html += `
@@ -4317,13 +4325,13 @@ class SkydivingLogbook {
         this.renderStats();
     }
 
-    setShowArchivedCanopyTotals(checked) {
-        this.showArchivedCanopyTotals = !!checked;
+    toggleArchivedCanopyTotals() {
+        this.showArchivedCanopyTotals = !this.showArchivedCanopyTotals;
         this.renderStats();
     }
 
-    setShowArchivedHarnessStats(checked) {
-        this.showArchivedHarnessStats = !!checked;
+    toggleArchivedHarnessStats() {
+        this.showArchivedHarnessStats = !this.showArchivedHarnessStats;
         this.renderStats();
     }
 
@@ -4364,7 +4372,7 @@ class SkydivingLogbook {
 
     // Like renderComponentStats but accepts a pre-ordered array { name, count, archived? }
     // so the display order is controlled by the caller (not sorted by count).
-    // Optional headerExtra: HTML for the right side of stats-section-header (e.g. checkbox).
+    // Optional headerExtra: HTML for the right side of stats-section-header (e.g. show-archived button).
     renderOrderedComponentStats(title, statsArray, headerExtra = '') {
         let html = `
             <div class="stats-section">
