@@ -58,6 +58,10 @@ class SkydivingLogbook {
         this.currentView = 'jumps'; // 'jumps', 'equipment', 'stats'
         this.equipmentSubView = 'canopies'; // 'canopies', 'harnesses', 'locations'
         this.showArchivedStats = false;
+        /** Statistics view: show archived canopies in the Canopy Totals block only. */
+        this.showArchivedCanopyTotals = false;
+        /** Statistics view: show archived harnesses in the Harness block only. */
+        this.showArchivedHarnessStats = false;
         this.activeJumpNoteId = null;
         this.activeEditJumpId = null;
         /** Trimmed location when edit jump modal was opened (for bulk same-day option). */
@@ -4175,11 +4179,10 @@ class SkydivingLogbook {
         const archivedStats = linesetStats.filter(s => s.archived);
         const sortedStats = this.showArchivedStats ? [...activeStats, ...archivedStats] : activeStats;
         
-        const archivedHarnessCount = this.harnesses.filter(h => h.archived).length;
-        const hasArchived = archivedStats.length > 0 || archivedHarnessCount > 0;
-        const archivedTotal = archivedStats.length + archivedHarnessCount;
+        const hasArchivedLinesets = archivedStats.length > 0;
+        const archivedTotal = archivedStats.length;
         const archivedBtnLabel = this.showArchivedStats ? 'Hide Archived' : `Show Archived (${archivedTotal})`;
-        const archivedToggleBtn = hasArchived
+        const archivedToggleBtn = hasArchivedLinesets
             ? `<button class="btn-secondary btn-sm" onclick="window.logbook.toggleArchivedStats()">${archivedBtnLabel}</button>`
             : '';
 
@@ -4224,12 +4227,19 @@ class SkydivingLogbook {
         // Add canopy aggregate statistics: same order as equipment (non-archived first, then archived;
         // within each group, order matches the canopies list / sortOrder — see renderCanopiesWithLinesets).
         const canopiesForTotals = [...this.canopies].sort((a, b) => !!a.archived - !!b.archived);
-        const canopyTotalsArray = canopiesForTotals.map(canopy => {
+        const canopyTotalsArrayAll = canopiesForTotals.map(canopy => {
             const logged = this.jumps.filter(j => j.equipment === canopy.id).length;
             const preApp = (canopy.linesets || []).reduce((sum, ls) => sum + (ls.previousJumps ?? 0), 0);
             return { name: canopy.name, count: logged + preApp, logged, archived: !!canopy.archived };
         }).filter(s => s.count > 0 || s.logged > 0);
-        html += this.renderOrderedComponentStats('Canopy Totals', canopyTotalsArray);
+        const hasArchivedCanopyTotals = canopyTotalsArrayAll.some(s => s.archived);
+        const canopyTotalsArray = this.showArchivedCanopyTotals
+            ? canopyTotalsArrayAll
+            : canopyTotalsArrayAll.filter(s => !s.archived);
+        const canopyTotalsHeaderExtra = hasArchivedCanopyTotals
+            ? `<label class="stats-show-archived-label"><input type="checkbox" class="stats-show-archived-input"${this.showArchivedCanopyTotals ? ' checked' : ''} onchange="window.logbook.setShowArchivedCanopyTotals(this.checked)"> Show archived canopies</label>`
+            : '';
+        html += this.renderOrderedComponentStats('Canopy Totals', canopyTotalsArray, canopyTotalsHeaderExtra);
 
         // Harness stats (from jump.harnessId snapshots + harness.previousJumps).
         // Bar uses default fill only; width scales to the busiest harness (like Canopy Totals), not lineset orange/red thresholds.
@@ -4251,16 +4261,22 @@ class SkydivingLogbook {
         });
         const activeHarnessStats = harnessStats.filter(s => !s.archived && (s.logged > 0 || s.preApp !== 0));
         const archivedHarnessStats = harnessStats.filter(s => s.archived);
-        const sortedHarnessStats = this.showArchivedStats
+        const sortedHarnessStats = this.showArchivedHarnessStats
             ? [...activeHarnessStats, ...archivedHarnessStats]
             : activeHarnessStats;
+
+        const hasArchivedHarnesses = this.harnesses.some(h => h?.archived);
+        const harnessHeaderExtra = hasArchivedHarnesses
+            ? `<label class="stats-show-archived-label"><input type="checkbox" class="stats-show-archived-input"${this.showArchivedHarnessStats ? ' checked' : ''} onchange="window.logbook.setShowArchivedHarnessStats(this.checked)"> Show archived harnesses</label>`
+            : '';
 
         html += `
             <div class="stats-section">
                 <div class="stats-section-header">
                     <h3>Harness</h3>
+                    ${harnessHeaderExtra}
                 </div>
-                <p class="stats-harness-hint" style="color:#888;font-size:12px;margin:0 0 8px 0;">Counts use harness saved on each jump (from the canopy's harness assignment when logged). Tap a harness row for a pie chart of logged jumps per canopy. Same archived toggle as Canopy/Lineset applies.</p>
+                <p class="stats-harness-hint" style="color:#888;font-size:12px;margin:0 0 8px 0;">Counts use harness saved on each jump (from the canopy's harness assignment when logged). Tap a harness row for a pie chart of logged jumps per canopy.</p>
                 <div class="stats-list" id="harnessStatsList">
         `;
         if (sortedHarnessStats.length > 0) {
@@ -4301,6 +4317,16 @@ class SkydivingLogbook {
         this.renderStats();
     }
 
+    setShowArchivedCanopyTotals(checked) {
+        this.showArchivedCanopyTotals = !!checked;
+        this.renderStats();
+    }
+
+    setShowArchivedHarnessStats(checked) {
+        this.showArchivedHarnessStats = !!checked;
+        this.renderStats();
+    }
+
     renderComponentStats(title, statsObject, useStackedLayout = false) {
         const statsArray = Object.entries(statsObject)
             .map(([name, count]) => ({ name, count }))
@@ -4336,12 +4362,16 @@ class SkydivingLogbook {
         return html;
     }
 
-    // Like renderComponentStats but accepts a pre-ordered array { name, count }
+    // Like renderComponentStats but accepts a pre-ordered array { name, count, archived? }
     // so the display order is controlled by the caller (not sorted by count).
-    renderOrderedComponentStats(title, statsArray) {
+    // Optional headerExtra: HTML for the right side of stats-section-header (e.g. checkbox).
+    renderOrderedComponentStats(title, statsArray, headerExtra = '') {
         let html = `
             <div class="stats-section">
-                <h3>${title}</h3>
+                <div class="stats-section-header">
+                    <h3>${title}</h3>
+                    ${headerExtra}
+                </div>
                 <div class="stats-list">
         `;
 

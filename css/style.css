@@ -1476,8 +1476,26 @@ button.jump-number.jump-number-btn:focus-visible {
     margin-bottom: 10px;
 }
 
-.stats-section-header h3 {
+.stats-section .stats-section-header h3 {
     margin: 0;
+}
+
+.stats-show-archived-label {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.8rem;
+    font-weight: normal;
+    color: #555;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.stats-show-archived-input {
+    width: auto;
+    margin: 0;
+    cursor: pointer;
 }
 
 .btn-secondary {
