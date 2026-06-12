@@ -11,7 +11,7 @@ This project is a personal mobile-friendly web application for tracking skydivin
 ## Key Features
 - Jump logging with auto-incrementing numbers
 - Equipment archiving (harness, canopies)
-- Component-level statistics (canopy, lineset)
+- Component-level statistics (harness from jump snapshots + pre-app, canopy/lineset)
 - Location analytics and usage tracking
 - Offline capability with sync
 - Export functionality

@@ -215,6 +215,26 @@
                         <label for="componentNotes">Notes <span style="color:#888;font-weight:normal;">(optional)</span></label>
                         <input type="text" id="componentNotes" placeholder="e.g. serial number, DOM, colour, remarks…">
                     </div>
+                    <div id="harnessPreAppSection" style="display:none; border-top: 1px solid #eee; padding-top: 1rem; margin-top: 0.5rem;">
+                        <div class="form-group">
+                            <label for="harnessPreviousJumps">Previous jumps (before this app)</label>
+                            <input type="number" id="harnessPreviousJumps" min="0" value="0" placeholder="e.g. jumps on this harness before logging here">
+                        </div>
+                    </div>
+                    <div id="canopyHarnessSection" style="display:none; border-top: 1px solid #eee; padding-top: 1rem; margin-top: 0.5rem;">
+                        <div class="form-group">
+                            <label for="canopyHarnessSelect">Harness <span style="color:#888;font-weight:normal;">(optional — jump log stores harness per jump from this assignment)</span></label>
+                            <select id="canopyHarnessSelect">
+                                <option value="">— None —</option>
+                            </select>
+                        </div>
+                        <div id="canopyHarnessBackfillWrap" class="form-group" style="display:none;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:normal;">
+                                <input type="checkbox" id="canopyHarnessBackfillCheck" style="width:auto;">
+                                Apply harness to all existing logbook jumps on this canopy (only use when this canopy was always on this harness)
+                            </label>
+                        </div>
+                    </div>
                     <div id="locationCoordsSection" class="form-group location-coords-section" style="display:none;">
                         <label>GPS Coordinates <span style="color:#888;font-weight:normal;">(optional — overrides auto-geocoding)</span></label>
                         <div class="coords-input-row">

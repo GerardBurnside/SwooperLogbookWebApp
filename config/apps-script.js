@@ -103,7 +103,8 @@ function addJump(jumpData) {
     jumpData.notes,
     jumpData.timestamp,
     jumpData.equipmentId || '',
-    jumpData.linesetNumber || 1
+    jumpData.linesetNumber || 1,
+    jumpData.harnessId || ''
   ]);
   
   return ContentService
@@ -130,7 +131,8 @@ function uploadJumps(jumpsData) {
       jump.notes,
       jump.timestamp,
       jump.equipmentId || '',
-      jump.linesetNumber || 1
+      jump.linesetNumber || 1,
+      jump.harnessId || ''
     ]);
   });
   

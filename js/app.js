@@ -730,6 +730,8 @@ class SkydivingLogbook {
             notes: data.notes,
             timestamp: new Date().toISOString()
         };
+        const harnessSnap = this._harnessIdSnapshotForJump(data.equipment);
+        if (harnessSnap) jump.harnessId = harnessSnap;
 
         // Auto-add new location if it doesn't exist yet
         if (jump.location) {
@@ -1525,11 +1527,18 @@ class SkydivingLogbook {
         const encodedFullNote = hasNote ? encodeURIComponent(noteText) : '';
 
         const canopyNameHtml = this.escapeHtml(canopyName).replace(/\d{2,}/g, '<b>$&</b>');
+        const hid = this._normalizeHarnessId(jump.harnessId);
+        let harnessFrag = '';
+        if (hid) {
+            const h = this.harnesses.find(x => x.id === hid);
+            const hname = h ? h.name : hid;
+            harnessFrag = ` <span class="jump-harness" title="Harness at log time">\u00B7 ${this.escapeHtml(hname)}</span>`;
+        }
 
         return `
             <div class="jump-row">
                 <button type="button" class="jump-number jump-number-btn" onclick="logbook.openEditJumpModal('${encodedJumpId}')" title="Edit date, location, or canopy">#${jump.jumpNumber}</button>
-                <span class="jump-canopy">🪂 ${canopyNameHtml}</span>
+                <span class="jump-canopy">🪂 ${canopyNameHtml}${harnessFrag}</span>
                 ${hasNote ? `<button type="button" class="jump-note-preview" onclick="logbook.openJumpNotePopup('${encodedJumpId}', '${encodedFullNote}')" title="View or edit note">${this.escapeHtml(notePreview)}</button>` : ''}
                 <button class="delete-jump-btn" onclick="logbook.deleteJump('${jump.id}')" title="Delete jump">❌</button>
             </div>
@@ -1897,6 +1906,9 @@ class SkydivingLogbook {
         jump.location = location;
         jump.equipment = equipment;
         jump.linesetNumber = linesetNumber;
+        const harnessSnap = this._harnessIdSnapshotForJump(equipment);
+        if (harnessSnap) jump.harnessId = harnessSnap;
+        else delete jump.harnessId;
 
         if (followerTargets.length && deltaDays !== 0) {
             for (const j of followerTargets) {
@@ -3304,12 +3316,72 @@ class SkydivingLogbook {
         return map[plural] || plural.slice(0, -1);
     }
 
+    /** Harness id stored on canopy/jump, or '' if none. */
+    _normalizeHarnessId(v) {
+        const s = (v == null ? '' : String(v)).trim();
+        return s;
+    }
+
+    /** Harness id for a canopy at save/jump time, or ''. */
+    _harnessIdForCanopyId(canopyId) {
+        if (!canopyId) return '';
+        const c = this.canopies.find(x => x.id === canopyId);
+        return this._normalizeHarnessId(c?.harnessId);
+    }
+
+    /**
+     * Snapshot harness id to store on a jump from the canopy's current assignment.
+     * Returns undefined if no harness (omit property for cleaner legacy rows).
+     */
+    _harnessIdSnapshotForJump(canopyId) {
+        const h = this._harnessIdForCanopyId(canopyId);
+        return h || undefined;
+    }
+
+    /** Populate #canopyHarnessSelect; selectedId is current canopy.harnessId. */
+    _fillCanopyHarnessSelect(selectedId) {
+        const sel = document.getElementById('canopyHarnessSelect');
+        if (!sel) return;
+        const want = this._normalizeHarnessId(selectedId);
+        sel.innerHTML = '<option value="">— None —</option>';
+        const seen = new Set(['']);
+        for (const h of this.harnesses) {
+            if (!h?.id) continue;
+            if (h.archived && h.id !== want) continue;
+            const opt = document.createElement('option');
+            opt.value = h.id;
+            opt.textContent = h.name + (h.archived ? ' (Archived)' : '');
+            sel.appendChild(opt);
+            seen.add(h.id);
+        }
+        if (want && !seen.has(want)) {
+            const opt = document.createElement('option');
+            opt.value = want;
+            opt.textContent = want + ' (missing)';
+            sel.appendChild(opt);
+        }
+        sel.value = want && seen.has(want) ? want : (want && !seen.has(want) ? want : '');
+    }
+
     addComponent(type) {
         document.getElementById('componentForm').reset();
         document.getElementById('componentId').value = '';
         document.getElementById('componentType').value = type;
         document.getElementById('componentNotes').value = '';
         document.getElementById('componentModalTitle').textContent = `Add ${type.charAt(0).toUpperCase() + type.slice(1)}`;
+        const harnessPre = document.getElementById('harnessPreAppSection');
+        const canopyHarness = document.getElementById('canopyHarnessSection');
+        const canopyBackfill = document.getElementById('canopyHarnessBackfillWrap');
+        if (harnessPre) harnessPre.style.display = type === 'harness' ? 'block' : 'none';
+        if (canopyHarness) canopyHarness.style.display = type === 'canopy' ? 'block' : 'none';
+        if (canopyBackfill) canopyBackfill.style.display = 'none';
+        if (type === 'harness') {
+            const inp = document.getElementById('harnessPreviousJumps');
+            if (inp) inp.value = '0';
+        }
+        if (type === 'canopy') {
+            this._fillCanopyHarnessSelect('');
+        }
         // Show/hide GPS coords section for locations
         const isLocation = type === 'location';
         document.getElementById('locationCoordsSection').style.display = isLocation ? 'block' : 'none';
@@ -3377,6 +3449,7 @@ class SkydivingLogbook {
         
         const collection = this[collectionName];
         let jumpsUpdatedForLocationRename = 0;
+        let jumpsUpdatedForHarnessBackfill = 0;
 
         if (id) {
             // Edit existing
@@ -3386,6 +3459,24 @@ class SkydivingLogbook {
                 const nameChanged = type === 'location' && (component.name || '').trim() !== name;
                 component.name = name;
                 component.notes = notes;
+                if (type === 'harness') {
+                    component.previousJumps = Math.max(0, parseInt(document.getElementById('harnessPreviousJumps')?.value, 10) || 0);
+                }
+                if (type === 'canopy') {
+                    const prevH = this._normalizeHarnessId(component.harnessId);
+                    const newH = this._normalizeHarnessId(document.getElementById('canopyHarnessSelect')?.value);
+                    if (newH) component.harnessId = newH;
+                    else delete component.harnessId;
+                    const backfill = !!(document.getElementById('canopyHarnessBackfillCheck')?.checked);
+                    if (backfill && newH && !prevH) {
+                        for (const j of this.jumps) {
+                            if (j.equipment === component.id) {
+                                j.harnessId = newH;
+                                jumpsUpdatedForHarnessBackfill++;
+                            }
+                        }
+                    }
+                }
                 if (type === 'location') {
                     if (manualLat !== null) {
                         // Manual coords override everything
@@ -3412,6 +3503,9 @@ class SkydivingLogbook {
             // Add new
             const newId = type + '_' + Date.now();
             const newComponent = { id: newId, name: name, notes: notes };
+            if (type === 'harness') {
+                newComponent.previousJumps = Math.max(0, parseInt(document.getElementById('harnessPreviousJumps')?.value, 10) || 0);
+            }
             if (type === 'location') {
                 if (manualLat !== null) {
                     newComponent.lat = manualLat;
@@ -3441,6 +3535,9 @@ class SkydivingLogbook {
                 }
                 canopy.linesets = [ls1];
             }
+            const hsel = this._normalizeHarnessId(document.getElementById('canopyHarnessSelect')?.value);
+            if (hsel) canopy.harnessId = hsel;
+            else delete canopy.harnessId;
         }
         
         this.saveComponentsToLocalStorage();
@@ -3449,7 +3546,7 @@ class SkydivingLogbook {
         // Refresh autocomplete if a location was saved
         if (type === 'location') this.updateLocationDatalist();
         if (navigator.onLine && window.SheetsAPI) window.SheetsAPI.syncEquipmentToSheet();
-        if (jumpsUpdatedForLocationRename > 0) {
+        if (jumpsUpdatedForLocationRename > 0 || jumpsUpdatedForHarnessBackfill > 0) {
             this.saveToLocalStorage();
             this.updateStats();
             if (this.currentView === 'jumps') this.renderJumpsList();
@@ -3460,6 +3557,9 @@ class SkydivingLogbook {
         let savedMsg = `${type.charAt(0).toUpperCase() + type.slice(1)} saved successfully!`;
         if (jumpsUpdatedForLocationRename > 0) {
             savedMsg += ` ${jumpsUpdatedForLocationRename} jump${jumpsUpdatedForLocationRename === 1 ? '' : 's'} updated to the new location name.`;
+        }
+        if (jumpsUpdatedForHarnessBackfill > 0) {
+            savedMsg += ` Harness applied to ${jumpsUpdatedForHarnessBackfill} existing jump${jumpsUpdatedForHarnessBackfill === 1 ? '' : 's'}.`;
         }
         this.showMessage(savedMsg, 'success');
     }
@@ -3873,6 +3973,25 @@ class SkydivingLogbook {
                     hint.style.color = '#888';
                 }
             }
+            const harnessPre = document.getElementById('harnessPreAppSection');
+            const canopyHarness = document.getElementById('canopyHarnessSection');
+            const canopyBackfill = document.getElementById('canopyHarnessBackfillWrap');
+            const isHarness = singular === 'harness';
+            const isCanopy = singular === 'canopy';
+            if (harnessPre) harnessPre.style.display = isHarness ? 'block' : 'none';
+            if (canopyHarness) canopyHarness.style.display = isCanopy ? 'block' : 'none';
+            if (canopyBackfill) {
+                canopyBackfill.style.display = (isCanopy && !this._normalizeHarnessId(component.harnessId)) ? 'block' : 'none';
+                const bf = document.getElementById('canopyHarnessBackfillCheck');
+                if (bf) bf.checked = false;
+            }
+            if (isHarness) {
+                const inp = document.getElementById('harnessPreviousJumps');
+                if (inp) inp.value = String(component.previousJumps ?? 0);
+            }
+            if (isCanopy) {
+                this._fillCanopyHarnessSelect(component.harnessId);
+            }
             // Hide initial lineset section when editing (only shown for new canopies)
             document.getElementById('canopyLinesetSection').style.display = 'none';
             document.getElementById('componentModal').style.display = 'block';
@@ -3887,6 +4006,13 @@ class SkydivingLogbook {
                 const usedInJumps = this.jumps.some(j => j.equipment === id);
                 if (usedInJumps) {
                     this.showMessage(`Cannot delete ${typeSingular} that has been used in jumps. Archive it instead.`, 'error');
+                    return;
+                }
+            }
+            if (type === 'harnesses') {
+                const usedByCanopy = this.canopies.some(c => this._normalizeHarnessId(c.harnessId) === id);
+                if (usedByCanopy) {
+                    this.showMessage(`Cannot delete ${typeSingular} that is assigned to a canopy. Clear the harness on the canopy first.`, 'error');
                     return;
                 }
             }
@@ -3943,8 +4069,10 @@ class SkydivingLogbook {
         const archivedStats = linesetStats.filter(s => s.archived);
         const sortedStats = this.showArchivedStats ? [...activeStats, ...archivedStats] : activeStats;
         
-        const hasArchived = archivedStats.length > 0;
-        const archivedBtnLabel = this.showArchivedStats ? 'Hide Archived' : `Show Archived (${archivedStats.length})`;
+        const archivedHarnessCount = this.harnesses.filter(h => h.archived).length;
+        const hasArchived = archivedStats.length > 0 || archivedHarnessCount > 0;
+        const archivedTotal = archivedStats.length + archivedHarnessCount;
+        const archivedBtnLabel = this.showArchivedStats ? 'Hide Archived' : `Show Archived (${archivedTotal})`;
         const archivedToggleBtn = hasArchived
             ? `<button class="btn-secondary btn-sm" onclick="window.logbook.toggleArchivedStats()">${archivedBtnLabel}</button>`
             : '';
@@ -3985,6 +4113,68 @@ class SkydivingLogbook {
             html += '<p class="no-items">No canopy/lineset statistics available.</p>';
         }
         
+        html += '</div></div>';
+
+        // Harness stats (from jump.harnessId snapshots + harness.previousJumps)
+        const orangeH = this.settings.standardOrangeThreshold ?? 140;
+        const redH = this.settings.standardRedThreshold ?? 160;
+        const harnessStats = [];
+        this.harnesses.forEach(h => {
+            if (!h?.id) return;
+            const hid = h.id;
+            const logged = this.jumps.filter(j => this._normalizeHarnessId(j.harnessId) === hid).length;
+            const preApp = h.previousJumps ?? 0;
+            const total = logged + preApp;
+            harnessStats.push({
+                name: h.name,
+                count: total,
+                logged,
+                preApp,
+                archived: !!h.archived,
+                orangeThreshold: orangeH,
+                redThreshold: redH
+            });
+        });
+        const activeHarnessStats = harnessStats.filter(s => !s.archived && (s.logged > 0 || s.preApp !== 0));
+        const archivedHarnessStats = harnessStats.filter(s => s.archived);
+        const sortedHarnessStats = this.showArchivedStats
+            ? [...activeHarnessStats, ...archivedHarnessStats]
+            : activeHarnessStats;
+
+        html += `
+            <div class="stats-section">
+                <div class="stats-section-header">
+                    <h3>Harness</h3>
+                </div>
+                <p class="stats-harness-hint" style="color:#888;font-size:12px;margin:0 0 8px 0;">Counts use harness saved on each jump (from the canopy's harness assignment when logged). Same archived toggle as Canopy/Lineset applies.</p>
+                <div class="stats-list">
+        `;
+        if (sortedHarnessStats.length > 0) {
+            sortedHarnessStats.forEach(stat => {
+                const redThreshold = Math.max(stat.redThreshold, 1);
+                const orangeThreshold = stat.orangeThreshold;
+                const percentage = Math.min((stat.count / redThreshold) * 100, 100);
+                let barColorClass = '';
+                if (stat.count >= redThreshold) barColorClass = 'stat-fill-red';
+                else if (stat.count >= orangeThreshold) barColorClass = 'stat-fill-orange';
+                const breakdown = stat.preApp !== 0
+                    ? `${stat.count} total (${stat.logged} logged + ${stat.preApp} pre-app)`
+                    : `${stat.count} jumps`;
+                html += `
+                    <div class="stat-item${stat.archived ? ' archived' : ''}">
+                        <div class="stat-info stat-info-stacked">
+                            <span class="stat-name">${this.escapeHtml(stat.name)} ${stat.archived ? '(Archived)' : ''}</span>
+                            <span class="stat-count">${breakdown}</span>
+                        </div>
+                        <div class="stat-bar">
+                            <div class="stat-fill ${barColorClass}" style="width: ${percentage}%"></div>
+                        </div>
+                    </div>
+                `;
+            });
+        } else {
+            html += '<p class="no-items">No harness statistics yet. Assign a harness to a canopy (Equipment) and log jumps, or add pre-app jumps on the harness.</p>';
+        }
         html += '</div></div>';
         
         // Add canopy aggregate statistics: same order as equipment (non-archived first, then archived;

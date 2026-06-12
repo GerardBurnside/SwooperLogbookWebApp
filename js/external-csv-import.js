@@ -375,6 +375,10 @@
         if (!String(jump.equipment || '').trim() && res.type === 'existing' && res.canopyId) {
             jump.equipment = res.canopyId;
             jump.linesetNumber = res.lineset || 1;
+            const hSnap = typeof logbook._harnessIdSnapshotForJump === 'function'
+                ? logbook._harnessIdSnapshotForJump(jump.equipment)
+                : undefined;
+            if (hSnap) jump.harnessId = hSnap;
         }
     }
 
@@ -836,6 +840,10 @@
                     notes: '',
                     timestamp: seg.date ? `${seg.date}T12:00:00.000Z` : new Date().toISOString()
                 };
+                const hSnap = typeof logbook._harnessIdSnapshotForJump === 'function'
+                    ? logbook._harnessIdSnapshotForJump(seg.equipment)
+                    : undefined;
+                if (hSnap) jump.harnessId = hSnap;
                 logbook.jumps.push(jump);
                 num += 1;
             }
@@ -1107,6 +1115,10 @@
                     notes: row.notesComposed,
                     timestamp: row.date ? `${row.date}T12:00:00.000Z` : new Date().toISOString()
                 };
+                const hSnap = typeof logbook._harnessIdSnapshotForJump === 'function'
+                    ? logbook._harnessIdSnapshotForJump(equipment)
+                    : undefined;
+                if (hSnap) jump.harnessId = hSnap;
                 logbook.jumps.push(jump);
             }
 

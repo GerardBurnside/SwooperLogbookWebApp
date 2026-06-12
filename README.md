@@ -9,10 +9,10 @@ This vibe-coded app was conceived for swoopers to keep track on the number of ju
 - 🪂 Jump entry with location and equipment tracking
 - 📊 Auto-incrementing jump numbers (configurable starting number)
 - 🔧 **Equipment system** - Manage harnesses, canopies, and linesets (per canopy)
-- 📊 **Component-level statistics** - Track usage by harness, canopy, and lineset
+- 📊 **Component-level statistics** - Track usage by harness (logged jumps + pre-app harness count), canopy/lineset, and locations
 - 💫 **Equipment archiving** - Archive canopies/linesets while preserving statistics
 - 📍 **Drop zone statistics** - Track your most visited locations
-- �📋 Google Sheets integration for data storage
+- 📋 Google Sheets integration for data storage
 - 🔄 Offline-capable with sync when online
 - 📤 Export data to CSV
 - ⚙️ Configurable settings
@@ -22,7 +22,7 @@ This vibe-coded app was conceived for swoopers to keep track on the number of ju
 2. **Set up equipment**:
    - Go to Equipment tab → Harnesses to add your harness(es) (e.g., Javelin, Mutant)
    - Go to Canopies to add your canopies (e.g., Petra64, Petra68), each with one or more linesets (e.g., #1, #2)
-3. **Log jumps**: On the Jumps tab, add a jump and select harness, canopy, and lineset
+3. **Log jumps**: On the Jumps tab, add a jump and select a canopy (lineset). If that canopy has an optional harness assigned under Equipment → Canopies, each jump stores that harness for statistics.
 4. **View stats**: Check Statistics tab for component-level analytics
 5. Optional: Configure Google Sheets integration for cloud backup and synchronization across devices
 
@@ -31,11 +31,11 @@ This vibe-coded app was conceived for swoopers to keep track on the number of ju
 The app uses a three-component equipment system:
 
 ### **Components**
-- **Harnesses**: Your harness/container systems (e.g., Javelin Odyssey, Mutant) - for book-keeping only
-- **Canopies**: Your parachutes (e.g., Petra64, Petra68, Sabre2 120), each with one or more linesets
+- **Harnesses**: Your harness/container systems (e.g., Javelin Odyssey, Mutant). Optional **previous jumps (pre-app)** count toward harness statistics together with jumps logged here that store a harness id (from the canopy assignment at log time).
+- **Canopies**: Your parachutes (e.g., Petra64, Petra68, Sabre2 120), each with one or more linesets. You can optionally **assign a harness** to a canopy; when you log a jump on that canopy, the app saves the harness on the jump (snapshot), so you can move the canopy to another harness later without rewriting past jumps.
 - **Linesets**: Attached to each canopy, numbered automatically (e.g., #1, #2, #3)
 
-When logging a jump, you just select a canopy (with the latest lineset)
+When logging a jump, you select a canopy (with the desired lineset). Harness is not chosen on the jump form; it comes from the canopy’s harness assignment at log time.
 
 ### **Archiving**
 - Archive canopies when you stop using them

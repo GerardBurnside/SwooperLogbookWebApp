@@ -182,7 +182,7 @@ class SheetsAPI {
                         rowData: [{
                             values: [
                                 'Jump ID', 'Jump Number', 'Date', 'Location', 'Equipment',
-                                'Notes', 'Timestamp', 'Equipment ID', 'Lineset Number'
+                                'Notes', 'Timestamp', 'Equipment ID', 'Lineset Number', 'Harness ID'
                             ].map(v => ({ userEnteredValue: { stringValue: v } }))
                         }]
                     }]
@@ -248,7 +248,7 @@ class SheetsAPI {
 
         const result = await this._apiCall(
             'GET',
-            '/values/Jumps!A2:I?majorDimension=ROWS'
+            '/values/Jumps!A2:J?majorDimension=ROWS'
         );
 
         const rows = result.values || [];
@@ -279,7 +279,10 @@ class SheetsAPI {
                     equipment,
                     linesetNumber: parseInt(row[8]) || 1,
                     notes: row[5] || '',
-                    timestamp
+                    timestamp,
+                    ...(row.length >= 10 && String(row[9] ?? '').trim()
+                        ? { harnessId: String(row[9]).trim() }
+                        : {})
                 };
             }
             // Backward compat: 8 columns (no Jump ID)
@@ -381,7 +384,7 @@ class SheetsAPI {
         if (!this.initialized) throw new Error('API not initialized');
         this.updateSyncStatus('Uploading data...');
 
-        const header = ['Jump ID', 'Jump Number', 'Date', 'Location', 'Equipment', 'Notes', 'Timestamp', 'Equipment ID', 'Lineset Number'];
+        const header = ['Jump ID', 'Jump Number', 'Date', 'Location', 'Equipment', 'Notes', 'Timestamp', 'Equipment ID', 'Lineset Number', 'Harness ID'];
         const sortedJumps = [...jumps].sort((a, b) => (a.jumpNumber || 0) - (b.jumpNumber || 0));
 
         const dataRows = sortedJumps.map(jump => {
@@ -405,12 +408,13 @@ class SheetsAPI {
                 jump.notes || '',
                 jump.timestamp,
                 jump.equipment,
-                jump.linesetNumber || 1
+                jump.linesetNumber || 1,
+                (jump.harnessId != null && String(jump.harnessId).trim()) ? String(jump.harnessId).trim() : ''
             ];
         });
 
-        await this._apiCall('POST', '/values/Jumps!A1:I:clear', {});
-        await this._apiCall('PUT', '/values/Jumps!A1:I?valueInputOption=RAW', {
+        await this._apiCall('POST', '/values/Jumps!A1:J:clear', {});
+        await this._apiCall('PUT', '/values/Jumps!A1:J?valueInputOption=RAW', {
             values: [header, ...dataRows]
         });
 
@@ -667,6 +671,15 @@ class SheetsAPI {
         const num = (n) => (typeof n === 'number' && !Number.isNaN(n)) ? n : parseInt(n, 10) || 0;
         if (num(a.jumpNumber) !== num(b.jumpNumber)) return false;
         const str = (s) => (s == null ? '' : String(s)).trim();
+        const harnessNorm = (j) => str(j?.harnessId);
+        const harnessCompatible = (a, b) => {
+            const ha = harnessNorm(a);
+            const hb = harnessNorm(b);
+            if (ha === hb) return true;
+            // Legacy sheet rows without Harness ID: do not duplicate-merge against local rows that only add harnessId.
+            if (!ha || !hb) return true;
+            return false;
+        };
         const dateNorm = (d) => {
             const s = str(d);
             if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
@@ -679,7 +692,8 @@ class SheetsAPI {
             str(a.equipment) === str(b.equipment) &&
             str(a.notes) === str(b.notes) &&
             num(a.linesetNumber) === num(b.linesetNumber) &&
-            str(a.timestamp) === str(b.timestamp)
+            str(a.timestamp) === str(b.timestamp) &&
+            harnessCompatible(a, b)
         );
     }
 
@@ -698,8 +712,14 @@ class SheetsAPI {
             if (deletedSet.has(jumpId)) continue;
             if (sheetJumpIds.has(jumpId)) continue; // already in merged from sheet
             // Local-only by ID: check if any sheet jump is the same row (same jumpNumber + same content)
-            const sameOnSheet = merged.some(sheetJump => this._jumpContentEqual(j, sheetJump));
-            if (sameOnSheet) continue; // keep sheet version (with sheet's jumpId), do not duplicate
+            const sameIdx = merged.findIndex(sheetJump => this._jumpContentEqual(j, sheetJump));
+            if (sameIdx !== -1) {
+                const sheetJump = merged[sameIdx];
+                const hl = (j.harnessId == null || j.harnessId === '') ? '' : String(j.harnessId).trim();
+                const hs = (sheetJump.harnessId == null || sheetJump.harnessId === '') ? '' : String(sheetJump.harnessId).trim();
+                if (hl && !hs) sheetJump.harnessId = hl;
+                continue;
+            }
             merged.push(j);
         }
         return merged;

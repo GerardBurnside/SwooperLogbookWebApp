@@ -117,6 +117,7 @@ test('export/import round trip restores jump and canopy data', async () => {
     const canopy = {
         id: 'c_test_1',
         name: 'Canopy Test',
+        harnessId: 'h_test_1',
         linesets: [{ number: 1, hybrid: false, previousJumps: 0, jumpCount: 1, archived: false }]
     };
     const jump = {
@@ -127,10 +128,11 @@ test('export/import round trip restores jump and canopy data', async () => {
         equipment: canopy.id,
         linesetNumber: 1,
         notes: 'roundtrip test',
-        timestamp: '2026-03-06T00:00:00.000Z'
+        timestamp: '2026-03-06T00:00:00.000Z',
+        harnessId: 'h_test_1'
     };
 
-    logbook.harnesses = [{ id: 'h_test_1', name: 'Harness Test' }];
+    logbook.harnesses = [{ id: 'h_test_1', name: 'Harness Test', previousJumps: 42 }];
     logbook.canopies = [canopy];
     logbook.locations = [{ id: 'loc_test_1', name: 'Test DZ', lat: null, lng: null }];
     logbook.jumps = [jump];
@@ -142,6 +144,8 @@ test('export/import round trip restores jump and canopy data', async () => {
     assert.equal(exportedPayload.data.jumps.length, 1);
     assert.equal(exportedPayload.data.canopies.length, 1);
     assert.equal(exportedPayload.data.canopies[0].linesets.length, 1);
+    assert.equal(exportedPayload.data.jumps[0].harnessId, 'h_test_1');
+    assert.equal(exportedPayload.data.canopies[0].harnessId, 'h_test_1');
 
     // Delete data in app state.
     logbook.jumps = [];
@@ -182,6 +186,9 @@ test('export/import round trip restores jump and canopy data', async () => {
     assert.equal(logbook.canopies.length, 1);
     assert.equal(logbook.canopies[0].id, canopy.id);
     assert.equal(logbook.canopies[0].linesets.length, 1);
+    assert.equal(logbook.canopies[0].harnessId, 'h_test_1');
+    assert.equal(logbook.jumps[0].harnessId, 'h_test_1');
+    assert.equal(logbook.harnesses[0].previousJumps, 42);
 
     // Import flow should reset input value and report success.
     assert.equal(event.target.value, '');
