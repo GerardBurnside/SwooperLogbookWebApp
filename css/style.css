@@ -837,6 +837,41 @@ textarea {
     font-weight: 600;
 }
 
+.harness-canopy-pie-modal {
+    max-width: 520px;
+}
+
+.harness-canopy-pie-card h3 {
+    font-size: 1rem;
+    margin: 0 0 0.75rem;
+    color: #444;
+}
+
+.harness-canopy-pie-pre-note {
+    margin: 1rem 0 0;
+    font-size: 0.85rem;
+    color: #666;
+    line-height: 1.4;
+}
+
+.stat-item-harness {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.stat-item-harness:hover {
+    background: #eef2f5;
+}
+
+.stat-item-harness:focus {
+    outline: 2px solid #1976d2;
+    outline-offset: 2px;
+}
+
+.stat-item-harness:focus:not(:focus-visible) {
+    outline: none;
+}
+
 /* ── Day + Location groups ── */
 .day-location-group {
     margin-bottom: 0.5rem;

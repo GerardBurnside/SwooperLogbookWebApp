@@ -537,6 +537,10 @@ class SkydivingLogbook {
             if (e.target === yearStatsModal) {
                 this.closeYearStatisticsModal();
             }
+            const harnessCanopyPieModal = document.getElementById('harnessCanopyPieModal');
+            if (e.target === harnessCanopyPieModal) {
+                this.closeHarnessCanopyPieModal();
+            }
             const resetDbConfirmModal = document.getElementById('resetDbConfirmModal');
             if (e.target === resetDbConfirmModal) {
                 this.closeResetDbConfirmModal();
@@ -545,6 +549,10 @@ class SkydivingLogbook {
 
         document.getElementById('yearStatsClose')?.addEventListener('click', () => {
             this.closeYearStatisticsModal();
+        });
+
+        document.getElementById('harnessCanopyPieClose')?.addEventListener('click', () => {
+            this.closeHarnessCanopyPieModal();
         });
 
         const jumpsYearSummary = document.getElementById('jumpsYearSummary');
@@ -962,6 +970,27 @@ class SkydivingLogbook {
         return rows;
     }
 
+    /**
+     * Logged jumps that snapshot this harness, grouped by canopy (jump.equipment).
+     * Pre-app harness counts are not tied to a canopy and are excluded.
+     */
+    _aggregateLoggedJumpsByCanopyForHarness(harnessId) {
+        const hid = harnessId;
+        const map = new Map();
+        for (const j of this.jumps) {
+            if (this._normalizeHarnessId(j.harnessId) !== hid) continue;
+            const id = j.equipment || '';
+            map.set(id, (map.get(id) || 0) + 1);
+        }
+        const rows = [...map.entries()].map(([equipmentId, count]) => {
+            const canopy = this.canopies.find(c => c.id === equipmentId);
+            const label = canopy ? canopy.name : 'Unknown canopy';
+            return { label, count, equipmentId };
+        });
+        rows.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+        return rows;
+    }
+
     _yearStatsPieColors() {
         return ['#1976D2', '#388E3C', '#F57C00', '#7B1FA2', '#C2185B', '#0097A7', '#5D4037', '#455A64', '#AFB42B', '#E91E63', '#3F51B5', '#689F38'];
     }
@@ -1066,6 +1095,79 @@ class SkydivingLogbook {
     closeYearStatisticsModal() {
         const modal = document.getElementById('yearStatsModal');
         if (modal) modal.style.display = 'none';
+    }
+
+    openHarnessCanopyPieModal(harnessId) {
+        const modal = document.getElementById('harnessCanopyPieModal');
+        if (!modal) return;
+        this._renderHarnessCanopyPieModalContent(harnessId);
+        modal.style.display = 'block';
+    }
+
+    closeHarnessCanopyPieModal() {
+        const modal = document.getElementById('harnessCanopyPieModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    _renderHarnessCanopyPieModalContent(harnessId) {
+        const heading = document.getElementById('harnessCanopyPieHeading');
+        const sub = document.getElementById('harnessCanopyPieSub');
+        const root = document.getElementById('harnessCanopyPieRoot');
+        const preNote = document.getElementById('harnessCanopyPiePreAppNote');
+        if (!heading || !sub || !root || !preNote) return;
+
+        const harness = this.harnesses.find(h => h.id === harnessId);
+        const name = harness?.name || 'Harness';
+        const preApp = harness?.previousJumps ?? 0;
+        heading.textContent = name;
+
+        const byCan = this._aggregateLoggedJumpsByCanopyForHarness(harnessId);
+        const logged = byCan.reduce((s, e) => s + e.count, 0);
+        if (logged === 0) {
+            sub.textContent = preApp > 0
+                ? 'No logged jumps on this harness yet (pre-app jumps are not split by canopy).'
+                : 'No logged jumps on this harness yet.';
+        } else {
+            sub.textContent = logged === 1 ? '1 logged jump' : `${logged} logged jumps`;
+        }
+
+        const canopyColorMap = this._yearStatsCanopyColorMap();
+        const palette = this._yearStatsPieColors();
+        root.innerHTML = this._renderPieChartBlock(
+            byCan.map(({ label, count, equipmentId }) => ({ label, count, equipmentId })),
+            {
+                getColor: (e) => canopyColorMap.get(e.equipmentId) ?? palette[0]
+            }
+        );
+
+        if (preApp > 0) {
+            preNote.hidden = false;
+            preNote.textContent = `This harness also has ${preApp} pre-app jump${preApp === 1 ? '' : 's'} (not tied to a canopy); they are not included in the chart.`;
+        } else {
+            preNote.hidden = true;
+            preNote.textContent = '';
+        }
+    }
+
+    _bindHarnessStatsPieClicks(container) {
+        const harnessList = container.querySelector('#harnessStatsList');
+        if (!harnessList) return;
+        const openFromRow = (row) => {
+            const id = row.getAttribute('data-harness-id');
+            if (id) this.openHarnessCanopyPieModal(id);
+        };
+        harnessList.addEventListener('click', (e) => {
+            const row = e.target.closest('.stat-item-harness[data-harness-id]');
+            if (!row || !harnessList.contains(row)) return;
+            openFromRow(row);
+        });
+        harnessList.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            const row = e.target.closest('.stat-item-harness[data-harness-id]');
+            if (!row || !harnessList.contains(row)) return;
+            e.preventDefault();
+            openFromRow(row);
+        });
     }
 
     _renderYearStatisticsModalContent(year) {
@@ -4139,6 +4241,7 @@ class SkydivingLogbook {
             const preApp = h.previousJumps ?? 0;
             const total = logged + preApp;
             harnessStats.push({
+                id: hid,
                 name: h.name,
                 count: total,
                 logged,
@@ -4157,8 +4260,8 @@ class SkydivingLogbook {
                 <div class="stats-section-header">
                     <h3>Harness</h3>
                 </div>
-                <p class="stats-harness-hint" style="color:#888;font-size:12px;margin:0 0 8px 0;">Counts use harness saved on each jump (from the canopy's harness assignment when logged). Same archived toggle as Canopy/Lineset applies.</p>
-                <div class="stats-list">
+                <p class="stats-harness-hint" style="color:#888;font-size:12px;margin:0 0 8px 0;">Counts use harness saved on each jump (from the canopy's harness assignment when logged). Tap a harness row for a pie chart of logged jumps per canopy. Same archived toggle as Canopy/Lineset applies.</p>
+                <div class="stats-list" id="harnessStatsList">
         `;
         if (sortedHarnessStats.length > 0) {
             const maxHarnessCount = Math.max(...sortedHarnessStats.map(s => s.count), 1);
@@ -4170,7 +4273,9 @@ class SkydivingLogbook {
                     ? `${stat.count} total (${stat.logged} logged + ${stat.preApp} pre-app)`
                     : `${stat.count} jumps`;
                 html += `
-                    <div class="stat-item${stat.archived ? ' archived' : ''}">
+                    <div class="stat-item stat-item-harness${stat.archived ? ' archived' : ''}"
+                        role="button" tabindex="0" data-harness-id="${this.escapeHtml(stat.id)}"
+                        title="Show jumps per canopy">
                         <div class="stat-info stat-info-stacked">
                             <span class="stat-name">${this.escapeHtml(stat.name)} ${stat.archived ? '(Archived)' : ''}</span>
                             <span class="stat-count">${breakdown}</span>
@@ -4187,6 +4292,7 @@ class SkydivingLogbook {
         html += '</div></div>';
 
         container.innerHTML = html;
+        this._bindHarnessStatsPieClicks(container);
         this._updateJumpsYearSummary();
     }
     
