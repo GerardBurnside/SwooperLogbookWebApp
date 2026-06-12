@@ -3460,7 +3460,9 @@ class SkydivingLogbook {
                 component.name = name;
                 component.notes = notes;
                 if (type === 'harness') {
-                    component.previousJumps = Math.max(0, parseInt(document.getElementById('harnessPreviousJumps')?.value, 10) || 0);
+                    const preRaw = String(document.getElementById('harnessPreviousJumps')?.value ?? '').trim();
+                    const preParsed = Number(preRaw);
+                    component.previousJumps = Number.isFinite(preParsed) ? preParsed : 0;
                 }
                 if (type === 'canopy') {
                     const prevH = this._normalizeHarnessId(component.harnessId);
@@ -3504,7 +3506,9 @@ class SkydivingLogbook {
             const newId = type + '_' + Date.now();
             const newComponent = { id: newId, name: name, notes: notes };
             if (type === 'harness') {
-                newComponent.previousJumps = Math.max(0, parseInt(document.getElementById('harnessPreviousJumps')?.value, 10) || 0);
+                const preRaw = String(document.getElementById('harnessPreviousJumps')?.value ?? '').trim();
+                const preParsed = Number(preRaw);
+                newComponent.previousJumps = Number.isFinite(preParsed) ? preParsed : 0;
             }
             if (type === 'location') {
                 if (manualLat !== null) {
@@ -4115,6 +4119,16 @@ class SkydivingLogbook {
         
         html += '</div></div>';
 
+        // Add canopy aggregate statistics: same order as equipment (non-archived first, then archived;
+        // within each group, order matches the canopies list / sortOrder — see renderCanopiesWithLinesets).
+        const canopiesForTotals = [...this.canopies].sort((a, b) => !!a.archived - !!b.archived);
+        const canopyTotalsArray = canopiesForTotals.map(canopy => {
+            const logged = this.jumps.filter(j => j.equipment === canopy.id).length;
+            const preApp = (canopy.linesets || []).reduce((sum, ls) => sum + (ls.previousJumps ?? 0), 0);
+            return { name: canopy.name, count: logged + preApp, logged, archived: !!canopy.archived };
+        }).filter(s => s.count > 0 || s.logged > 0);
+        html += this.renderOrderedComponentStats('Canopy Totals', canopyTotalsArray);
+
         // Harness stats (from jump.harnessId snapshots + harness.previousJumps)
         const orangeH = this.settings.standardOrangeThreshold ?? 140;
         const redH = this.settings.standardRedThreshold ?? 160;
@@ -4176,17 +4190,7 @@ class SkydivingLogbook {
             html += '<p class="no-items">No harness statistics yet. Assign a harness to a canopy (Equipment) and log jumps, or add pre-app jumps on the harness.</p>';
         }
         html += '</div></div>';
-        
-        // Add canopy aggregate statistics: same order as equipment (non-archived first, then archived;
-        // within each group, order matches the canopies list / sortOrder — see renderCanopiesWithLinesets).
-        const canopiesForTotals = [...this.canopies].sort((a, b) => !!a.archived - !!b.archived);
-        const canopyTotalsArray = canopiesForTotals.map(canopy => {
-            const logged = this.jumps.filter(j => j.equipment === canopy.id).length;
-            const preApp = (canopy.linesets || []).reduce((sum, ls) => sum + (ls.previousJumps ?? 0), 0);
-            return { name: canopy.name, count: logged + preApp, logged, archived: !!canopy.archived };
-        }).filter(s => s.count > 0 || s.logged > 0);
-        html += this.renderOrderedComponentStats('Canopy Totals', canopyTotalsArray);
-        
+
         container.innerHTML = html;
         this._updateJumpsYearSummary();
     }
