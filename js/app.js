@@ -579,13 +579,32 @@ class SkydivingLogbook {
         document.getElementById('date').value = `${yyyy}-${mm}-${dd}`;
     }
 
+    /**
+     * Most recently *logged* jump (latest `timestamp`), not necessarily the latest calendar date.
+     * `this.jumps` is sorted by date for numbering, so the array tail is not the last submission.
+     */
     getLastJumpData() {
         if (this.jumps.length === 0) {
             return null;
         }
-        
-        // Get the most recent jump (last in sorted array)
-        return this.jumps[this.jumps.length - 1];
+        const tsOf = (j) => {
+            const t = Date.parse(j.timestamp);
+            return Number.isFinite(t) ? t : 0;
+        };
+        const idOf = (j) => {
+            const n = typeof j.id === 'number' ? j.id : Number(j.id);
+            return Number.isFinite(n) ? n : 0;
+        };
+        let best = this.jumps[0];
+        for (let i = 1; i < this.jumps.length; i++) {
+            const j = this.jumps[i];
+            const tj = tsOf(j);
+            const tb = tsOf(best);
+            if (tj > tb || (tj === tb && idOf(j) > idOf(best))) {
+                best = j;
+            }
+        }
+        return best;
     }
 
     preFillFormWithLastJump() {
