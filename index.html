@@ -179,6 +179,21 @@
                         <label for="linesetPreviousJumps">Previous Jumps (before this app)</label>
                         <input type="number" id="linesetPreviousJumps" value="0" required placeholder="e.g. 500 before this app, or negative to correct totals" title="Negative values subtract from the total (logged jumps + this field). Use after fixing lineset mix-ups from import.">
                     </div>
+                    <div id="linesetStatThresholdSection">
+                        <hr style="margin: 12px 0; border: none; border-top: 1px solid #eee;">
+                        <h3 style="margin: 0 0 6px; font-size: 1rem; color: #333;">Statistics bar thresholds <span style="color:#888;font-weight:normal;font-size:12px;">(optional)</span></h3>
+                        <small style="color:#888; font-size:12px; display:block; margin-bottom:10px;">For <strong>non-hybrid</strong> linesets only: leave blank to use Settings. Hybrid lines always use the hybrid thresholds from Settings.</small>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <div class="form-group" style="margin:0;">
+                                <label for="linesetStatStandardOrange">Normal — orange</label>
+                                <input type="number" id="linesetStatStandardOrange" min="1">
+                            </div>
+                            <div class="form-group" style="margin:0;">
+                                <label for="linesetStatStandardRed">Normal — red</label>
+                                <input type="number" id="linesetStatStandardRed" min="1">
+                            </div>
+                        </div>
+                    </div>
                     <button type="submit" class="btn-primary">Save Lineset</button>
                 </form>
             </div>
@@ -219,6 +234,21 @@
                         <div class="form-group">
                             <label for="newCanopyPreviousJumps">Previous Jumps (before this app)</label>
                             <input type="number" id="newCanopyPreviousJumps" min="0" value="0" placeholder="e.g. 500 jumps on this lineset before logging">
+                        </div>
+                        <div id="newCanopyStatThresholdSection">
+                            <hr style="margin: 12px 0; border: none; border-top: 1px solid #eee;">
+                            <h3 style="margin: 0 0 6px; font-size: 1rem; color: #333;">Statistics bar thresholds <span style="color:#888;font-weight:normal;font-size:12px;">(optional)</span></h3>
+                            <small style="color:#888; font-size:12px; display:block; margin-bottom:10px;">For <strong>non-hybrid</strong> linesets only. Hybrid uses Settings.</small>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label for="newCanopyStatStandardOrange">Normal — orange</label>
+                                    <input type="number" id="newCanopyStatStandardOrange" min="1">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label for="newCanopyStatStandardRed">Normal — red</label>
+                                    <input type="number" id="newCanopyStatStandardRed" min="1">
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <button type="submit" class="btn-primary">Save Component</button>

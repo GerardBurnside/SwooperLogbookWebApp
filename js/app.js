@@ -1,4 +1,10 @@
 // Swooper Logbook App - Main Application Logic
+
+/** Optional per-lineset overrides for statistics bar colors (normal linesets only; hybrid uses settings). */
+const LINESET_STAT_THRESHOLD_PROPS = ['standardOrangeThreshold', 'standardRedThreshold'];
+const LINESET_MODAL_STAT_THRESHOLD_INPUT_IDS = ['linesetStatStandardOrange', 'linesetStatStandardRed'];
+const NEW_CANOPY_STAT_THRESHOLD_INPUT_IDS = ['newCanopyStatStandardOrange', 'newCanopyStatStandardRed'];
+
 class SkydivingLogbook {
     constructor() {
         // Data arrays — populated asynchronously from IndexedDB in init()
@@ -460,7 +466,13 @@ class SkydivingLogbook {
             e.preventDefault();
             this.saveLineset();
         });
-        
+        document.getElementById('linesetHybridCheck').addEventListener('change', () => {
+            this._syncLinesetModalStatThresholdSectionVisibility();
+        });
+        document.getElementById('newCanopyHybridCheck').addEventListener('change', () => {
+            this._syncNewCanopyStatThresholdSectionVisibility();
+        });
+
         // Component management
         document.getElementById('addHarnessBtn').addEventListener('click', () => {
             this.addComponent('harness');
@@ -3019,6 +3031,103 @@ class SkydivingLogbook {
 
     // ── Lineset management ──────────────────────────────────────────────────
 
+    /**
+     * @returns {number|null} Parsed threshold if valid for stats override, else null.
+     */
+    _validLinesetStatThreshold(value) {
+        const n = typeof value === 'number' ? value : parseInt(value, 10);
+        return Number.isFinite(n) && n >= 1 ? n : null;
+    }
+
+    _prefillLinesetStatThresholdForm(primaryLs, fallbackLs, inputIds) {
+        for (let i = 0; i < LINESET_STAT_THRESHOLD_PROPS.length; i++) {
+            const prop = LINESET_STAT_THRESHOLD_PROPS[i];
+            const el = document.getElementById(inputIds[i]);
+            if (!el) continue;
+            let v = this._validLinesetStatThreshold(primaryLs?.[prop]);
+            if (v == null) v = this._validLinesetStatThreshold(fallbackLs?.[prop]);
+            el.value = v != null ? String(v) : '';
+        }
+    }
+
+    _applyLinesetStatThresholdFormToLineset(lineset, inputIds) {
+        for (let i = 0; i < LINESET_STAT_THRESHOLD_PROPS.length; i++) {
+            const prop = LINESET_STAT_THRESHOLD_PROPS[i];
+            const el = document.getElementById(inputIds[i]);
+            if (!el) continue;
+            const raw = String(el.value).trim();
+            if (raw === '') {
+                delete lineset[prop];
+            } else {
+                const n = parseInt(raw, 10);
+                if (Number.isFinite(n) && n >= 1) lineset[prop] = n;
+                else delete lineset[prop];
+            }
+        }
+        delete lineset.hybridOrangeThreshold;
+        delete lineset.hybridRedThreshold;
+    }
+
+    /** Remove all per-lineset statistics threshold overrides (e.g. hybrid linesets use settings only). */
+    _purgeLinesetStatThresholdOverrides(lineset) {
+        delete lineset.standardOrangeThreshold;
+        delete lineset.standardRedThreshold;
+        delete lineset.hybridOrangeThreshold;
+        delete lineset.hybridRedThreshold;
+    }
+
+    _syncLinesetModalStatThresholdSectionVisibility() {
+        const hybrid = !!document.getElementById('linesetHybridCheck')?.checked;
+        const sec = document.getElementById('linesetStatThresholdSection');
+        if (sec) sec.style.display = hybrid ? 'none' : 'block';
+    }
+
+    _syncNewCanopyStatThresholdSectionVisibility() {
+        const hybrid = !!document.getElementById('newCanopyHybridCheck')?.checked;
+        const sec = document.getElementById('newCanopyStatThresholdSection');
+        if (sec) sec.style.display = hybrid ? 'none' : 'block';
+    }
+
+    _setLinesetStatThresholdInputPlaceholders(inputIds) {
+        const defaults = [
+            this.settings.standardOrangeThreshold,
+            this.settings.standardRedThreshold
+        ];
+        for (let i = 0; i < inputIds.length; i++) {
+            const el = document.getElementById(inputIds[i]);
+            if (el) el.placeholder = `default (${defaults[i]})`;
+        }
+    }
+
+    /** Active non-archived lineset with the highest number (the one a new lineset typically replaces). */
+    _getActiveReferenceLinesetForNewLineset(canopy) {
+        const active = (canopy.linesets || []).filter(ls => !ls.archived);
+        if (active.length === 0) return null;
+        return active.reduce((a, b) => (a.number >= b.number ? a : b));
+    }
+
+    /** Lineset on the same canopy with the greatest number strictly less than `linesetNumber`. */
+    _getPriorLinesetByNumber(canopy, linesetNumber) {
+        const n = parseInt(linesetNumber, 10);
+        const candidates = (canopy.linesets || []).filter(ls => ls.number < n);
+        if (candidates.length === 0) return null;
+        return candidates.reduce((a, b) => (a.number >= b.number ? a : b));
+    }
+
+    _effectiveLinesetStatOrangeRed(ls) {
+        const hybrid = ls.hybrid || false;
+        if (hybrid) {
+            return {
+                orangeThreshold: this.settings.hybridOrangeThreshold,
+                redThreshold: this.settings.hybridRedThreshold
+            };
+        }
+        return {
+            orangeThreshold: this._validLinesetStatThreshold(ls.standardOrangeThreshold) ?? this.settings.standardOrangeThreshold,
+            redThreshold: this._validLinesetStatThreshold(ls.standardRedThreshold) ?? this.settings.standardRedThreshold
+        };
+    }
+
     openAddLineset(canopyId) {
         const canopy = this.canopies.find(c => c.id === canopyId);
         if (!canopy) return;
@@ -3036,7 +3145,12 @@ class SkydivingLogbook {
             ? Math.max(...canopy.linesets.map(ls => ls.number))
             : 0;
         document.getElementById('linesetNumber').value = maxNum + 1;
-        
+
+        const refLs = this._getActiveReferenceLinesetForNewLineset(canopy);
+        this._setLinesetStatThresholdInputPlaceholders(LINESET_MODAL_STAT_THRESHOLD_INPUT_IDS);
+        this._prefillLinesetStatThresholdForm(null, refLs, LINESET_MODAL_STAT_THRESHOLD_INPUT_IDS);
+        this._syncLinesetModalStatThresholdSectionVisibility();
+
         document.getElementById('linesetModal').style.display = 'block';
     }
 
@@ -3053,7 +3167,12 @@ class SkydivingLogbook {
         document.getElementById('linesetNumber').value = linesetNumber;
         document.getElementById('linesetHybridCheck').checked = lineset.hybrid || false;
         document.getElementById('linesetPreviousJumps').value = lineset.previousJumps ?? 0;
-        
+
+        const priorLs = this._getPriorLinesetByNumber(canopy, linesetNumber);
+        this._setLinesetStatThresholdInputPlaceholders(LINESET_MODAL_STAT_THRESHOLD_INPUT_IDS);
+        this._prefillLinesetStatThresholdForm(lineset, priorLs, LINESET_MODAL_STAT_THRESHOLD_INPUT_IDS);
+        this._syncLinesetModalStatThresholdSectionVisibility();
+
         document.getElementById('linesetModal').style.display = 'block';
     }
 
@@ -3076,6 +3195,11 @@ class SkydivingLogbook {
             if (lineset) {
                 lineset.hybrid = hybrid;
                 lineset.previousJumps = previousJumps;
+                if (hybrid) {
+                    this._purgeLinesetStatThresholdOverrides(lineset);
+                } else {
+                    this._applyLinesetStatThresholdFormToLineset(lineset, LINESET_MODAL_STAT_THRESHOLD_INPUT_IDS);
+                }
             }
         } else {
             // Add new lineset
@@ -3086,13 +3210,19 @@ class SkydivingLogbook {
             }
             // Archive all existing non-archived linesets
             canopy.linesets.forEach(ls => { if (!ls.archived) ls.archived = true; });
-            canopy.linesets.push({
+            const newLs = {
                 number: linesetNumber,
                 hybrid: hybrid,
                 previousJumps: previousJumps,
                 jumpCount: 0,
                 archived: false
-            });
+            };
+            if (hybrid) {
+                this._purgeLinesetStatThresholdOverrides(newLs);
+            } else {
+                this._applyLinesetStatThresholdFormToLineset(newLs, LINESET_MODAL_STAT_THRESHOLD_INPUT_IDS);
+            }
+            canopy.linesets.push(newLs);
             canopy.linesets.sort((a, b) => a.number - b.number);
         }
         
@@ -3196,6 +3326,9 @@ class SkydivingLogbook {
         if (isCanopy) {
             document.getElementById('newCanopyHybridCheck').checked = false;
             document.getElementById('newCanopyPreviousJumps').value = 0;
+            this._setLinesetStatThresholdInputPlaceholders(NEW_CANOPY_STAT_THRESHOLD_INPUT_IDS);
+            this._prefillLinesetStatThresholdForm(null, null, NEW_CANOPY_STAT_THRESHOLD_INPUT_IDS);
+            this._syncNewCanopyStatThresholdSectionVisibility();
         }
         document.getElementById('componentModal').style.display = 'block';
     }
@@ -3300,7 +3433,13 @@ class SkydivingLogbook {
             if (!Array.isArray(canopy.linesets)) {
                 const hybrid = document.getElementById('newCanopyHybridCheck').checked;
                 const previousJumps = Math.max(0, parseInt(document.getElementById('newCanopyPreviousJumps').value) || 0);
-                canopy.linesets = [{ number: 1, hybrid: hybrid, previousJumps: previousJumps, jumpCount: 0, archived: false }];
+                const ls1 = { number: 1, hybrid: hybrid, previousJumps: previousJumps, jumpCount: 0, archived: false };
+                if (hybrid) {
+                    this._purgeLinesetStatThresholdOverrides(ls1);
+                } else {
+                    this._applyLinesetStatThresholdFormToLineset(ls1, NEW_CANOPY_STAT_THRESHOLD_INPUT_IDS);
+                }
+                canopy.linesets = [ls1];
             }
         }
         
@@ -3786,13 +3925,16 @@ class SkydivingLogbook {
                 const preApp = ls.previousJumps ?? 0;
                 const total = logged + preApp;
                 const hybridSuffix = ls.hybrid ? ' (Hybrid)' : '';
+                const { orangeThreshold, redThreshold } = this._effectiveLinesetStatOrangeRed(ls);
                 linesetStats.push({
                     name: `${canopy.name} — Lineset #${ls.number}${hybridSuffix}`,
                     count: total,
                     logged,
                     preApp,
                     archived: canopy.archived || ls.archived,
-                    hybrid: ls.hybrid || false
+                    hybrid: ls.hybrid || false,
+                    orangeThreshold,
+                    redThreshold
                 });
             });
         });
@@ -3818,8 +3960,8 @@ class SkydivingLogbook {
         
         if (sortedStats.length > 0) {
             sortedStats.forEach(stat => {
-                const redThreshold = stat.hybrid ? this.settings.hybridRedThreshold : this.settings.standardRedThreshold;
-                const orangeThreshold = stat.hybrid ? this.settings.hybridOrangeThreshold : this.settings.standardOrangeThreshold;
+                const redThreshold = Math.max(stat.redThreshold, 1);
+                const orangeThreshold = stat.orangeThreshold;
                 const percentage = Math.min((stat.count / redThreshold) * 100, 100);
                 let barColorClass = '';
                 if (stat.count >= redThreshold) barColorClass = 'stat-fill-red';
