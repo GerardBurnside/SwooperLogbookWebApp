@@ -4129,9 +4129,8 @@ class SkydivingLogbook {
         }).filter(s => s.count > 0 || s.logged > 0);
         html += this.renderOrderedComponentStats('Canopy Totals', canopyTotalsArray);
 
-        // Harness stats (from jump.harnessId snapshots + harness.previousJumps)
-        const orangeH = this.settings.standardOrangeThreshold ?? 140;
-        const redH = this.settings.standardRedThreshold ?? 160;
+        // Harness stats (from jump.harnessId snapshots + harness.previousJumps).
+        // Bar uses default fill only; width scales to the busiest harness (like Canopy Totals), not lineset orange/red thresholds.
         const harnessStats = [];
         this.harnesses.forEach(h => {
             if (!h?.id) return;
@@ -4144,9 +4143,7 @@ class SkydivingLogbook {
                 count: total,
                 logged,
                 preApp,
-                archived: !!h.archived,
-                orangeThreshold: orangeH,
-                redThreshold: redH
+                archived: !!h.archived
             });
         });
         const activeHarnessStats = harnessStats.filter(s => !s.archived && (s.logged > 0 || s.preApp !== 0));
@@ -4164,13 +4161,11 @@ class SkydivingLogbook {
                 <div class="stats-list">
         `;
         if (sortedHarnessStats.length > 0) {
+            const maxHarnessCount = Math.max(...sortedHarnessStats.map(s => s.count), 1);
             sortedHarnessStats.forEach(stat => {
-                const redThreshold = Math.max(stat.redThreshold, 1);
-                const orangeThreshold = stat.orangeThreshold;
-                const percentage = Math.min((stat.count / redThreshold) * 100, 100);
-                let barColorClass = '';
-                if (stat.count >= redThreshold) barColorClass = 'stat-fill-red';
-                else if (stat.count >= orangeThreshold) barColorClass = 'stat-fill-orange';
+                const percentage = stat.count > 0 ? Math.min((stat.count / maxHarnessCount) * 100, 100) : 0;
+                // Default blue/green bar only — never orange/red from lineset thresholds; never red below 5000 jumps.
+                const barColorClass = '';
                 const breakdown = stat.preApp !== 0
                     ? `${stat.count} total (${stat.logged} logged + ${stat.preApp} pre-app)`
                     : `${stat.count} jumps`;
