@@ -1643,7 +1643,7 @@ class SkydivingLogbook {
 
         return `
             <div class="jump-row">
-                <button type="button" class="jump-number jump-number-btn" onclick="logbook.openEditJumpModal('${encodedJumpId}')" title="Edit date, location, or canopy">#${jump.jumpNumber}</button>
+                <button type="button" class="jump-number jump-number-btn" onclick="logbook.openEditJumpModal('${encodedJumpId}')" title="Edit date, location, canopy, or note">#${jump.jumpNumber}</button>
                 <span class="jump-canopy">🪂 ${canopyNameHtml}${harnessFrag}</span>
                 ${hasNote ? `<button type="button" class="jump-note-preview" onclick="logbook.openJumpNotePopup('${encodedJumpId}', '${encodedFullNote}')" title="View or edit note">${this.escapeHtml(notePreview)}</button>` : ''}
                 <button class="delete-jump-btn" onclick="logbook.deleteJump('${jump.id}')" title="Delete jump">❌</button>
@@ -1801,7 +1801,8 @@ class SkydivingLogbook {
         const modal = document.getElementById('editJumpModal');
         const dateInput = document.getElementById('editJumpDate');
         const locInput = document.getElementById('editJumpLocation');
-        if (!modal || !dateInput || !locInput) return;
+        const notesInput = document.getElementById('editJumpNotes');
+        if (!modal || !dateInput || !locInput || !notesInput) return;
 
         const id = decodeURIComponent(encodedJumpId || '');
         const jump = this.jumps.find(j => j.id.toString() === id.toString());
@@ -1818,6 +1819,7 @@ class SkydivingLogbook {
 
         dateInput.value = this._normalizeDateForInput(jump.date);
         locInput.value = jump.location || '';
+        notesInput.value = typeof jump.notes === 'string' ? jump.notes : '';
         this.editJumpLocationAtOpen = (jump.location || '').trim();
         this.editJumpDateAtOpen = this._normalizeDateForInput(jump.date);
         this.fillEditJumpEquipmentSelect(jump.equipment, jump.linesetNumber);
@@ -1962,7 +1964,8 @@ class SkydivingLogbook {
         const dateInput = document.getElementById('editJumpDate');
         const locInput = document.getElementById('editJumpLocation');
         const eqSel = document.getElementById('editJumpEquipment');
-        if (!dateInput || !locInput || !eqSel) return;
+        const notesInput = document.getElementById('editJumpNotes');
+        if (!dateInput || !locInput || !eqSel || !notesInput) return;
 
         const date = dateInput.value;
         if (!date) {
@@ -2010,6 +2013,7 @@ class SkydivingLogbook {
 
         jump.date = date;
         jump.location = location;
+        jump.notes = notesInput.value || '';
         jump.equipment = equipment;
         jump.linesetNumber = linesetNumber;
         const harnessSnap = this._harnessIdSnapshotForJump(equipment);

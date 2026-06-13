@@ -990,6 +990,11 @@ button.jump-number.jump-number-btn:focus-visible {
     max-width: 100%;
 }
 
+.edit-jump-modal-content textarea.edit-jump-notes-field {
+    min-height: 5.5rem;
+    box-sizing: border-box;
+}
+
 .edit-jump-apply-location-day-label {
     display: flex;
     align-items: flex-start;
