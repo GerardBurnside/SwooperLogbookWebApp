@@ -1826,7 +1826,7 @@ class SkydivingLogbook {
 
         modal.style.display = 'block';
         this.syncEditJumpModalBulkOptions();
-        dateInput.focus();
+        notesInput.focus();
     }
 
     closeEditJumpModal() {
