@@ -73,6 +73,7 @@ class SkydivingLogbook {
         this._mergedJumpsCache = []; // recent + older when "by month" merges both
         this._renderedMergedCount = 0;
         this._useMergedListCache = false;
+        this._monthLocationPieGroups = new Map();
         
         this.init();
     }
@@ -959,9 +960,9 @@ class SkydivingLogbook {
     }
 
     /** Count jumps per canopy (equipment id), merging all linesets for the same canopy. */
-    _aggregateJumpsByCanopyForYear(jumps) {
+    _aggregateJumpsByCanopy(jumps) {
         const map = new Map();
-        for (const j of jumps) {
+        for (const j of (jumps || [])) {
             const id = j.equipment || '';
             map.set(id, (map.get(id) || 0) + 1);
         }
@@ -974,25 +975,19 @@ class SkydivingLogbook {
         return rows;
     }
 
+    _aggregateJumpsByCanopyForYear(jumps) {
+        return this._aggregateJumpsByCanopy(jumps);
+    }
+
     /**
      * Logged jumps that snapshot this harness, grouped by canopy (jump.equipment).
      * Pre-app harness counts are not tied to a canopy and are excluded.
      */
     _aggregateLoggedJumpsByCanopyForHarness(harnessId) {
         const hid = harnessId;
-        const map = new Map();
-        for (const j of this.jumps) {
-            if (this._normalizeHarnessId(j.harnessId) !== hid) continue;
-            const id = j.equipment || '';
-            map.set(id, (map.get(id) || 0) + 1);
-        }
-        const rows = [...map.entries()].map(([equipmentId, count]) => {
-            const canopy = this.canopies.find(c => c.id === equipmentId);
-            const label = canopy ? canopy.name : 'Unknown canopy';
-            return { label, count, equipmentId };
-        });
-        rows.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
-        return rows;
+        return this._aggregateJumpsByCanopy(
+            this.jumps.filter(j => this._normalizeHarnessId(j.harnessId) === hid)
+        );
     }
 
     _yearStatsPieColors() {
@@ -1113,44 +1108,72 @@ class SkydivingLogbook {
         if (modal) modal.style.display = 'none';
     }
 
-    _renderHarnessCanopyPieModalContent(harnessId) {
+    _renderCanopyPieModal({ headingText, subText, entries, noteText = '' }) {
         const heading = document.getElementById('harnessCanopyPieHeading');
         const sub = document.getElementById('harnessCanopyPieSub');
         const root = document.getElementById('harnessCanopyPieRoot');
-        const preNote = document.getElementById('harnessCanopyPiePreAppNote');
-        if (!heading || !sub || !root || !preNote) return;
+        const note = document.getElementById('harnessCanopyPiePreAppNote');
+        if (!heading || !sub || !root || !note) return;
 
-        const harness = this.harnesses.find(h => h.id === harnessId);
-        const name = harness?.name || 'Harness';
-        const preApp = harness?.previousJumps ?? 0;
-        heading.textContent = name;
-
-        const byCan = this._aggregateLoggedJumpsByCanopyForHarness(harnessId);
-        const logged = byCan.reduce((s, e) => s + e.count, 0);
-        if (logged === 0) {
-            sub.textContent = preApp > 0
-                ? 'No logged jumps on this harness yet (pre-app jumps are not split by canopy).'
-                : 'No logged jumps on this harness yet.';
-        } else {
-            sub.textContent = logged === 1 ? '1 logged jump' : `${logged} logged jumps`;
-        }
+        heading.textContent = headingText;
+        sub.textContent = subText;
 
         const canopyColorMap = this._yearStatsCanopyColorMap();
         const palette = this._yearStatsPieColors();
-        root.innerHTML = this._renderPieChartBlock(
-            byCan.map(({ label, count, equipmentId }) => ({ label, count, equipmentId })),
-            {
-                getColor: (e) => canopyColorMap.get(e.equipmentId) ?? palette[0]
-            }
-        );
+        root.innerHTML = this._renderPieChartBlock(entries, {
+            getColor: (e) => canopyColorMap.get(e.equipmentId) ?? palette[0]
+        });
 
-        if (preApp > 0) {
-            preNote.hidden = false;
-            preNote.textContent = `This harness also has ${preApp} pre-app jump${preApp === 1 ? '' : 's'} (not tied to a canopy); they are not included in the chart.`;
+        if (noteText) {
+            note.hidden = false;
+            note.textContent = noteText;
         } else {
-            preNote.hidden = true;
-            preNote.textContent = '';
+            note.hidden = true;
+            note.textContent = '';
         }
+    }
+
+    _renderHarnessCanopyPieModalContent(harnessId) {
+        const harness = this.harnesses.find(h => h.id === harnessId);
+        const name = harness?.name || 'Harness';
+        const preApp = harness?.previousJumps ?? 0;
+
+        const byCan = this._aggregateLoggedJumpsByCanopyForHarness(harnessId);
+        const logged = byCan.reduce((s, e) => s + e.count, 0);
+        const subText = logged === 0
+            ? (preApp > 0
+                ? 'No logged jumps on this harness yet (pre-app jumps are not split by canopy).'
+                : 'No logged jumps on this harness yet.')
+            : (logged === 1 ? '1 logged jump' : `${logged} logged jumps`);
+        const noteText = preApp > 0
+            ? `This harness also has ${preApp} pre-app jump${preApp === 1 ? '' : 's'} (not tied to a canopy); they are not included in the chart.`
+            : '';
+        this._renderCanopyPieModal({
+            headingText: name,
+            subText,
+            entries: byCan.map(({ label, count, equipmentId }) => ({ label, count, equipmentId })),
+            noteText
+        });
+    }
+
+    openMonthLocationCanopyPieModal(groupId) {
+        const modal = document.getElementById('harnessCanopyPieModal');
+        if (!modal) return;
+        this._renderMonthLocationCanopyPieModalContent(groupId);
+        modal.style.display = 'block';
+    }
+
+    _renderMonthLocationCanopyPieModalContent(groupId) {
+        const group = this._monthLocationPieGroups.get(groupId);
+        if (!group) return;
+        const byCan = this._aggregateJumpsByCanopy(group.jumps);
+        const jumpCount = group.jumps.length;
+        const locationText = group.location || 'No location';
+        this._renderCanopyPieModal({
+            headingText: group.monthLabel,
+            subText: `${locationText} · ${jumpCount} jump${jumpCount === 1 ? '' : 's'}`,
+            entries: byCan
+        });
     }
 
     _bindHarnessStatsPieClicks(container) {
@@ -1225,6 +1248,7 @@ class SkydivingLogbook {
         const jumpsList = document.getElementById('jumpsList');
         const totalEl = document.getElementById('recentJumpsTotal');
         const allJumpsByMonth = this.settings.recentJumpsDays === 0;
+        this._monthLocationPieGroups = new Map();
 
         const updateRecentTotal = (count) => {
             if (!totalEl) return;
@@ -1430,6 +1454,11 @@ class SkydivingLogbook {
             const locationHtml = group.location
                 ? `<span class="month-group-location">📍 ${this.escapeHtml(group.location)}</span>`
                 : '<span class="month-group-location month-group-location-empty">No location</span>';
+            this._monthLocationPieGroups.set(domId, {
+                monthLabel: group.monthLabel,
+                location: group.location,
+                jumps: [...group.jumps]
+            });
 
             html += `
                 <div class="month-group" data-month="${group.monthKey}" data-location="${this.escapeHtml(group.location)}">
@@ -1438,6 +1467,7 @@ class SkydivingLogbook {
                         <span class="month-group-label">${group.monthLabel}</span>
                         ${locationHtml}
                         <span class="month-group-count">${jumpCount} jump${jumpCount !== 1 ? 's' : ''}</span>
+                        <button type="button" class="month-group-pie-btn" title="Show jumps per canopy" aria-label="Show jumps per canopy" onclick="event.stopPropagation(); logbook.openMonthLocationCanopyPieModal('${domId}')">◔</button>
                     </div>
                     <div class="month-group-body" id="month-${domId}" style="display:none;">
                         ${this.renderDayLocationGroups(group.jumps)}

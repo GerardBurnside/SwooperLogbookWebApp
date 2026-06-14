@@ -1163,6 +1163,33 @@ button.jump-number.jump-number-btn:focus-visible {
     margin-left: auto;
 }
 
+.month-group-pie-btn {
+    border: 1px solid #c5d4e8;
+    background: #fff;
+    color: #345;
+    border-radius: 999px;
+    width: 1.9rem;
+    height: 1.9rem;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.month-group-pie-btn:hover {
+    background: #f5f8fc;
+    border-color: #a9bfdc;
+}
+
+.month-group-pie-btn:focus {
+    outline: 2px solid #1976d2;
+    outline-offset: 2px;
+}
+
 .month-group-body {
     padding: 0.25rem;
 }
