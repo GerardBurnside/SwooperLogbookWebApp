@@ -2135,6 +2135,7 @@ footer {
 
 /* Slim single-line legal link (below main app chrome) */
 footer.legal-footer {
+    position: relative;
     justify-content: center;
     padding: 0.25rem 0.5rem;
     gap: 0;
@@ -2148,6 +2149,17 @@ footer.legal-footer a {
     white-space: nowrap;
     text-decoration: underline;
     text-underline-offset: 1px;
+}
+
+.footer-cache-version {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #868e96;
+    font-size: 10px;
+    line-height: 1;
+    white-space: nowrap;
 }
 
 /* Mobile Responsive */

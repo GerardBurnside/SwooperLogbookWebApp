@@ -643,6 +643,13 @@
     </script>
     <footer class="legal-footer">
         <a href="privacy-policy.html" title="Privacy Policy and Terms of Service">Privacy</a>
+        <span id="footerCacheVersion" class="footer-cache-version" aria-label="Cache version"></span>
     </footer>
+    <script>
+        const footerCacheVersionEl = document.getElementById('footerCacheVersion');
+        if (footerCacheVersionEl && typeof CACHE_VERSION !== 'undefined') {
+            footerCacheVersionEl.textContent = `Cache v${CACHE_VERSION}`;
+        }
+    </script>
 </body>
 </html>
