@@ -74,6 +74,7 @@ class SkydivingLogbook {
         this._renderedMergedCount = 0;
         this._useMergedListCache = false;
         this._monthLocationPieGroups = new Map();
+        this._dayLocationPieGroups = new Map();
         
         this.init();
     }
@@ -1176,6 +1177,26 @@ class SkydivingLogbook {
         });
     }
 
+    openDayLocationCanopyPieModal(groupId) {
+        const modal = document.getElementById('harnessCanopyPieModal');
+        if (!modal) return;
+        this._renderDayLocationCanopyPieModalContent(groupId);
+        modal.style.display = 'block';
+    }
+
+    _renderDayLocationCanopyPieModalContent(groupId) {
+        const group = this._dayLocationPieGroups.get(groupId);
+        if (!group) return;
+        const byCan = this._aggregateJumpsByCanopy(group.jumps);
+        const jumpCount = group.jumps.length;
+        const locationText = group.location || 'No location';
+        this._renderCanopyPieModal({
+            headingText: group.dateLabel,
+            subText: `${locationText} · ${jumpCount} jump${jumpCount === 1 ? '' : 's'}`,
+            entries: byCan
+        });
+    }
+
     _bindHarnessStatsPieClicks(container) {
         const harnessList = container.querySelector('#harnessStatsList');
         if (!harnessList) return;
@@ -1249,6 +1270,7 @@ class SkydivingLogbook {
         const totalEl = document.getElementById('recentJumpsTotal');
         const allJumpsByMonth = this.settings.recentJumpsDays === 0;
         this._monthLocationPieGroups = new Map();
+        this._dayLocationPieGroups = new Map();
 
         const updateRecentTotal = (count) => {
             if (!totalEl) return;
@@ -1393,12 +1415,16 @@ class SkydivingLogbook {
             const label = year === 'unknown' ? 'Unknown date' : String(year);
             const n = jumps.length;
             const countStr = n === 1 ? '1 jump' : `${n} jumps`;
+            const statsButtonHtml = year === 'unknown'
+                ? ''
+                : `<button type="button" class="month-group-pie-btn" title="Open jump statistics" aria-label="Open jump statistics for ${this.escapeHtml(String(year))}" onclick="event.stopPropagation(); logbook.openYearStatisticsModal(${year})">◔</button>`;
             return `
                 <div class="year-group" data-year="${this.escapeHtml(slug)}">
                     <div class="year-group-header" onclick="logbook.toggleYearGroup('${slug}')">
                         <span class="year-group-arrow" id="arrow-year-${slug}">&#9654;</span>
                         <span class="year-group-label">${this.escapeHtml(label)}</span>
                         <span class="year-group-count">${countStr}</span>
+                        ${statsButtonHtml}
                     </div>
                     <div class="year-group-body" id="year-group-body-${slug}" style="display:none;">
                         ${this._renderOlderMonthGroups(jumps)}
@@ -1605,6 +1631,11 @@ class SkydivingLogbook {
         return groups.map((group, i) => {
             const expanded = expandFirst && i === 0;
             const dayId = 'day-' + group.key.replace(/[^a-zA-Z0-9]/g, '_');
+            this._dayLocationPieGroups.set(dayId, {
+                dateLabel: group.dateLabel,
+                location: group.location,
+                jumps: [...group.jumps]
+            });
             return `
             <div class="day-location-group">
                 <div class="day-location-header" onclick="logbook.toggleDayGroup('${dayId}')">
@@ -1612,6 +1643,7 @@ class SkydivingLogbook {
                     <span class="day-date">${group.dateLabel}</span>
                     ${group.location ? `<span class="day-location">📍 ${group.location}</span>` : ''}
                     <span class="day-jump-range">${this.getJumpCountLabel(group.jumps)}</span>
+                    <button type="button" class="month-group-pie-btn" title="Show jumps per canopy" aria-label="Show jumps per canopy" onclick="event.stopPropagation(); logbook.openDayLocationCanopyPieModal('${dayId}')">◔</button>
                 </div>
                 <div class="day-group-body" id="${dayId}" style="display:${expanded ? 'block' : 'none'};">
                     ${group.jumps.map(j => this.createJumpRowHTML(j)).join('')}
