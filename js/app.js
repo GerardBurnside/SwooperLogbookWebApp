@@ -144,6 +144,7 @@ class SkydivingLogbook {
         this.setCurrentDate();
         this.updateEquipmentOptions();
         this.setupLocationAutocomplete();
+        this.setupNotesAutocomplete();
         this.preFillFormWithLastJump();
         this.applyAutoDetectDropZoneUi(true);
         this.showView('jumps');
@@ -3831,6 +3832,165 @@ class SkydivingLogbook {
         dropdown.addEventListener('click', (e) => {
             const option = e.target.closest('.autocomplete-option');
             if (option) selectOption(option.dataset.value);
+        });
+
+        document.addEventListener('click', (e) => {
+            if (wrap && wrap.contains(e.target)) return;
+            dropdown.classList.remove('open');
+        });
+    }
+
+    /**
+     * Collapse whitespace and newlines for matching / single-line previews of jump notes.
+     */
+    _notesCollapseForMatch(note) {
+        return String(note || '').replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    /**
+     * Distinct non-empty notes from logged jumps, most recently logged first.
+     */
+    _distinctJumpNotesRecentFirst() {
+        const seen = new Set();
+        const out = [];
+        const jumps = Array.isArray(this.jumps) ? this.jumps : [];
+        for (let i = jumps.length - 1; i >= 0; i--) {
+            const raw = jumps[i]?.notes;
+            const n = typeof raw === 'string' ? raw.trim() : '';
+            if (!n || seen.has(n)) continue;
+            seen.add(n);
+            out.push(n);
+        }
+        return out;
+    }
+
+    setupNotesAutocomplete() {
+        const pairs = [
+            ['notes', 'notesDropdown'],
+            ['editJumpNotes', 'editJumpNotesDropdown'],
+            ['jumpNoteContent', 'jumpNoteContentDropdown']
+        ];
+        for (const [inputId, dropdownId] of pairs) {
+            const input = document.getElementById(inputId);
+            const dropdown = document.getElementById(dropdownId);
+            if (input && dropdown) this._bindJumpNotesAutocomplete(input, dropdown);
+        }
+    }
+
+    /**
+     * Textarea + dropdown: suggest full note text from previous jump notes (log form, edit jump, note modal).
+     */
+    _bindJumpNotesAutocomplete(input, dropdown) {
+        if (input.dataset.notesAutocompleteBound === '1') return;
+        input.dataset.notesAutocompleteBound = '1';
+
+        const wrap = input.closest('.notes-autocomplete');
+        if (!wrap) {
+            console.warn('[logbook] notes field missing .notes-autocomplete wrapper', input.id);
+        }
+
+        let activeIndex = -1;
+        let lastMatches = [];
+
+        const previewHtmlForNote = (fullNote, queryTrimmed) => {
+            const oneLine = this._notesCollapseForMatch(fullNote);
+            const maxLen = 100;
+            const qLower = queryTrimmed.toLowerCase();
+            let start = 0;
+            let end = Math.min(oneLine.length, maxLen);
+            if (oneLine.length > maxLen) {
+                if (queryTrimmed) {
+                    const idx = oneLine.toLowerCase().indexOf(qLower);
+                    if (idx >= 0) {
+                        const half = Math.floor(maxLen / 2);
+                        start = Math.max(0, idx - half);
+                        end = Math.min(oneLine.length, start + maxLen);
+                        if (end - start < maxLen) start = Math.max(0, end - maxLen);
+                    }
+                } else {
+                    end = maxLen;
+                }
+            }
+            const slice = oneLine.slice(start, end);
+            const prefix = start > 0 ? '\u2026' : '';
+            const suffix = end < oneLine.length ? '\u2026' : '';
+            const relIdx = queryTrimmed ? slice.toLowerCase().indexOf(qLower) : -1;
+            const qLen = queryTrimmed.length;
+            let inner;
+            if (relIdx >= 0 && qLen > 0) {
+                inner = this.escapeHtml(slice.slice(0, relIdx))
+                    + `<span class="match">${this.escapeHtml(slice.slice(relIdx, relIdx + qLen))}</span>`
+                    + this.escapeHtml(slice.slice(relIdx + qLen));
+            } else {
+                inner = this.escapeHtml(slice);
+            }
+            return this.escapeHtml(prefix) + inner + this.escapeHtml(suffix);
+        };
+
+        const showDropdown = () => {
+            const q = input.value.trim();
+            const qLower = q.toLowerCase();
+            const distinct = this._distinctJumpNotesRecentFirst();
+            const matches = !q
+                ? distinct.slice(0, 25)
+                : distinct.filter(n => n.toLowerCase().includes(qLower)).slice(0, 25);
+
+            if (matches.length === 0) {
+                dropdown.classList.remove('open');
+                activeIndex = -1;
+                lastMatches = [];
+                return;
+            }
+
+            lastMatches = matches;
+            dropdown.innerHTML = matches.map((fullNote, i) =>
+                `<div class="autocomplete-option notes-autocomplete-option" role="option" data-index="${i}">${previewHtmlForNote(fullNote, q)}</div>`
+            ).join('');
+
+            activeIndex = -1;
+            dropdown.classList.add('open');
+        };
+
+        const selectOption = (index) => {
+            const text = lastMatches[index];
+            if (text === undefined) return;
+            input.value = text;
+            dropdown.classList.remove('open');
+            activeIndex = -1;
+        };
+
+        input.addEventListener('focus', showDropdown);
+        input.addEventListener('input', showDropdown);
+
+        input.addEventListener('keydown', (e) => {
+            const options = dropdown.querySelectorAll('.autocomplete-option');
+            if (!dropdown.classList.contains('open') || options.length === 0) return;
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                activeIndex = Math.min(activeIndex + 1, options.length - 1);
+                options.forEach((o, i) => o.classList.toggle('active', i === activeIndex));
+                options[activeIndex].scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                activeIndex = Math.max(activeIndex - 1, 0);
+                options.forEach((o, i) => o.classList.toggle('active', i === activeIndex));
+                options[activeIndex].scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'Enter' && activeIndex >= 0) {
+                e.preventDefault();
+                selectOption(activeIndex);
+            } else if (e.key === 'Escape') {
+                dropdown.classList.remove('open');
+                activeIndex = -1;
+            }
+        });
+
+        dropdown.addEventListener('mousedown', (e) => {
+            const option = e.target.closest('.autocomplete-option');
+            if (!option) return;
+            e.preventDefault();
+            const idx = parseInt(option.dataset.index, 10);
+            if (!Number.isNaN(idx)) selectOption(idx);
         });
 
         document.addEventListener('click', (e) => {

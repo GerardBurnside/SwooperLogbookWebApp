@@ -246,6 +246,21 @@ textarea {
     resize: vertical;
 }
 
+/* Notes autocomplete (log jump form) */
+.notes-autocomplete {
+    position: relative;
+}
+
+.notes-autocomplete .autocomplete-dropdown {
+    max-height: 240px;
+}
+
+.notes-autocomplete-option {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* Custom Location Autocomplete */
 .location-autocomplete {
     position: relative;
@@ -1809,6 +1824,11 @@ button.jump-number.jump-number-btn:focus-visible {
 
 .jump-note-modal-content {
     max-width: 460px;
+    overflow: visible;
+}
+
+.jump-note-modal-content .autocomplete-dropdown.open {
+    z-index: 20;
 }
 
 .jump-note-content {

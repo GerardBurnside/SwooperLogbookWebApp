@@ -72,9 +72,10 @@
                             <small id="linesetHint" class="lineset-hint" style="display:none; color:#888; font-size:12px;"></small>
                         </div>
                         
-                        <div class="form-group">
+                        <div class="form-group notes-autocomplete">
                             <label for="notes">Notes (Optional)</label>
-                            <textarea id="notes" name="notes" rows="1" placeholder="e.g. Cutaway, etc."></textarea>
+                            <textarea id="notes" name="notes" rows="1" placeholder="e.g. Cutaway, etc." autocomplete="off"></textarea>
+                            <div id="notesDropdown" class="autocomplete-dropdown" role="listbox" aria-label="Previous notes"></div>
                         </div>
                         
                         <div class="jump-submit-row">
@@ -327,18 +328,18 @@
                     </div>
                 </div>
 
-                <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
+                <!-- <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
                 <h3 style="margin-bottom: 8px;">Jump log storage</h3>
                 <p style="color:#666; font-size:13px; margin:0 0 10px 0; line-height:1.45;">
                     If jumps vanished from the list or edits felt wrong, duplicate <strong>internal</strong> jump IDs may exist (this app’s per-device key, not your jump # or Google Sheet row id).
                     This assigns new safe internal IDs and does not change jump numbers, dates, notes, or existing <code>jumpId</code> values used for sync.
                 </p>
-                <button type="button" id="repairJumpLocalIdsBtn" class="btn-secondary" style="width:100%;">Repair duplicate / missing jump IDs</button>
+                <button type="button" id="repairJumpLocalIdsBtn" class="btn-secondary" style="width:100%;">Repair duplicate / missing jump IDs</button> -->
 
                 <button id="saveSettings" class="btn-primary" style="margin-top:16px;">Save Settings</button>
 
-                <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
-                <button id="resetAppBtn" class="btn-danger" style="width:100%; display:none;">Erase All / Reset App</button>
+                <!-- <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
+                <button id="resetAppBtn" class="btn-danger" style="width:100%; display:none;">Erase All / Reset App</button> -->
 
                 <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
                 <button id="googleSheetsIntegrationBtn" class="btn-secondary" style="width:100%; padding:16px; font-size:18px; font-weight:600;">Google Sheet Integration</button>
@@ -414,7 +415,10 @@
             <div class="modal-content jump-note-modal-content">
                 <span id="jumpNoteClose" class="close">&times;</span>
                 <h2>Jump Note</h2>
-                <textarea id="jumpNoteContent" class="jump-note-content jump-note-editor" rows="8" placeholder="Add your note here..."></textarea>
+                <div class="form-group notes-autocomplete">
+                    <textarea id="jumpNoteContent" class="jump-note-content jump-note-editor" rows="8" placeholder="Add your note here..." autocomplete="off"></textarea>
+                    <div id="jumpNoteContentDropdown" class="autocomplete-dropdown" role="listbox" aria-label="Previous notes"></div>
+                </div>
                 <div class="jump-note-actions">
                     <button type="button" id="jumpNoteSave" class="btn-primary">Save Note</button>
                 </div>
@@ -456,9 +460,10 @@
                     <label for="editJumpEquipment">Canopy &amp; lineset</label>
                     <select id="editJumpEquipment"></select>
                 </div>
-                <div class="form-group">
+                <div class="form-group notes-autocomplete">
                     <label for="editJumpNotes">Note</label>
-                    <textarea id="editJumpNotes" autofocus class="jump-note-editor edit-jump-notes-field" rows="4" placeholder="Optional — e.g. cutaway, coach feedback"></textarea>
+                    <textarea id="editJumpNotes" autofocus class="jump-note-editor edit-jump-notes-field" rows="4" placeholder="Optional — e.g. cutaway, coach feedback" autocomplete="off"></textarea>
+                    <div id="editJumpNotesDropdown" class="autocomplete-dropdown" role="listbox" aria-label="Previous notes"></div>
                 </div>
                 <div class="jump-note-actions edit-jump-actions">
                     <button type="button" id="editJumpSave" class="btn-primary">Save changes</button>
