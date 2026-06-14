@@ -260,19 +260,19 @@ class SkydivingLogbook {
             this.saveSettings();
         });
 
-        const repairJumpIdsBtn = document.getElementById('repairJumpLocalIdsBtn');
-        if (repairJumpIdsBtn) {
-            repairJumpIdsBtn.addEventListener('click', () => this.repairJumpLocalIdsFromSettings());
-        }
+        // const repairJumpIdsBtn = document.getElementById('repairJumpLocalIdsBtn');
+        // if (repairJumpIdsBtn) {
+        //     repairJumpIdsBtn.addEventListener('click', () => this.repairJumpLocalIdsFromSettings());
+        // }
 
         const reseqChk = document.getElementById('settingsResequenceJumpsCheckbox');
         if (reseqChk) {
             reseqChk.addEventListener('change', () => this._updateStartingJumpUiState());
         }
 
-        document.getElementById('resetAppBtn').addEventListener('click', () => {
-            this.resetAppToFirstLaunch();
-        });
+        // document.getElementById('resetAppBtn').addEventListener('click', () => {
+        //     this.resetAppToFirstLaunch();
+        // });
 
         document.getElementById('useCurrentLocationBtn').addEventListener('click', () => {
             this.setComponentCoordsFromGPS();
