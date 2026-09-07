@@ -1,4 +1,4 @@
-// Swooper Logbook App - Main Application Logic
+/t/ Swooper Logbook App - Main Application Logic
 
 /** Optional per-lineset overrides for statistics bar colors (normal linesets only; hybrid uses settings). */
 const LINESET_STAT_THRESHOLD_PROPS = ['standardOrangeThreshold', 'standardRedThreshold'];
@@ -11,7 +11,7 @@ const MAIN_NAV_VIEWS = [
     { id: 'equipment', label: 'Equipment' },
     { id: 'stats', label: 'Statistics' },
     { id: 'flysight', label: 'Flysight' },
-    { id: 'todos', label: 'TODOs' }
+    { id: 'todos', label: 'TODO' }
 ];
 
 class SkydivingLogbook {
