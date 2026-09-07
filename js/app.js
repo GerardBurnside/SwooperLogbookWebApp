@@ -1,4 +1,4 @@
-/t/ Swooper Logbook App - Main Application Logic
+// Swooper Logbook App - Main Application Logic
 
 /** Optional per-lineset overrides for statistics bar colors (normal linesets only; hybrid uses settings). */
 const LINESET_STAT_THRESHOLD_PROPS = ['standardOrangeThreshold', 'standardRedThreshold'];
