@@ -105,6 +105,8 @@ class SkydivingLogbook {
         this._dayLocationPieGroups = new Map();
         this.flysightFiles = [];
         this._flysightGraph = null;
+        this._flysightGraphRo = null;
+        this._flysightScrollY = 0;
         const savedFlysightAvg = parseInt(localStorage.getItem('flysight-avg-points'), 10);
         this.flysightAvgPoints = Number.isFinite(savedFlysightAvg) ? Math.min(20, Math.max(1, savedFlysightAvg)) : 5;
         const savedFlysightMaxHeight = parseInt(localStorage.getItem('flysight-max-height'), 10);
@@ -5209,6 +5211,29 @@ class SkydivingLogbook {
             graphRoot.addEventListener('pointerup', (e) => this._onFlysightGraphPointerUp(e));
             graphRoot.addEventListener('pointercancel', (e) => this._onFlysightGraphPointerUp(e));
         }
+
+        const graphModal = document.getElementById('flysightGraphModal');
+        graphModal?.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+
+        const onViewport = () => this._onFlysightGraphViewportChange();
+        window.addEventListener('resize', onViewport);
+        window.addEventListener('orientationchange', onViewport);
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', onViewport);
+            window.visualViewport.addEventListener('scroll', onViewport);
+        }
+        if (graphRoot && typeof ResizeObserver !== 'undefined') {
+            this._flysightGraphRo = new ResizeObserver(() => {
+                const g = this._flysightGraph;
+                const root = document.getElementById('flysightGraphRoot');
+                if (!g || !root) return;
+                const w = Math.round(root.clientWidth);
+                const h = Math.round(root.clientHeight);
+                if (w === g._layoutW && h === g._layoutH) return;
+                this._drawFlysightGraph();
+            });
+            this._flysightGraphRo.observe(graphRoot);
+        }
     }
 
     async _addFlysightFiles(fileList) {
@@ -5372,22 +5397,90 @@ class SkydivingLogbook {
             samples: series.samples,
             idxA: cursors.idxA,
             idxB: cursors.idxB,
-            drag: null
+            drag: null,
+            _layoutW: 0,
+            _layoutH: 0
         };
-        const title = document.getElementById('flysightGraphTitle');
-        if (title) title.textContent = file.name;
+        modal.style.display = 'flex';
+        this._setFlysightGraphScrollLock(true);
+        this._syncFlysightGraphViewport();
         this._drawFlysightGraph();
-        modal.style.display = 'block';
+        requestAnimationFrame(() => this._drawFlysightGraph());
     }
 
     closeFlysightGraphModal() {
         const modal = document.getElementById('flysightGraphModal');
-        if (modal) modal.style.display = 'none';
+        if (modal) {
+            modal.style.display = 'none';
+            modal.style.top = '';
+            modal.style.left = '';
+            modal.style.right = '';
+            modal.style.bottom = '';
+            modal.style.width = '';
+            modal.style.height = '';
+        }
+        this._setFlysightGraphScrollLock(false);
         if (this._flysightGraph) this._flysightGraph.drag = null;
     }
 
+    _setFlysightGraphScrollLock(lock) {
+        const html = document.documentElement;
+        const body = document.body;
+        if (lock) {
+            this._flysightScrollY = window.scrollY || window.pageYOffset || 0;
+            html.classList.add('flysight-graph-open');
+            body.classList.add('flysight-graph-open');
+            body.style.top = `-${this._flysightScrollY}px`;
+        } else {
+            html.classList.remove('flysight-graph-open');
+            body.classList.remove('flysight-graph-open');
+            body.style.top = '';
+            window.scrollTo(0, this._flysightScrollY || 0);
+        }
+    }
+
+    _syncFlysightGraphViewport() {
+        const modal = document.getElementById('flysightGraphModal');
+        if (!modal || modal.style.display === 'none' || !modal.style.display) return;
+        const vv = window.visualViewport;
+        if (vv) {
+            modal.style.top = `${vv.offsetTop}px`;
+            modal.style.left = `${vv.offsetLeft}px`;
+            modal.style.right = 'auto';
+            modal.style.bottom = 'auto';
+            modal.style.width = `${vv.width}px`;
+            modal.style.height = `${vv.height}px`;
+        } else {
+            modal.style.top = '0';
+            modal.style.left = '0';
+            modal.style.right = '0';
+            modal.style.bottom = '0';
+            modal.style.width = 'auto';
+            modal.style.height = 'auto';
+        }
+    }
+
+    _onFlysightGraphViewportChange() {
+        const modal = document.getElementById('flysightGraphModal');
+        if (!modal || modal.style.display !== 'flex') return;
+        this._syncFlysightGraphViewport();
+        this._drawFlysightGraph();
+    }
+
     _flysightGraphLayout() {
-        return { width: 720, height: 340, l: 58, r: 16, t: 22, b: 48 };
+        const root = document.getElementById('flysightGraphRoot');
+        const width = Math.max(240, Math.round(root?.clientWidth || 720));
+        const height = Math.max(140, Math.round(root?.clientHeight || 340));
+        const compact = width < 520 || height < 300;
+        return {
+            width,
+            height,
+            compact,
+            l: compact ? 40 : 58,
+            r: compact ? 8 : 16,
+            t: compact ? 14 : 22,
+            b: compact ? 36 : 44
+        };
     }
 
     _flysightVelKmh(velDMs) {
@@ -5441,8 +5534,11 @@ class SkydivingLogbook {
         const root = document.getElementById('flysightGraphRoot');
         const g = this._flysightGraph;
         if (!root || !g) return;
+        if (root.clientWidth < 40 || root.clientHeight < 40) return;
         const samples = g.samples;
         const layout = this._flysightGraphLayout();
+        g._layoutW = layout.width;
+        g._layoutH = layout.height;
         const sc = this._flysightGraphScales(samples, layout);
         const a = samples[g.idxA];
         const b = samples[g.idxB];
@@ -5452,6 +5548,10 @@ class SkydivingLogbook {
         const xTicks = [0, 5, 10, 15, 20, 25].filter(t => t <= sc.tMax + 0.05);
         const yBase = layout.height - layout.b;
         const nearZeroKmh = this._flysightVelKmh(Flysight.CURSOR_B_VELD_MS);
+        const fs = layout.compact ? 10 : 11;
+        const handleR = layout.compact ? 8 : 10;
+        const handleY = yBase + (layout.compact ? 10 : 12);
+        const xLabelY = layout.compact ? layout.height - 4 : layout.height - 6;
 
         const cursor = (which, sample, color) => {
             const x = sc.xOf(sample.tRev);
@@ -5462,22 +5562,23 @@ class SkydivingLogbook {
                     <line x1="${layout.l}" y1="${y}" x2="${x}" y2="${y}" stroke="${color}" stroke-width="1" stroke-dasharray="4 3"/>
                     <circle cx="${x}" cy="${y}" r="4" fill="${color}"/>
                     <rect x="${x - 16}" y="${yBase - 6}" width="32" height="40" fill="transparent"/>
-                    <circle cx="${x}" cy="${yBase + 12}" r="10" fill="${color}"/>
-                    <text x="${x}" y="${yBase + 16}" text-anchor="middle" fill="#fff" font-size="11" font-weight="600" pointer-events="none">${which.toUpperCase()}</text>
-                    <text x="${layout.l - 6}" y="${y + 4}" text-anchor="end" fill="${color}" font-size="11">${kmhOf(sample).toFixed(1)}</text>
+                    <circle cx="${x}" cy="${handleY}" r="${handleR}" fill="${color}"/>
+                    <text x="${x}" y="${handleY + 4}" text-anchor="middle" fill="#fff" font-size="${fs}" font-weight="600" pointer-events="none">${which.toUpperCase()}</text>
+                    <text x="${layout.l - 6}" y="${y + 4}" text-anchor="end" fill="${color}" font-size="${fs}">${kmhOf(sample).toFixed(1)}</text>
                 </g>`;
         };
 
         const grid = yTicks.map(v => `
             <line x1="${layout.l}" y1="${sc.yOf(v)}" x2="${layout.width - layout.r}" y2="${sc.yOf(v)}" stroke="#eee"/>
-            <text x="${layout.l - 8}" y="${sc.yOf(v) + 4}" text-anchor="end" fill="#888" font-size="11">${v}</text>
+            <text x="${layout.l - 6}" y="${sc.yOf(v) + 4}" text-anchor="end" fill="#888" font-size="${fs}">${v}</text>
         `).join('');
         const xLabels = xTicks.map(t => `
-            <text x="${sc.xOf(t)}" y="${layout.height - 6}" text-anchor="middle" fill="#888" font-size="11">${t}s</text>
+            <text x="${sc.xOf(t)}" y="${xLabelY}" text-anchor="middle" fill="#888" font-size="${fs}">${t}s</text>
         `).join('');
 
         root.innerHTML = `
-            <svg viewBox="0 0 ${layout.width} ${layout.height}" width="100%" height="${layout.height}"
+            <svg viewBox="0 0 ${layout.width} ${layout.height}" width="${layout.width}" height="${layout.height}"
+                 preserveAspectRatio="none"
                  role="img" aria-label="Vertical speed in kilometres per hour versus seconds before landing">
                 ${grid}
                 ${xLabels}
@@ -5487,8 +5588,7 @@ class SkydivingLogbook {
                 <polyline fill="none" stroke="#1976D2" stroke-width="2" points="${poly}"/>
                 ${cursor('a', a, '#1976D2')}
                 ${cursor('b', b, '#555')}
-                <text x="${layout.l - 8}" y="${layout.t - 6}" text-anchor="end" fill="#888" font-size="11">km/h</text>
-                <text x="${(layout.l + layout.width - layout.r) / 2}" y="${layout.height - 22}" text-anchor="middle" fill="#888" font-size="11">Seconds before landing</text>
+                <text x="${layout.l - 6}" y="${Math.max(10, layout.t - 4)}" text-anchor="end" fill="#888" font-size="${fs}">km/h</text>
             </svg>`;
         this._updateFlysightGraphStats();
     }

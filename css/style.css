@@ -2707,30 +2707,102 @@ footer.legal-footer a {
     color: #0d47a1;
 }
 
-.flysight-graph-modal-content {
-    max-width: 760px;
+/* Fullscreen Flysight graph: fill the visual viewport, never scroll. */
+#flysightGraphModal.modal {
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+    inset: 0;
+    width: auto;
+    height: auto;
+    max-height: none;
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+#flysightGraphModal .flysight-graph-modal-content {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    padding: max(0.35rem, env(safe-area-inset-top, 0px))
+             max(0.5rem, env(safe-area-inset-right, 0px))
+             max(0.35rem, env(safe-area-inset-bottom, 0px))
+             max(0.5rem, env(safe-area-inset-left, 0px));
+}
+
+#flysightGraphModal .close {
+    top: max(0.15rem, env(safe-area-inset-top, 0px));
+    right: max(0.45rem, env(safe-area-inset-right, 0px));
+    z-index: 2;
+    line-height: 1;
 }
 
 .flysight-graph-stats {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 1rem 1.5rem;
-    margin-bottom: 0.75rem;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+    gap: 0.25rem 0.65rem;
+    margin: 0 2.1rem 0.3rem 0;
+    flex-shrink: 0;
+}
+
+.flysight-graph-stats .flysight-metric-label {
+    font-size: 0.65rem;
+}
+
+.flysight-graph-stats .flysight-metric-value {
+    font-size: 0.95rem;
+}
+
+@media (max-height: 420px) {
+    .flysight-graph-stats {
+        gap: 0.1rem 0.45rem;
+        margin-bottom: 0.15rem;
+    }
+
+    .flysight-graph-stats .flysight-metric-label {
+        font-size: 0.58rem;
+    }
+
+    .flysight-graph-stats .flysight-metric-value {
+        font-size: 0.85rem;
+    }
 }
 
 .flysight-graph-root {
+    flex: 1 1 auto;
+    min-height: 0;
     width: 100%;
-    overflow-x: auto;
+    overflow: hidden;
     touch-action: none;
 }
 
 .flysight-graph-root svg {
     display: block;
-    max-width: 100%;
-    height: auto;
+    width: 100%;
+    height: 100%;
+    max-width: none;
     user-select: none;
     -webkit-user-select: none;
+}
+
+html.flysight-graph-open,
+html.flysight-graph-open body {
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
+body.flysight-graph-open {
+    position: fixed;
+    left: 0;
+    right: 0;
+    width: 100%;
 }
 
 /* TODOs (grocery-style checklist) */

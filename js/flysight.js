@@ -151,7 +151,7 @@
     const CURSOR_A_PEAK_FRACTION = 0.85;
     const CURSOR_A_PITCH_RATE_DEG_S = 15;
     /** After the pitch-rate hint, move this fraction of the remaining gap toward the velD peak. */
-    const CURSOR_A_TOWARD_PEAK = 0.55;
+    const CURSOR_A_TOWARD_PEAK = 0.75;
 
     /**
      * Great-circle distance in metres.
