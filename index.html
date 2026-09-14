@@ -636,6 +636,13 @@
                     <input type="range" id="flysightAvgPoints" class="flysight-avg-slider" min="1" max="20" value="3" step="1">
                 </div>
                 <div class="form-group">
+                    <label for="flysightMaxHeightSliderMax">Max height slider range</label>
+                    <div class="flysight-settings-unit-row">
+                        <input type="number" id="flysightMaxHeightSliderMax" value="500" min="1" max="10000" step="50" inputmode="numeric">
+                        <span>m</span>
+                    </div>
+                </div>
+                <div class="form-group">
                     <label for="flysightCursorBDiveAngle">Cursor B dive-angle threshold</label>
                     <small class="flysight-settings-help">Cursor B marks the end of the recovery arc. Starting from cursor A and moving toward landing, one candidate for B is the first sample whose dive angle (from horizontal) falls below this value. Default: 5°.</small>
                     <div class="flysight-settings-unit-row">
@@ -673,7 +680,10 @@
                         <span id="flysightGraphVelA" class="flysight-metric-value">—</span>
                     </div>
                 </div>
-                <div id="flysightGraphRoot" class="flysight-graph-root"></div>
+                <div class="flysight-graph-stage">
+                    <div id="flysightGraphRoot" class="flysight-graph-root"></div>
+                    <button type="button" id="flysightGraphResetZoom" class="flysight-graph-reset-zoom" hidden>Reset zoom</button>
+                </div>
             </div>
         </div>
 

@@ -107,6 +107,20 @@ test('filterPointsByMaxHeight ignores points above AGL ceiling', () => {
     assert.ok(filtered.every(p => p.hMSL <= 1420.272 + 10));
 });
 
+test('filterPointsByMaxHeight allows ceilings above the default 500 m', () => {
+    const points = [
+        { hMSL: 100, velD: 1 },
+        { hMSL: 700, velD: 1 },
+        { hMSL: 1200, velD: 1 }
+    ];
+    const at500 = F.filterPointsByMaxHeight(points, 500);
+    const at800 = F.filterPointsByMaxHeight(points, 800);
+    assert.equal(at500.length, 1);
+    assert.equal(at800.length, 2);
+    assert.equal(at800[1].hMSL, 700);
+    assert.ok(F.MAX_MAX_HEIGHT_M > 500);
+});
+
 test('analyzeFlysightTrack: max height limits eligible points', () => {
     const { points } = F.parseFlysightCsv(SAMPLE_CSV);
     const full = F.analyzeFlysightTrack(points, 1, 500);

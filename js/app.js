@@ -109,10 +109,13 @@ class SkydivingLogbook {
         this._flysightScrollY = 0;
         const savedFlysightAvg = parseInt(localStorage.getItem('flysight-avg-points'), 10);
         this.flysightAvgPoints = Number.isFinite(savedFlysightAvg) ? Math.min(20, Math.max(1, savedFlysightAvg)) : 3;
+        this.flysightMaxHeightSliderMaxM = this._parseFlysightMaxHeightSliderMax(
+            localStorage.getItem('flysight-max-height-slider-max')
+        );
         const savedFlysightMaxHeight = parseInt(localStorage.getItem('flysight-max-height'), 10);
         this.flysightMaxHeightM = Number.isFinite(savedFlysightMaxHeight)
-            ? Math.min(500, Math.max(1, savedFlysightMaxHeight))
-            : 500;
+            ? this._parseFlysightMaxHeight(savedFlysightMaxHeight)
+            : Math.min(this.flysightMaxHeightSliderMaxM, this._flysightHeightLimits().defaultM);
         const savedFlysightSpeedMetric = localStorage.getItem('flysight-speed-metric');
         this.flysightSpeedMetric = ['vertical', 'total', 'both'].includes(savedFlysightSpeedMetric)
             ? savedFlysightSpeedMetric
@@ -5132,9 +5135,57 @@ class SkydivingLogbook {
             : '';
     }
 
+    _flysightHeightLimits() {
+        const minM = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.MIN_MAX_HEIGHT_M))
+            ? Flysight.MIN_MAX_HEIGHT_M
+            : 1;
+        const defaultM = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.DEFAULT_MAX_HEIGHT_M))
+            ? Flysight.DEFAULT_MAX_HEIGHT_M
+            : 500;
+        const absMaxM = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.MAX_MAX_HEIGHT_M))
+            ? Flysight.MAX_MAX_HEIGHT_M
+            : 10000;
+        return { minM, defaultM, absMaxM };
+    }
+
+    _parseFlysightMaxHeightSliderMax(value) {
+        const { minM, defaultM, absMaxM } = this._flysightHeightLimits();
+        const n = parseInt(value, 10);
+        if (!Number.isFinite(n)) return defaultM;
+        return Math.min(absMaxM, Math.max(minM, n));
+    }
+
+    _parseFlysightMaxHeight(value) {
+        const { minM } = this._flysightHeightLimits();
+        const n = parseInt(value, 10);
+        const fallback = this.flysightMaxHeightSliderMaxM;
+        if (!Number.isFinite(n)) return fallback;
+        return Math.min(this.flysightMaxHeightSliderMaxM, Math.max(minM, n));
+    }
+
     _updateFlysightMaxHeightLabel() {
         const maxHeightValue = document.getElementById('flysightMaxHeightValue');
         if (maxHeightValue) maxHeightValue.textContent = String(this.flysightMaxHeightM);
+    }
+
+    _syncFlysightMaxHeightSlider() {
+        const slider = document.getElementById('flysightMaxHeight');
+        if (slider) {
+            slider.max = String(this.flysightMaxHeightSliderMaxM);
+            slider.value = String(this.flysightMaxHeightM);
+        }
+        this._updateFlysightMaxHeightLabel();
+    }
+
+    _applyFlysightMaxHeightSliderMax(value) {
+        this.flysightMaxHeightSliderMaxM = this._parseFlysightMaxHeightSliderMax(value);
+        localStorage.setItem('flysight-max-height-slider-max', String(this.flysightMaxHeightSliderMaxM));
+        const clamped = this._parseFlysightMaxHeight(this.flysightMaxHeightM);
+        if (clamped !== this.flysightMaxHeightM) {
+            this.flysightMaxHeightM = clamped;
+            localStorage.setItem('flysight-max-height', String(this.flysightMaxHeightM));
+        }
+        this._syncFlysightMaxHeightSlider();
     }
 
     _updateFlysightSpeedModeButtons() {
@@ -5179,12 +5230,20 @@ class SkydivingLogbook {
 
     _syncFlysightSettingsForm() {
         const avgSlider = document.getElementById('flysightAvgPoints');
+        const sliderMaxInput = document.getElementById('flysightMaxHeightSliderMax');
         const angleInput = document.getElementById('flysightCursorBDiveAngle');
         const ticksInput = document.getElementById('flysightCursorBAltTicks');
         if (avgSlider) avgSlider.value = String(this.flysightAvgPoints);
+        if (sliderMaxInput) {
+            const { minM, absMaxM } = this._flysightHeightLimits();
+            sliderMaxInput.min = String(minM);
+            sliderMaxInput.max = String(absMaxM);
+            sliderMaxInput.value = String(this.flysightMaxHeightSliderMaxM);
+        }
         if (angleInput) angleInput.value = String(this.flysightCursorBDiveAngleDeg);
         if (ticksInput) ticksInput.value = String(this.flysightCursorBAltTicks);
         this._updateFlysightAvgLabel();
+        this._syncFlysightMaxHeightSlider();
     }
 
     openFlysightSettingsModal() {
@@ -5209,6 +5268,7 @@ class SkydivingLogbook {
         this.flysightAvgPoints = defaultAvg;
         this.flysightCursorBDiveAngleDeg = defaultAngle;
         this.flysightCursorBAltTicks = defaultTicks;
+        this._applyFlysightMaxHeightSliderMax(this._flysightHeightLimits().defaultM);
         localStorage.setItem('flysight-avg-points', String(this.flysightAvgPoints));
         localStorage.setItem('flysight-cursor-b-dive-angle', String(this.flysightCursorBDiveAngleDeg));
         localStorage.setItem('flysight-cursor-b-alt-ticks', String(this.flysightCursorBAltTicks));
@@ -5230,6 +5290,16 @@ class SkydivingLogbook {
             };
             angleInput.addEventListener('input', applyAngle);
             angleInput.addEventListener('change', applyAngle);
+        }
+        const sliderMaxInput = document.getElementById('flysightMaxHeightSliderMax');
+        if (sliderMaxInput && sliderMaxInput.dataset.bound !== '1') {
+            sliderMaxInput.dataset.bound = '1';
+            const applySliderMax = () => {
+                this._applyFlysightMaxHeightSliderMax(sliderMaxInput.value);
+                if (this.flysightFiles.length) this.renderFlysightView();
+            };
+            sliderMaxInput.addEventListener('input', applySliderMax);
+            sliderMaxInput.addEventListener('change', applySliderMax);
         }
         const ticksInput = document.getElementById('flysightCursorBAltTicks');
         if (ticksInput && ticksInput.dataset.bound !== '1') {
@@ -5287,9 +5357,8 @@ class SkydivingLogbook {
         if (!dropZone || !fileInput || !avgSlider || !maxHeightSlider || !speedVerticalBtn || !speedTotalBtn || !speedBothBtn) return;
 
         avgSlider.value = String(this.flysightAvgPoints);
-        maxHeightSlider.value = String(this.flysightMaxHeightM);
+        this._syncFlysightMaxHeightSlider();
         this._updateFlysightAvgLabel();
-        this._updateFlysightMaxHeightLabel();
         this._updateFlysightSpeedModeButtons();
         this._syncFlysightSettingsForm();
         this._bindFlysightSettingsInputs();
@@ -5341,7 +5410,7 @@ class SkydivingLogbook {
         });
 
         maxHeightSlider.addEventListener('input', () => {
-            this.flysightMaxHeightM = Math.min(500, Math.max(1, parseInt(maxHeightSlider.value, 10) || 500));
+            this.flysightMaxHeightM = this._parseFlysightMaxHeight(maxHeightSlider.value);
             this._updateFlysightMaxHeightLabel();
             localStorage.setItem('flysight-max-height', String(this.flysightMaxHeightM));
             if (this.flysightFiles.length) this.renderFlysightView();
@@ -5371,7 +5440,15 @@ class SkydivingLogbook {
             graphRoot.addEventListener('pointermove', (e) => this._onFlysightGraphPointerMove(e));
             graphRoot.addEventListener('pointerup', (e) => this._onFlysightGraphPointerUp(e));
             graphRoot.addEventListener('pointercancel', (e) => this._onFlysightGraphPointerUp(e));
+            graphRoot.addEventListener('wheel', (e) => this._onFlysightGraphWheel(e), { passive: false });
+            graphRoot.addEventListener('dblclick', (e) => {
+                e.preventDefault();
+                this._resetFlysightGraphZoom();
+            });
         }
+        document.getElementById('flysightGraphResetZoom')?.addEventListener('click', () => {
+            this._resetFlysightGraphZoom();
+        });
 
         const graphModal = document.getElementById('flysightGraphModal');
         graphModal?.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
@@ -5433,13 +5510,10 @@ class SkydivingLogbook {
     renderFlysightView() {
         const container = document.getElementById('flysightResults');
         const avgSlider = document.getElementById('flysightAvgPoints');
-        const maxHeightSlider = document.getElementById('flysightMaxHeight');
         if (!container) return;
 
         if (avgSlider) avgSlider.value = String(this.flysightAvgPoints);
-        if (maxHeightSlider) maxHeightSlider.value = String(this.flysightMaxHeightM);
         this._syncFlysightSettingsForm();
-        this._updateFlysightMaxHeightLabel();
         this._updateFlysightSpeedModeButtons();
 
         if (!this.flysightFiles.length) {
@@ -5577,9 +5651,13 @@ class SkydivingLogbook {
             idxA: cursors.idxA,
             idxB: cursors.idxB,
             drag: null,
+            pan: null,
+            pinch: null,
+            pointers: new Map(),
             _layoutW: 0,
             _layoutH: 0
         };
+        this._initFlysightGraphView(this._flysightGraph);
         modal.style.display = 'flex';
         this._setFlysightGraphScrollLock(true);
         this._syncFlysightGraphViewport();
@@ -5599,7 +5677,8 @@ class SkydivingLogbook {
             modal.style.height = '';
         }
         this._setFlysightGraphScrollLock(false);
-        if (this._flysightGraph) this._flysightGraph.drag = null;
+        this._clearFlysightGraphInteraction();
+        this._syncFlysightGraphResetZoomBtn();
     }
 
     _setFlysightGraphScrollLock(lock) {
@@ -5686,28 +5765,238 @@ class SkydivingLogbook {
 
     _flysightDegTicks(yMin, yMax) {
         const span = yMax - yMin;
-        const step = span > 60 ? 15 : span > 30 ? 10 : 5;
-        const ticks = [];
-        const start = Math.ceil(yMin / step) * step;
-        for (let v = start; v <= yMax + 0.01; v += step) ticks.push(v);
-        return ticks;
+        const step = span > 60 ? 15 : span > 30 ? 10 : span > 15 ? 5 : span > 6 ? 2 : span > 3 ? 1 : span > 1.5 ? 0.5 : 0.2;
+        return this._flysightTicksInRange(yMin, yMax, step);
     }
 
-    _flysightGraphScales(samples, layout) {
+    _flysightTimeTicks(tMin, tMax) {
+        const span = tMax - tMin;
+        const step = span > 20 ? 5 : span > 10 ? 2 : span > 5 ? 1 : span > 2 ? 0.5 : span > 1 ? 0.2 : 0.1;
+        return this._flysightTicksInRange(tMin, tMax, step);
+    }
+
+    _flysightTicksInRange(min, max, step) {
+        const ticks = [];
+        const start = Math.ceil((min - 1e-9) / step) * step;
+        for (let i = 0; i < 48; i++) {
+            const v = Number((start + i * step).toFixed(6));
+            if (v > max + step * 0.01) break;
+            ticks.push(v);
+        }
+        return { ticks, step };
+    }
+
+    _flysightTickLabel(v, step) {
+        if (step >= 1) return String(Math.round(v));
+        return v.toFixed(step >= 0.1 ? 1 : 2);
+    }
+
+    _flysightGraphFullExtents(samples) {
         const tMax = Math.max(0.001, samples[samples.length - 1]?.tRev || 25);
         const angles = samples.map(s => this._flysightDiveAngleDeg(s));
         const yMin = Math.min(0, ...angles);
         const yMax = Math.max(15, ...angles) * 1.08;
+        return { tMin: 0, tMax, yMin, yMax };
+    }
+
+    _initFlysightGraphView(g) {
+        const ext = this._flysightGraphFullExtents(g.samples);
+        g.tFullMin = ext.tMin;
+        g.tFullMax = ext.tMax;
+        g.yFullMin = ext.yMin;
+        g.yFullMax = ext.yMax;
+        g.viewTMin = ext.tMin;
+        g.viewTMax = ext.tMax;
+        g.viewYMin = ext.yMin;
+        g.viewYMax = ext.yMax;
+    }
+
+    _isFlysightGraphZoomed() {
+        const g = this._flysightGraph;
+        if (!g || !Number.isFinite(g.viewTMin) || !Number.isFinite(g.tFullMax)) return false;
+        const tFull = g.tFullMax - g.tFullMin;
+        const yFull = g.yFullMax - g.yFullMin;
+        if (tFull <= 0 || yFull <= 0) return false;
+        return ((g.viewTMax - g.viewTMin) / tFull) < 0.999
+            || ((g.viewYMax - g.viewYMin) / yFull) < 0.999;
+    }
+
+    _syncFlysightGraphResetZoomBtn() {
+        const btn = document.getElementById('flysightGraphResetZoom');
+        if (!btn) return;
+        const modal = document.getElementById('flysightGraphModal');
+        const open = modal && modal.style.display === 'flex';
+        btn.hidden = !open || !this._isFlysightGraphZoomed();
+    }
+
+    _resetFlysightGraphZoom() {
+        const g = this._flysightGraph;
+        if (!g || !Number.isFinite(g.tFullMax)) return;
+        g.viewTMin = g.tFullMin;
+        g.viewTMax = g.tFullMax;
+        g.viewYMin = g.yFullMin;
+        g.viewYMax = g.yFullMax;
+        this._drawFlysightGraph();
+    }
+
+    _clampFlysightGraphView() {
+        const g = this._flysightGraph;
+        if (!g) return;
+        const tFull = g.tFullMax - g.tFullMin;
+        const yFull = g.yFullMax - g.yFullMin;
+        const minTSpan = Math.max(0.5, tFull / 50);
+        const minYSpan = Math.max(2, yFull / 50);
+        let tSpan = Math.min(tFull, Math.max(minTSpan, g.viewTMax - g.viewTMin));
+        let ySpan = Math.min(yFull, Math.max(minYSpan, g.viewYMax - g.viewYMin));
+
+        if (tSpan >= tFull - 1e-9) {
+            g.viewTMin = g.tFullMin;
+            g.viewTMax = g.tFullMax;
+        } else {
+            if (g.viewTMin < g.tFullMin) {
+                g.viewTMin = g.tFullMin;
+                g.viewTMax = g.tFullMin + tSpan;
+            }
+            if (g.viewTMax > g.tFullMax) {
+                g.viewTMax = g.tFullMax;
+                g.viewTMin = g.tFullMax - tSpan;
+            }
+            g.viewTMin = Math.max(g.tFullMin, g.viewTMin);
+            g.viewTMax = Math.min(g.tFullMax, g.viewTMax);
+        }
+
+        if (ySpan >= yFull - 1e-9) {
+            g.viewYMin = g.yFullMin;
+            g.viewYMax = g.yFullMax;
+        } else {
+            if (g.viewYMin < g.yFullMin) {
+                g.viewYMin = g.yFullMin;
+                g.viewYMax = g.yFullMin + ySpan;
+            }
+            if (g.viewYMax > g.yFullMax) {
+                g.viewYMax = g.yFullMax;
+                g.viewYMin = g.yFullMax - ySpan;
+            }
+            g.viewYMin = Math.max(g.yFullMin, g.viewYMin);
+            g.viewYMax = Math.min(g.yFullMax, g.viewYMax);
+        }
+    }
+
+    _flysightGraphClientToSvg(clientX, clientY) {
+        const svg = document.querySelector('#flysightGraphRoot svg');
+        const layout = this._flysightGraphLayout();
+        if (!svg) return { x: layout.l, y: layout.t, layout, rect: null };
+        const rect = svg.getBoundingClientRect();
+        const x = rect.width ? ((clientX - rect.left) / rect.width) * layout.width : layout.l;
+        const y = rect.height ? ((clientY - rect.top) / rect.height) * layout.height : layout.t;
+        return { x, y, layout, rect };
+    }
+
+    _zoomFlysightGraphAtClient(clientX, clientY, spanFactor) {
+        const g = this._flysightGraph;
+        if (!g) return;
+        const { x, y, layout } = this._flysightGraphClientToSvg(clientX, clientY);
+        const sc = this._flysightGraphScales(g.samples, layout);
+        const tRev = sc.viewTMax - ((x - layout.l) / sc.innerW) * sc.tSpan;
+        const deg = sc.viewYMax - ((y - layout.t) / sc.innerH) * sc.ySpan;
+        const leftFrac = sc.tSpan ? (sc.viewTMax - tRev) / sc.tSpan : 0.5;
+        const topFrac = sc.ySpan ? (sc.viewYMax - deg) / sc.ySpan : 0.5;
+        const tFull = g.tFullMax - g.tFullMin;
+        const yFull = g.yFullMax - g.yFullMin;
+        const minTSpan = Math.max(0.5, tFull / 50);
+        const minYSpan = Math.max(2, yFull / 50);
+        const tSpan = Math.min(tFull, Math.max(minTSpan, sc.tSpan * spanFactor));
+        const ySpan = Math.min(yFull, Math.max(minYSpan, sc.ySpan * spanFactor));
+        g.viewTMax = tRev + leftFrac * tSpan;
+        g.viewTMin = g.viewTMax - tSpan;
+        g.viewYMax = deg + topFrac * ySpan;
+        g.viewYMin = g.viewYMax - ySpan;
+        this._clampFlysightGraphView();
+    }
+
+    _panFlysightGraphByClientDelta(dx, dy) {
+        const g = this._flysightGraph;
+        const svg = document.querySelector('#flysightGraphRoot svg');
+        if (!g || !svg) return;
+        const layout = this._flysightGraphLayout();
+        const sc = this._flysightGraphScales(g.samples, layout);
+        const rect = svg.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        const dxSvg = (dx / rect.width) * layout.width;
+        const dySvg = (dy / rect.height) * layout.height;
+        g.viewTMin += (dxSvg / sc.innerW) * sc.tSpan;
+        g.viewTMax += (dxSvg / sc.innerW) * sc.tSpan;
+        g.viewYMin += (dySvg / sc.innerH) * sc.ySpan;
+        g.viewYMax += (dySvg / sc.innerH) * sc.ySpan;
+        this._clampFlysightGraphView();
+    }
+
+    _flysightGraphPinchSnapshot() {
+        const g = this._flysightGraph;
+        const pts = [...(g.pointers?.values() || [])];
+        if (pts.length < 2) return null;
+        const dx = pts[1].x - pts[0].x;
+        const dy = pts[1].y - pts[0].y;
+        return {
+            dist: Math.hypot(dx, dy) || 1,
+            midX: (pts[0].x + pts[1].x) / 2,
+            midY: (pts[0].y + pts[1].y) / 2,
+            viewTMin: g.viewTMin,
+            viewTMax: g.viewTMax,
+            viewYMin: g.viewYMin,
+            viewYMax: g.viewYMax
+        };
+    }
+
+    _applyFlysightGraphPinch() {
+        const g = this._flysightGraph;
+        const pts = [...(g?.pointers?.values() || [])];
+        if (!g?.pinch || pts.length < 2) return;
+        const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y) || 1;
+        const midX = (pts[0].x + pts[1].x) / 2;
+        const midY = (pts[0].y + pts[1].y) / 2;
+        g.viewTMin = g.pinch.viewTMin;
+        g.viewTMax = g.pinch.viewTMax;
+        g.viewYMin = g.pinch.viewYMin;
+        g.viewYMax = g.pinch.viewYMax;
+        this._zoomFlysightGraphAtClient(g.pinch.midX, g.pinch.midY, g.pinch.dist / dist);
+        this._panFlysightGraphByClientDelta(midX - g.pinch.midX, midY - g.pinch.midY);
+        this._drawFlysightGraph();
+    }
+
+    _clearFlysightGraphInteraction() {
+        const g = this._flysightGraph;
+        if (!g) return;
+        g.drag = null;
+        g.pan = null;
+        g.pinch = null;
+        g.pointers?.clear();
+        document.getElementById('flysightGraphRoot')?.classList.remove('is-panning');
+    }
+
+    _flysightGraphScales(samples, layout) {
+        const ext = this._flysightGraphFullExtents(samples);
+        const g = this._flysightGraph;
+        const viewTMin = g && Number.isFinite(g.viewTMin) ? g.viewTMin : ext.tMin;
+        const viewTMax = g && Number.isFinite(g.viewTMax) ? g.viewTMax : ext.tMax;
+        const viewYMin = g && Number.isFinite(g.viewYMin) ? g.viewYMin : ext.yMin;
+        const viewYMax = g && Number.isFinite(g.viewYMax) ? g.viewYMax : ext.yMax;
+        const tSpan = Math.max(0.001, viewTMax - viewTMin);
+        const ySpan = Math.max(0.001, viewYMax - viewYMin);
         const innerW = layout.width - layout.l - layout.r;
         const innerH = layout.height - layout.t - layout.b;
-        const tPlotOf = (tRev) => tMax - tRev;
         return {
-            tMax,
-            yMin,
-            yMax,
-            tPlotOf,
-            xOf: (tRev) => layout.l + (tPlotOf(tRev) / tMax) * innerW,
-            yOf: (deg) => layout.t + (1 - (deg - yMin) / (yMax - yMin)) * innerH
+            tMax: ext.tMax,
+            viewTMin,
+            viewTMax,
+            viewYMin,
+            viewYMax,
+            tSpan,
+            ySpan,
+            innerW,
+            innerH,
+            xOf: (tRev) => layout.l + ((viewTMax - tRev) / tSpan) * innerW,
+            yOf: (deg) => layout.t + (1 - (deg - viewYMin) / ySpan) * innerH
         };
     }
 
@@ -5744,14 +6033,16 @@ class SkydivingLogbook {
         const b = samples[g.idxB];
         const angleOf = (s) => this._flysightDiveAngleDeg(s);
         const poly = samples.map(s => `${sc.xOf(s.tRev).toFixed(1)},${sc.yOf(angleOf(s)).toFixed(1)}`).join(' ');
-        const yTicks = this._flysightDegTicks(sc.yMin, sc.yMax);
-        const xTicks = [0, 5, 10, 15, 20, 25].filter(t => t <= sc.tMax + 0.05);
+        const yTick = this._flysightDegTicks(sc.viewYMin, sc.viewYMax);
+        const xTick = this._flysightTimeTicks(sc.viewTMin, sc.viewTMax);
         const yBase = layout.height - layout.b;
+        const plotRight = layout.width - layout.r;
         const bAngleThresh = Number.isFinite(this.flysightCursorBDiveAngleDeg)
             ? this.flysightCursorBDiveAngleDeg
             : Flysight.CURSOR_B_DIVE_ANGLE_DEG;
-        const showBThresh = bAngleThresh >= sc.yMin && bAngleThresh <= sc.yMax;
+        const showBThresh = bAngleThresh >= sc.viewYMin && bAngleThresh <= sc.viewYMax;
         const fs = layout.compact ? 10 : 11;
+        const pointFs = layout.compact ? 14 : 16;
         const handleR = layout.compact ? 8 : 10;
         const handleY = yBase + (layout.compact ? 10 : 12);
         const xLabelY = layout.compact ? layout.height - 4 : layout.height - 6;
@@ -5765,66 +6056,88 @@ class SkydivingLogbook {
             const y = sc.yOf(angleOf(peak));
             const vel = this._flysightVelKmh(peak.velD);
             const velText = Number.isFinite(vel) ? `${vel.toFixed(1)} km/h` : '—';
-            const plotRight = layout.width - layout.r;
-            const putRight = (plotRight - x) > (layout.compact ? 120 : 155);
-            const dx = layout.compact ? 8 : 10;
+            const estimateW = layout.compact ? 220 : 260;
+            const putRight = (x - estimateW) < 8;
+            const dx = layout.compact ? 10 : 12;
             const labelX = putRight ? x + dx : x - dx;
-            const putAbove = y > layout.t + (layout.compact ? 14 : 18);
-            const labelY = putAbove ? y - 8 : y + 16;
+            const putAbove = y > layout.t + (layout.compact ? 18 : 22);
+            const labelY = putAbove ? y - 10 : y + 20;
             return `
                 <g class="flysight-graph-max-vertical" pointer-events="none">
                     <circle cx="${x}" cy="${y}" r="4.5" fill="#C62828" stroke="#fff" stroke-width="1.5"/>
-                    <text x="${labelX}" y="${labelY}" text-anchor="${putRight ? 'start' : 'end'}" fill="#C62828" font-size="${fs}" font-weight="600" stroke="#fff" stroke-width="3" paint-order="stroke">max vertical = ${velText}</text>
+                    <text x="${labelX}" y="${labelY}" text-anchor="${putRight ? 'start' : 'end'}" fill="#C62828" font-size="${pointFs}" font-weight="600" stroke="#fff" stroke-width="4" paint-order="stroke">max vertical = ${velText}</text>
                 </g>`;
         })();
         const cursor = (which, sample, color) => {
+            if (!sample) return '';
+            if (sample.tRev < sc.viewTMin - 1e-6 || sample.tRev > sc.viewTMax + 1e-6) return '';
             const x = sc.xOf(sample.tRev);
             const y = sc.yOf(angleOf(sample));
             const alt = this._flysightGraphAglM(sample, ground);
             let altText = '';
             if (Number.isFinite(alt)) {
-                const labelX = x + (layout.compact ? 8 : 10);
-                altText = `<text x="${labelX}" y="${y + 4}" text-anchor="start" fill="${color}" font-size="${fs}" font-weight="600" stroke="#fff" stroke-width="3" paint-order="stroke" pointer-events="none">${Math.round(alt)} m</text>`;
+                const labelX = x + (layout.compact ? 10 : 12);
+                altText = `<text x="${labelX}" y="${y + 5}" text-anchor="start" fill="${color}" font-size="${pointFs}" font-weight="600" stroke="#fff" stroke-width="4" paint-order="stroke" pointer-events="none">${Math.round(alt)} m</text>`;
             }
+            const yOnPlot = y >= layout.t - 2 && y <= yBase + 2;
+            const angleText = yOnPlot
+                ? `<text x="${layout.l - 6}" y="${y + 4}" text-anchor="end" fill="${color}" font-size="${fs}">${angleOf(sample).toFixed(1)}</text>`
+                : '';
             return `
                 <g class="flysight-graph-cursor" data-cursor="${which}" style="cursor:ew-resize;touch-action:none">
-                    <line x1="${x}" y1="${y}" x2="${x}" y2="${yBase}" stroke="${color}" stroke-width="1.5"/>
-                    <circle cx="${x}" cy="${y}" r="4" fill="${color}"/>
+                    <g clip-path="url(#flysightPlotClip)">
+                        <line x1="${x}" y1="${y}" x2="${x}" y2="${yBase}" stroke="${color}" stroke-width="1.5"/>
+                        <circle cx="${x}" cy="${y}" r="4" fill="${color}"/>
+                        ${altText}
+                    </g>
                     <rect x="${x - 16}" y="${yBase - 6}" width="32" height="40" fill="transparent"/>
                     <circle cx="${x}" cy="${handleY}" r="${handleR}" fill="${color}"/>
                     <text x="${x}" y="${handleY + 4}" text-anchor="middle" fill="#fff" font-size="${fs}" font-weight="600" pointer-events="none">${which.toUpperCase()}</text>
-                    <text x="${layout.l - 6}" y="${y + 4}" text-anchor="end" fill="${color}" font-size="${fs}">${angleOf(sample).toFixed(1)}</text>
-                    ${altText}
+                    ${angleText}
                 </g>`;
         };
 
-        const grid = yTicks.map(v => `
-            <line x1="${layout.l}" y1="${sc.yOf(v)}" x2="${layout.width - layout.r}" y2="${sc.yOf(v)}" stroke="#eee"/>
-            <text x="${layout.l - 6}" y="${sc.yOf(v) + 4}" text-anchor="end" fill="#888" font-size="${fs}">${v}</text>
-        `).join('');
-        const xLabels = xTicks.map(t => `
-            <text x="${sc.xOf(t)}" y="${xLabelY}" text-anchor="middle" fill="#888" font-size="${fs}">${t}s</text>
-        `).join('');
+        const grid = yTick.ticks.map(v => {
+            const y = sc.yOf(v);
+            if (y < layout.t - 1 || y > yBase + 1) return '';
+            return `
+            <line x1="${layout.l}" y1="${y}" x2="${plotRight}" y2="${y}" stroke="#eee"/>
+            <text x="${layout.l - 6}" y="${y + 4}" text-anchor="end" fill="#888" font-size="${fs}">${this._flysightTickLabel(v, yTick.step)}</text>`;
+        }).join('');
+        const xLabels = xTick.ticks.map(t => {
+            const x = sc.xOf(t);
+            if (x < layout.l - 1 || x > plotRight + 1) return '';
+            return `<text x="${x}" y="${xLabelY}" text-anchor="middle" fill="#888" font-size="${fs}">${this._flysightTickLabel(t, xTick.step)}s</text>`;
+        }).join('');
         const bThreshLine = showBThresh
-            ? `<line x1="${layout.l}" y1="${sc.yOf(bAngleThresh)}" x2="${layout.width - layout.r}" y2="${sc.yOf(bAngleThresh)}" stroke="#ddd" stroke-dasharray="3 3"/>`
+            ? `<line x1="${layout.l}" y1="${sc.yOf(bAngleThresh)}" x2="${plotRight}" y2="${sc.yOf(bAngleThresh)}" stroke="#ddd" stroke-dasharray="3 3"/>`
             : '';
+        const zoomedClass = this._isFlysightGraphZoomed() ? 'is-zoomed' : '';
 
         root.innerHTML = `
             <svg viewBox="0 0 ${layout.width} ${layout.height}" width="${layout.width}" height="${layout.height}"
-                 preserveAspectRatio="none"
-                 role="img" aria-label="Dive angle in degrees versus seconds before landing">
+                 preserveAspectRatio="none" class="${zoomedClass}"
+                 role="img" aria-label="Dive angle in degrees versus seconds before landing. Pinch or scroll to zoom, drag to pan.">
+                <defs>
+                    <clipPath id="flysightPlotClip">
+                        <rect x="${layout.l}" y="${layout.t}" width="${sc.innerW}" height="${sc.innerH}"/>
+                    </clipPath>
+                </defs>
                 ${grid}
                 ${xLabels}
                 <line x1="${layout.l}" y1="${layout.t}" x2="${layout.l}" y2="${yBase}" stroke="#ccc"/>
-                <line x1="${layout.l}" y1="${yBase}" x2="${layout.width - layout.r}" y2="${yBase}" stroke="#ccc"/>
+                <line x1="${layout.l}" y1="${yBase}" x2="${plotRight}" y2="${yBase}" stroke="#ccc"/>
                 ${bThreshLine}
-                <polyline fill="none" stroke="#1976D2" stroke-width="2" points="${poly}"/>
+                <g clip-path="url(#flysightPlotClip)">
+                    <polyline fill="none" stroke="#1976D2" stroke-width="2" points="${poly}"/>
+                </g>
                 ${maxVerticalMark}
                 ${cursor('a', a, '#1976D2')}
                 ${cursor('b', b, '#555')}
                 <text x="${layout.l}" y="${Math.max(10, layout.t - 4)}" text-anchor="start" fill="#888" font-size="${fs}">dive angle</text>
             </svg>`;
         this._updateFlysightGraphStats();
+        this._syncFlysightGraphResetZoomBtn();
     }
 
     _flysightGraphIndexFromClientX(clientX) {
@@ -5835,8 +6148,8 @@ class SkydivingLogbook {
         const sc = this._flysightGraphScales(g.samples, layout);
         const rect = svg.getBoundingClientRect();
         const x = ((clientX - rect.left) / rect.width) * layout.width;
-        const tPlot = ((x - layout.l) / (layout.width - layout.l - layout.r)) * sc.tMax;
-        const tRev = Math.max(0, Math.min(sc.tMax, sc.tMax - tPlot));
+        const tPlot = ((x - layout.l) / sc.innerW) * sc.tSpan;
+        const tRev = Math.max(sc.viewTMin, Math.min(sc.viewTMax, sc.viewTMax - tPlot));
         let best = 0;
         let bestD = Infinity;
         for (let i = 0; i < g.samples.length; i++) {
@@ -5851,25 +6164,104 @@ class SkydivingLogbook {
 
     _onFlysightGraphPointerDown(e) {
         const g = this._flysightGraph;
+        if (!g) return;
+        e.preventDefault();
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { /* older WebView */ }
+        if (!g.pointers) g.pointers = new Map();
+        g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (g.pointers.size === 1) {
+            g.didPan = false;
+            g.didDrag = false;
+            g.didPinch = false;
+        }
+        if (g.pointers.size >= 2) {
+            g.drag = null;
+            g.pan = null;
+            g.pinch = this._flysightGraphPinchSnapshot();
+            g.didPinch = true;
+            document.getElementById('flysightGraphRoot')?.classList.remove('is-panning');
+            return;
+        }
         const el = e.target instanceof Element ? e.target : e.target?.parentElement;
         const cursorEl = el?.closest?.('[data-cursor]');
-        if (!g || !cursorEl) return;
-        e.preventDefault();
-        g.drag = cursorEl.getAttribute('data-cursor');
-        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { /* older WebView */ }
+        if (cursorEl) {
+            g.drag = cursorEl.getAttribute('data-cursor');
+            g.didDrag = true;
+            return;
+        }
+        g.pan = { x: e.clientX, y: e.clientY };
     }
 
     _onFlysightGraphPointerMove(e) {
         const g = this._flysightGraph;
-        if (!g?.drag) return;
-        const idx = this._flysightGraphIndexFromClientX(e.clientX);
-        if (g.drag === 'a') g.idxA = Math.min(g.samples.length - 1, Math.max(idx, g.idxB + 1));
-        else g.idxB = Math.max(0, Math.min(idx, g.idxA - 1));
-        this._drawFlysightGraph();
+        if (!g) return;
+        if (g.pointers?.has(e.pointerId)) {
+            g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        }
+        if (g.pointers?.size >= 2) {
+            if (!g.pinch) g.pinch = this._flysightGraphPinchSnapshot();
+            this._applyFlysightGraphPinch();
+            return;
+        }
+        if (g.drag) {
+            const idx = this._flysightGraphIndexFromClientX(e.clientX);
+            if (g.drag === 'a') g.idxA = Math.min(g.samples.length - 1, Math.max(idx, g.idxB + 1));
+            else g.idxB = Math.max(0, Math.min(idx, g.idxA - 1));
+            this._drawFlysightGraph();
+            return;
+        }
+        if (g.pan && this._isFlysightGraphZoomed()) {
+            const dx = e.clientX - g.pan.x;
+            const dy = e.clientY - g.pan.y;
+            if (!dx && !dy) return;
+            g.pan.x = e.clientX;
+            g.pan.y = e.clientY;
+            if (Math.hypot(dx, dy) > 1) {
+                g.didPan = true;
+                document.getElementById('flysightGraphRoot')?.classList.add('is-panning');
+            }
+            this._panFlysightGraphByClientDelta(dx, dy);
+            this._drawFlysightGraph();
+        }
     }
 
-    _onFlysightGraphPointerUp() {
-        if (this._flysightGraph) this._flysightGraph.drag = null;
+    _onFlysightGraphPointerUp(e) {
+        const g = this._flysightGraph;
+        if (!g) return;
+        if (e) g.pointers?.delete(e.pointerId);
+        if ((g.pointers?.size || 0) < 2) g.pinch = null;
+        if (g.pointers?.size) {
+            g.drag = null;
+            g.pan = null;
+            document.getElementById('flysightGraphRoot')?.classList.remove('is-panning');
+            return;
+        }
+        const canResetTap = e && e.pointerType !== 'mouse' && !g.didPan && !g.didDrag && !g.didPinch;
+        this._clearFlysightGraphInteraction();
+        if (!canResetTap) return;
+        const now = Date.now();
+        const dx = e.clientX - (g.lastTapX || 0);
+        const dy = e.clientY - (g.lastTapY || 0);
+        if (now - (g.lastTapAt || 0) < 320 && Math.hypot(dx, dy) < 28) {
+            this._resetFlysightGraphZoom();
+            g.lastTapAt = 0;
+        } else {
+            g.lastTapAt = now;
+            g.lastTapX = e.clientX;
+            g.lastTapY = e.clientY;
+        }
+    }
+
+    _onFlysightGraphWheel(e) {
+        const g = this._flysightGraph;
+        if (!g) return;
+        e.preventDefault();
+        let dy = e.deltaY;
+        if (e.deltaMode === 1) dy *= 16;
+        else if (e.deltaMode === 2) dy *= 400;
+        const spanFactor = Math.exp(Math.max(-0.35, Math.min(0.35, dy * 0.0015)));
+        this._zoomFlysightGraphAtClient(e.clientX, e.clientY, spanFactor);
+        this._drawFlysightGraph();
     }
 
     /** Canopy-level previous jumps plus all lineset previous jumps (not including logged jumps). */

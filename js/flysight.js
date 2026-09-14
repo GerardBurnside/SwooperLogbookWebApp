@@ -648,7 +648,8 @@
 
     const DEFAULT_MAX_HEIGHT_M = 500;
     const MIN_MAX_HEIGHT_M = 1;
-    const MAX_MAX_HEIGHT_M = 500;
+    /** Absolute analysis / slider-range cap. The UI slider max defaults to 500 m and is user-configurable. */
+    const MAX_MAX_HEIGHT_M = 6000;
     const DEFAULT_SPEED_METRIC = 'vertical';
     /** Drop GNSS samples whose speed-accuracy estimate exceeds this (m/s). Missing sAcc is kept. */
     const MAX_SPEED_ACCURACY_MS = 2;
