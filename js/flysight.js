@@ -106,6 +106,27 @@
         return { points };
     }
 
+    const MONTH_NAMES = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    /**
+     * First track timestamp in the device timezone as "March 9 - 16:53".
+     * Flysight `time` values are UTC (ISO-8601 with Z); Date local getters apply the phone offset.
+     *
+     * @param {string} [timeStr]
+     * @returns {string}
+     */
+    function formatTrackStartTitle(timeStr) {
+        const ms = Date.parse(timeStr);
+        if (!Number.isFinite(ms)) return '';
+        const d = new Date(ms);
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()} - ${hh}:${mm}`;
+    }
+
     /** Typical Flysight log interval (10 Hz) when no track is loaded. */
     const DEFAULT_SAMPLE_INTERVAL_SEC = 0.1;
 
@@ -669,6 +690,7 @@
 
     const Flysight = {
         parseFlysightCsv,
+        formatTrackStartTitle,
         analyzeFlysightTrack,
         analyzeFlysightCsv,
         filterPointsByMaxHeight,

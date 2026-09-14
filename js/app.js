@@ -5321,10 +5321,11 @@ class SkydivingLogbook {
                 this.flysightMaxHeightM,
                 this.flysightSpeedMetric
             );
+            const title = Flysight.formatTrackStartTitle(result.points?.[0]?.time) || file.name;
             if (result.error) {
                 return `
                     <div class="flysight-result-card is-error">
-                        <div class="flysight-result-name">${this.escapeHtml(file.name)}</div>
+                        <div class="flysight-result-name">${this.escapeHtml(title)}</div>
                         <p class="flysight-result-error">${this.escapeHtml(result.error)}</p>
                         <button type="button" class="flysight-result-remove" onclick="logbook.removeFlysightFile('${file.id}')">Remove</button>
                     </div>`;
@@ -5373,7 +5374,7 @@ class SkydivingLogbook {
 
             return `
                 <div class="flysight-result-card">
-                    <div class="flysight-result-name">${this.escapeHtml(file.name)}</div>
+                    <div class="flysight-result-name">${this.escapeHtml(title)}</div>
                     <div class="${metricsClass}">
                         ${speedMetricsHtml}
                         <div>
