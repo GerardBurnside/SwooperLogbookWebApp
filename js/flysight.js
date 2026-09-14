@@ -382,6 +382,19 @@
     }
 
     /**
+     * Seconds from cursor B (near-zero vertical speed) to the start of the
+     * 2 s stationary window (tRev = 0).
+     *
+     * @param {{ tRev?: number } | null | undefined} sampleB
+     * @returns {number}
+     */
+    function timeAloftSec(sampleB) {
+        const t = sampleB?.tRev;
+        if (!Number.isFinite(t) || t <= 0) return 0;
+        return t;
+    }
+
+    /**
      * @param {number} sec
      * @returns {string}
      */
@@ -621,6 +634,7 @@
         medianSampleIntervalSec,
         averagingWindowDurationSec,
         formatDurationSec,
+        timeAloftSec,
         pathAngleRad,
         pathAngleRateDegS,
         haversineMeters,

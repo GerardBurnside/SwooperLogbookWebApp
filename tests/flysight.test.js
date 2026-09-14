@@ -226,6 +226,19 @@ test('defaultSwoopCursorIndices: B is first drop below 1 m/s from A; A is near t
     assert.ok(dt > 2 && dt < 20);
 });
 
+test('timeAloftSec is seconds from B to the stationary cutoff', () => {
+    assert.equal(F.timeAloftSec({ tRev: 3.4 }), 3.4);
+    assert.equal(F.timeAloftSec({ tRev: 0 }), 0);
+    assert.equal(F.timeAloftSec(null), 0);
+    const csv = fs.readFileSync(path.join(__dirname, '..', '12-21-30.CSV'), 'utf8');
+    const { points } = F.parseFlysightCsv(csv);
+    const { samples } = F.buildSwoopCursorSeries(points, 5, 500, 25);
+    const { idxB } = F.defaultSwoopCursorIndices(samples);
+    const aloft = F.timeAloftSec(samples[idxB]);
+    assert.equal(aloft, samples[idxB].tRev);
+    assert.ok(aloft > 0);
+});
+
 test('defaultSwoopCursorIndices places B from A where speed drops below 1', () => {
     const samples = [
         { velD: 0.2, pitchRateDegS: 0 },

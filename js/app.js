@@ -5421,9 +5421,12 @@ class SkydivingLogbook {
         const b = g.samples[g.idxB];
         if (!a || !b) return;
         const dt = Math.abs(b.tRev - a.tRev);
+        const aloft = Flysight.timeAloftSec(b);
         const dtEl = document.getElementById('flysightGraphDt');
+        const aloftEl = document.getElementById('flysightGraphTimeAloft');
         const vaEl = document.getElementById('flysightGraphVelA');
         if (dtEl) dtEl.textContent = Flysight.formatDurationSec(dt) || `${dt.toFixed(1)}s`;
+        if (aloftEl) aloftEl.textContent = Flysight.formatDurationSec(aloft) || `${aloft.toFixed(1)}s`;
         if (vaEl) vaEl.textContent = `${this._flysightVelKmh(a.velD).toFixed(1)} km/h`;
     }
 
