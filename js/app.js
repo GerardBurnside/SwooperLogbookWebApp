@@ -5354,13 +5354,13 @@ class SkydivingLogbook {
                             <span class="flysight-metric-value">${totalSpeed} km/h</span>
                         </div>
                         <div class="flysight-metric-emphasis">
-                            <span class="flysight-metric-label">Max vert</span>
+                            <span class="flysight-metric-label">Max vertical</span>
                             <span class="flysight-metric-value">${verticalSpeed} km/h</span>
                         </div>`;
                 metaHtml = `${result.pointCount} points · vertical peak at ${altitude} m · total peak at ${totalAltitude}`;
             } else {
                 const speed = result.maxVerticalSpeedKmh.toFixed(1);
-                const speedLabel = result.speedMetric === 'total' ? 'Max tot' : 'Max vert';
+                const speedLabel = result.speedMetric === 'total' ? 'Max total' : 'Max vertical';
                 metricsClass += ' is-single';
                 altLabel = 'Alt.';
                 recoveryLabel = 'Rec-arc';
