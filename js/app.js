@@ -11,7 +11,7 @@ const MAIN_NAV_VIEWS = [
     { id: 'equipment', label: 'Equipment' },
     { id: 'stats', label: 'Statistics' },
     { id: 'flysight', label: 'Flysight' },
-    { id: 'todos', label: 'TODOs' }
+    { id: 'todos', label: 'TODO' }
 ];
 
 class SkydivingLogbook {
