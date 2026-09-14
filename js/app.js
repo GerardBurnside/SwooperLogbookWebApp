@@ -5283,28 +5283,34 @@ class SkydivingLogbook {
             }
 
             const altitude = Math.round(result.altitudeM);
-            const timeLabel = result.time ? this.escapeHtml(result.time) : '—';
 
             let speedMetricsHtml;
             let metaHtml;
 
+            const metricsClass = result.speedMetric === 'both'
+                ? 'flysight-result-metrics is-both'
+                : 'flysight-result-metrics';
+
             if (result.speedMetric === 'both') {
                 const verticalSpeed = result.maxVerticalSpeedKmh.toFixed(1);
                 const totalSpeed = result.maxTotalSpeedKmh.toFixed(1);
-                const totalTimeLabel = result.totalPeakTime ? this.escapeHtml(result.totalPeakTime) : '—';
+                const totalAltitude = Number.isFinite(result.totalPeakAltitudeM)
+                    ? `${Math.round(result.totalPeakAltitudeM)} m`
+                    : '—';
                 speedMetricsHtml = `
-                        <div>
-                            <span class="flysight-metric-label">Max vertical speed</span>
-                            <span class="flysight-metric-value">${verticalSpeed} km/h</span>
-                        </div>
                         <div>
                             <span class="flysight-metric-label">Max total speed</span>
                             <span class="flysight-metric-value">${totalSpeed} km/h</span>
+                        </div>
+                        <div class="flysight-metric-emphasis">
+                            <span class="flysight-metric-label">Max vertical speed</span>
+                            <span class="flysight-metric-value">${verticalSpeed} km/h</span>
                         </div>`;
-                metaHtml = `${result.pointCount} points · vertical peak at ${timeLabel} · total peak at ${totalTimeLabel}`;
+                metaHtml = `${result.pointCount} points · vertical peak at ${altitude} m · total peak at ${totalAltitude}`;
             } else {
                 const speed = result.maxVerticalSpeedKmh.toFixed(1);
                 const speedLabel = result.speedMetric === 'total' ? 'Max total speed' : 'Max vertical speed';
+                const timeLabel = result.time ? this.escapeHtml(result.time) : '—';
                 speedMetricsHtml = `
                         <div>
                             <span class="flysight-metric-label">${speedLabel}</span>
@@ -5316,7 +5322,7 @@ class SkydivingLogbook {
             return `
                 <div class="flysight-result-card">
                     <div class="flysight-result-name">${this.escapeHtml(file.name)}</div>
-                    <div class="flysight-result-metrics">
+                    <div class="${metricsClass}">
                         ${speedMetricsHtml}
                         <div>
                             <span class="flysight-metric-label">Altitude</span>

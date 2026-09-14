@@ -2615,6 +2615,10 @@ footer.legal-footer a {
     gap: 0.5rem 1rem;
 }
 
+.flysight-result-metrics.is-both {
+    grid-template-columns: 1fr 1.15fr 1fr;
+}
+
 .flysight-metric-label {
     display: block;
     font-size: 0.75rem;
@@ -2627,6 +2631,15 @@ footer.legal-footer a {
     font-size: 1.15rem;
     font-weight: 600;
     color: #1976D2;
+}
+
+.flysight-metric-emphasis .flysight-metric-label {
+    font-weight: 700;
+    color: #333;
+}
+
+.flysight-metric-emphasis .flysight-metric-value {
+    font-weight: 800;
 }
 
 .flysight-result-meta {

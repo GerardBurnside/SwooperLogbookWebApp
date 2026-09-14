@@ -112,6 +112,8 @@ test('analyzeFlysightTrack: both mode returns vertical and total peaks', () => {
     assert.equal(both.maxTotalSpeedKmh, total.maxVerticalSpeedKmh);
     assert.equal(both.time, vertical.time);
     assert.equal(both.totalPeakTime, total.time);
+    assert.equal(both.altitudeM, vertical.altitudeM);
+    assert.equal(both.totalPeakAltitudeM, total.altitudeM);
 });
 
 test('trajectorySpeedMs is 3D velocity magnitude', () => {

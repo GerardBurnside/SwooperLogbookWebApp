@@ -540,6 +540,7 @@
      *   altitudeM: number,
      *   time: string,
      *   totalPeakTime?: string,
+     *   totalPeakAltitudeM?: number,
      *   pointCount: number,
      *   minHmsl: number,
      *   speedMetric: 'vertical' | 'total' | 'both',
@@ -593,6 +594,7 @@
                 altitudeM: verticalPeak.altitudeM,
                 time: verticalPeak.time,
                 totalPeakTime: totalPeak.time,
+                totalPeakAltitudeM: totalPeak.altitudeM,
                 pointCount: eligible.length,
                 minHmsl,
                 speedMetric: 'both'
