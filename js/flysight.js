@@ -465,6 +465,21 @@
     }
 
     /**
+     * Index of the highest velD in the series (first max if tied).
+     *
+     * @param {{ velD: number }[]} samples
+     * @returns {number}
+     */
+    function maxVelDIdx(samples) {
+        if (!samples || samples.length === 0) return 0;
+        let idx = 0;
+        for (let i = 1; i < samples.length; i++) {
+            if (samples[i].velD > samples[idx].velD) idx = i;
+        }
+        return idx;
+    }
+
+    /**
      * Last (closest-to-landing) local velD maximum that is still within
      * CURSOR_A_PEAK_FRACTION of the window max. Reverse-time: index 0 is
      * landing, so the first such peak walking from 0 is last in real time.
@@ -474,15 +489,8 @@
      */
     function lastSignificantVelDPeakIdx(samples) {
         if (!samples || samples.length === 0) return 0;
-        let globalMax = -Infinity;
-        let globalIdx = 0;
-        for (let i = 0; i < samples.length; i++) {
-            const v = samples[i].velD;
-            if (v > globalMax) {
-                globalMax = v;
-                globalIdx = i;
-            }
-        }
+        const globalIdx = maxVelDIdx(samples);
+        const globalMax = samples[globalIdx]?.velD;
         if (!Number.isFinite(globalMax) || samples.length < 3) return globalIdx;
         const minPeak = globalMax * CURSOR_A_PEAK_FRACTION;
         for (let i = 1; i < samples.length - 1; i++) {
@@ -884,6 +892,7 @@
         findStationaryCutoffMs,
         pointsUpToFirstLanding,
         lastSignificantVelDPeakIdx,
+        maxVelDIdx,
         buildSwoopCursorSeries,
         defaultSwoopCursorIndices,
         SWOOP_WINDOW_SEC,

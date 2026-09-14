@@ -385,6 +385,11 @@ test('defaultSwoopCursorIndices: A is first strong flattening after peak velD', 
     assert.ok(peakVelD > 0);
 });
 
+test('maxVelDIdx is the first sample with the highest velD', () => {
+    assert.equal(F.maxVelDIdx([]), 0);
+    assert.equal(F.maxVelDIdx([{ velD: 3 }, { velD: 9 }, { velD: 9 }, { velD: 4 }]), 1);
+});
+
 test('lastSignificantVelDPeakIdx prefers a later near-max peak over an earlier taller one', () => {
     const samples = [
         { velD: 1, flatteningDegS: 0, hMSL: 100, diveAngleDeg: 1 },

@@ -179,21 +179,17 @@
             <!-- Flysight Track Analysis View -->
             <div id="flysightView" class="view" style="display: none;">
                 <section class="flysight-section">
-                    <h2>Flysight</h2>
+                    <div class="flysight-header">
+                        <h2>Flysight</h2>
+                        <button type="button" id="flysightSettingsBtn" class="flysight-settings-btn" title="Flysight settings" aria-label="Flysight settings">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/>
+                                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                            </svg>
+                        </button>
+                    </div>
                     <div class="flysight-controls">
-                        <label class="flysight-avg-label" for="flysightAvgPoints">
-                            Averaging: <span id="flysightAvgPointsValue">3</span> points<span id="flysightAvgDuration"></span>
-                        </label>
-                        <div class="flysight-avg-row">
-                            <input type="range" id="flysightAvgPoints" class="flysight-avg-slider" min="1" max="20" value="3" step="1">
-                            <label class="flysight-debug-control" for="flysightCursorBDiveAngle">
-                                B&nbsp;&lt;<input type="number" id="flysightCursorBDiveAngle" class="flysight-debug-input" value="5" min="0" max="90" step="0.5">°
-                            </label>
-                            <label class="flysight-debug-control" for="flysightCursorBAltTicks">
-                                2m<input type="number" id="flysightCursorBAltTicks" class="flysight-debug-input" value="2" min="1" max="100" step="1">
-                            </label>
-                        </div>
-                        <label class="flysight-avg-label flysight-control-spaced" for="flysightMaxHeight">
+                        <label class="flysight-avg-label" for="flysightMaxHeight">
                             Max height: <span id="flysightMaxHeightValue">500</span> m AGL
                         </label>
                         <input type="range" id="flysightMaxHeight" class="flysight-avg-slider" min="1" max="500" value="500" step="1">
@@ -624,6 +620,38 @@
                     <div id="harnessCanopyPieRoot" class="year-stats-pie-root"></div>
                 </div>
                 <p id="harnessCanopyPiePreAppNote" class="harness-canopy-pie-pre-note" hidden></p>
+            </div>
+        </div>
+
+        <!-- Flysight analysis settings -->
+        <div id="flysightSettingsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="flysightSettingsTitle">
+            <div class="modal-content flysight-settings-modal-content">
+                <span id="flysightSettingsModalClose" class="close" title="Close">&times;</span>
+                <h2 id="flysightSettingsTitle">Flysight settings</h2>
+                <div class="form-group">
+                    <label for="flysightAvgPoints">
+                        Averaging: <span id="flysightAvgPointsValue">3</span> points<span id="flysightAvgDuration"></span>
+                    </label>
+                    <small class="flysight-settings-help">Smooths GPS speeds over this many samples (Flysight typically logs at 10 Hz). A larger window reduces noise but can slightly lower the reported peak speed. Default: 3 points.</small>
+                    <input type="range" id="flysightAvgPoints" class="flysight-avg-slider" min="1" max="20" value="3" step="1">
+                </div>
+                <div class="form-group">
+                    <label for="flysightCursorBDiveAngle">Cursor B dive-angle threshold</label>
+                    <small class="flysight-settings-help">Cursor B marks the end of the recovery arc. Starting from cursor A and moving toward landing, one candidate for B is the first sample whose dive angle (from horizontal) falls below this value. Default: 5°.</small>
+                    <div class="flysight-settings-unit-row">
+                        <input type="number" id="flysightCursorBDiveAngle" value="5" min="0" max="90" step="0.5" inputmode="decimal">
+                        <span>°</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="flysightCursorBAltTicks">Cursor B near-ground samples</label>
+                    <small class="flysight-settings-help">The other candidate for cursor B is the first sample where height AGL has stayed below 2 m for this many consecutive GPS samples. Cursor B is placed at the later of the dive-angle and near-ground conditions. Default: 2 samples.</small>
+                    <div class="flysight-settings-unit-row">
+                        <input type="number" id="flysightCursorBAltTicks" value="2" min="1" max="100" step="1" inputmode="numeric">
+                        <span>samples</span>
+                    </div>
+                </div>
+                <button type="button" id="flysightSettingsRestoreBtn" class="flysight-settings-restore">Restore defaults</button>
             </div>
         </div>
 

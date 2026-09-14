@@ -2493,8 +2493,96 @@ footer.legal-footer a {
 .toast-info    { background: #2196F3; }
 
 /* Flysight track analysis */
-.flysight-section h2 {
+.flysight-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
     margin-bottom: 1rem;
+}
+
+.flysight-header h2,
+.flysight-section h2 {
+    margin: 0;
+}
+
+.flysight-settings-btn {
+    width: 2.5rem;
+    height: 2.5rem;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: #555;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.flysight-settings-btn svg {
+    width: 1.35rem;
+    height: 1.35rem;
+    display: block;
+}
+
+.flysight-settings-btn:hover,
+.flysight-settings-btn:active {
+    background: #eef2ff;
+    color: #1976D2;
+}
+
+.flysight-settings-modal-content {
+    max-width: 440px;
+}
+
+.flysight-settings-help {
+    color: #888;
+    font-size: 12px;
+    display: block;
+    margin: -0.25rem 0 0.65rem;
+    line-height: 1.45;
+    font-weight: normal;
+}
+
+.flysight-settings-unit-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.flysight-settings-unit-row input {
+    flex: 1;
+    min-width: 0;
+}
+
+.flysight-settings-unit-row span {
+    flex-shrink: 0;
+    color: #555;
+    font-size: 0.95rem;
+}
+
+.flysight-settings-restore {
+    width: 100%;
+    margin-top: 0.35rem;
+    padding: 0.75rem;
+    background: #f5f5f5;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    color: #333;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.flysight-settings-restore:hover,
+.flysight-settings-restore:active {
+    background: #eee;
 }
 
 .flysight-controls {
@@ -2515,36 +2603,6 @@ footer.legal-footer a {
 .flysight-avg-slider {
     width: 100%;
     accent-color: #2196F3;
-}
-
-.flysight-avg-row {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-}
-
-.flysight-avg-row .flysight-avg-slider {
-    flex: 1;
-    min-width: 0;
-}
-
-.flysight-debug-control {
-    display: flex;
-    align-items: center;
-    gap: 0.2rem;
-    margin: 0;
-    flex-shrink: 0;
-    font-size: 0.85rem;
-    color: #444;
-    white-space: nowrap;
-}
-
-.flysight-debug-input {
-    width: 3.1rem;
-    padding: 0.2rem 0.3rem;
-    border: 1px solid #c5cae9;
-    border-radius: 4px;
-    font-size: 0.85rem;
 }
 
 .flysight-control-spaced {

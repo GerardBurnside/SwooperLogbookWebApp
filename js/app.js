@@ -117,12 +117,20 @@ class SkydivingLogbook {
         this.flysightSpeedMetric = ['vertical', 'total', 'both'].includes(savedFlysightSpeedMetric)
             ? savedFlysightSpeedMetric
             : 'vertical';
-        this.flysightCursorBDiveAngleDeg = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_DIVE_ANGLE_DEG))
+        const defaultCursorBAngle = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_DIVE_ANGLE_DEG))
             ? Flysight.CURSOR_B_DIVE_ANGLE_DEG
             : 5;
-        this.flysightCursorBAltTicks = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_ALT_TICKS))
+        const savedCursorBAngle = parseFloat(localStorage.getItem('flysight-cursor-b-dive-angle'));
+        this.flysightCursorBDiveAngleDeg = Number.isFinite(savedCursorBAngle)
+            ? Math.min(90, Math.max(0, savedCursorBAngle))
+            : defaultCursorBAngle;
+        const defaultCursorBTicks = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_ALT_TICKS))
             ? Flysight.CURSOR_B_ALT_TICKS
             : 2;
+        const savedCursorBTicks = parseInt(localStorage.getItem('flysight-cursor-b-alt-ticks'), 10);
+        this.flysightCursorBAltTicks = Number.isFinite(savedCursorBTicks)
+            ? Math.min(100, Math.max(1, savedCursorBTicks))
+            : defaultCursorBTicks;
         
         this.init();
     }
@@ -650,6 +658,10 @@ class SkydivingLogbook {
             const flysightGraphModal = document.getElementById('flysightGraphModal');
             if (e.target === flysightGraphModal) {
                 this.closeFlysightGraphModal();
+            }
+            const flysightSettingsModal = document.getElementById('flysightSettingsModal');
+            if (e.target === flysightSettingsModal) {
+                this.closeFlysightSettingsModal();
             }
         });
 
@@ -5165,13 +5177,54 @@ class SkydivingLogbook {
         return Math.min(100, Math.max(1, n));
     }
 
-    _bindFlysightCursorBDebugInputs() {
+    _syncFlysightSettingsForm() {
+        const avgSlider = document.getElementById('flysightAvgPoints');
+        const angleInput = document.getElementById('flysightCursorBDiveAngle');
+        const ticksInput = document.getElementById('flysightCursorBAltTicks');
+        if (avgSlider) avgSlider.value = String(this.flysightAvgPoints);
+        if (angleInput) angleInput.value = String(this.flysightCursorBDiveAngleDeg);
+        if (ticksInput) ticksInput.value = String(this.flysightCursorBAltTicks);
+        this._updateFlysightAvgLabel();
+    }
+
+    openFlysightSettingsModal() {
+        this._syncFlysightSettingsForm();
+        const modal = document.getElementById('flysightSettingsModal');
+        if (modal) modal.style.display = 'block';
+    }
+
+    closeFlysightSettingsModal() {
+        const modal = document.getElementById('flysightSettingsModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    _restoreFlysightSettingsDefaults() {
+        const defaultAvg = 3;
+        const defaultAngle = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_DIVE_ANGLE_DEG))
+            ? Flysight.CURSOR_B_DIVE_ANGLE_DEG
+            : 5;
+        const defaultTicks = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_ALT_TICKS))
+            ? Flysight.CURSOR_B_ALT_TICKS
+            : 2;
+        this.flysightAvgPoints = defaultAvg;
+        this.flysightCursorBDiveAngleDeg = defaultAngle;
+        this.flysightCursorBAltTicks = defaultTicks;
+        localStorage.setItem('flysight-avg-points', String(this.flysightAvgPoints));
+        localStorage.setItem('flysight-cursor-b-dive-angle', String(this.flysightCursorBDiveAngleDeg));
+        localStorage.setItem('flysight-cursor-b-alt-ticks', String(this.flysightCursorBAltTicks));
+        this._syncFlysightSettingsForm();
+        if (this.flysightFiles.length) this.renderFlysightView();
+        this._reapplyFlysightGraphDefaultCursors();
+        this._rebuildFlysightGraphIfOpen();
+    }
+
+    _bindFlysightSettingsInputs() {
         const angleInput = document.getElementById('flysightCursorBDiveAngle');
         if (angleInput && angleInput.dataset.bound !== '1') {
             angleInput.dataset.bound = '1';
-            angleInput.value = String(this.flysightCursorBDiveAngleDeg);
             const applyAngle = () => {
                 this.flysightCursorBDiveAngleDeg = this._parseFlysightCursorBDiveAngle(angleInput.value);
+                localStorage.setItem('flysight-cursor-b-dive-angle', String(this.flysightCursorBDiveAngleDeg));
                 if (this.flysightFiles.length) this.renderFlysightView();
                 this._reapplyFlysightGraphDefaultCursors();
             };
@@ -5181,15 +5234,24 @@ class SkydivingLogbook {
         const ticksInput = document.getElementById('flysightCursorBAltTicks');
         if (ticksInput && ticksInput.dataset.bound !== '1') {
             ticksInput.dataset.bound = '1';
-            ticksInput.value = String(this.flysightCursorBAltTicks);
             const applyTicks = () => {
                 this.flysightCursorBAltTicks = this._parseFlysightCursorBAltTicks(ticksInput.value);
+                localStorage.setItem('flysight-cursor-b-alt-ticks', String(this.flysightCursorBAltTicks));
                 if (this.flysightFiles.length) this.renderFlysightView();
                 this._reapplyFlysightGraphDefaultCursors();
             };
             ticksInput.addEventListener('input', applyTicks);
             ticksInput.addEventListener('change', applyTicks);
         }
+        document.getElementById('flysightSettingsBtn')?.addEventListener('click', () => {
+            this.openFlysightSettingsModal();
+        });
+        document.getElementById('flysightSettingsModalClose')?.addEventListener('click', () => {
+            this.closeFlysightSettingsModal();
+        });
+        document.getElementById('flysightSettingsRestoreBtn')?.addEventListener('click', () => {
+            this._restoreFlysightSettingsDefaults();
+        });
     }
 
     _reapplyFlysightGraphDefaultCursors() {
@@ -5207,6 +5269,13 @@ class SkydivingLogbook {
         this._drawFlysightGraph();
     }
 
+    _rebuildFlysightGraphIfOpen() {
+        const g = this._flysightGraph;
+        const modal = document.getElementById('flysightGraphModal');
+        if (!g?.fileId || !modal || modal.style.display !== 'flex') return;
+        this.openFlysightGraphModal(g.fileId);
+    }
+
     _bindFlysightEvents() {
         const dropZone = document.getElementById('flysightDropZone');
         const fileInput = document.getElementById('flysightFileInput');
@@ -5222,7 +5291,8 @@ class SkydivingLogbook {
         this._updateFlysightAvgLabel();
         this._updateFlysightMaxHeightLabel();
         this._updateFlysightSpeedModeButtons();
-        this._bindFlysightCursorBDebugInputs();
+        this._syncFlysightSettingsForm();
+        this._bindFlysightSettingsInputs();
 
         const openPicker = () => fileInput.click();
         dropZone.addEventListener('click', (e) => {
@@ -5267,6 +5337,7 @@ class SkydivingLogbook {
             this._updateFlysightAvgLabel();
             localStorage.setItem('flysight-avg-points', String(this.flysightAvgPoints));
             if (this.flysightFiles.length) this.renderFlysightView();
+            this._rebuildFlysightGraphIfOpen();
         });
 
         maxHeightSlider.addEventListener('input', () => {
@@ -5367,7 +5438,7 @@ class SkydivingLogbook {
 
         if (avgSlider) avgSlider.value = String(this.flysightAvgPoints);
         if (maxHeightSlider) maxHeightSlider.value = String(this.flysightMaxHeightM);
-        this._updateFlysightAvgLabel();
+        this._syncFlysightSettingsForm();
         this._updateFlysightMaxHeightLabel();
         this._updateFlysightSpeedModeButtons();
 
@@ -5686,6 +5757,26 @@ class SkydivingLogbook {
         const xLabelY = layout.compact ? layout.height - 4 : layout.height - 6;
 
         const ground = this._flysightGraphGroundHmsl(samples);
+        const peakIdx = Flysight.maxVelDIdx(samples);
+        const peak = samples[peakIdx];
+        const maxVerticalMark = (() => {
+            if (!peak) return '';
+            const x = sc.xOf(peak.tRev);
+            const y = sc.yOf(angleOf(peak));
+            const vel = this._flysightVelKmh(peak.velD);
+            const velText = Number.isFinite(vel) ? `${vel.toFixed(1)} km/h` : '—';
+            const plotRight = layout.width - layout.r;
+            const putRight = (plotRight - x) > (layout.compact ? 120 : 155);
+            const dx = layout.compact ? 8 : 10;
+            const labelX = putRight ? x + dx : x - dx;
+            const putAbove = y > layout.t + (layout.compact ? 14 : 18);
+            const labelY = putAbove ? y - 8 : y + 16;
+            return `
+                <g class="flysight-graph-max-vertical" pointer-events="none">
+                    <circle cx="${x}" cy="${y}" r="4.5" fill="#C62828" stroke="#fff" stroke-width="1.5"/>
+                    <text x="${labelX}" y="${labelY}" text-anchor="${putRight ? 'start' : 'end'}" fill="#C62828" font-size="${fs}" font-weight="600" stroke="#fff" stroke-width="3" paint-order="stroke">max vertical = ${velText}</text>
+                </g>`;
+        })();
         const cursor = (which, sample, color) => {
             const x = sc.xOf(sample.tRev);
             const y = sc.yOf(angleOf(sample));
@@ -5698,7 +5789,6 @@ class SkydivingLogbook {
             return `
                 <g class="flysight-graph-cursor" data-cursor="${which}" style="cursor:ew-resize;touch-action:none">
                     <line x1="${x}" y1="${y}" x2="${x}" y2="${yBase}" stroke="${color}" stroke-width="1.5"/>
-                    <line x1="${layout.l}" y1="${y}" x2="${x}" y2="${y}" stroke="${color}" stroke-width="1" stroke-dasharray="4 3"/>
                     <circle cx="${x}" cy="${y}" r="4" fill="${color}"/>
                     <rect x="${x - 16}" y="${yBase - 6}" width="32" height="40" fill="transparent"/>
                     <circle cx="${x}" cy="${handleY}" r="${handleR}" fill="${color}"/>
@@ -5729,9 +5819,10 @@ class SkydivingLogbook {
                 <line x1="${layout.l}" y1="${yBase}" x2="${layout.width - layout.r}" y2="${yBase}" stroke="#ccc"/>
                 ${bThreshLine}
                 <polyline fill="none" stroke="#1976D2" stroke-width="2" points="${poly}"/>
+                ${maxVerticalMark}
                 ${cursor('a', a, '#1976D2')}
                 ${cursor('b', b, '#555')}
-                <text x="${layout.l - 6}" y="${Math.max(10, layout.t - 4)}" text-anchor="end" fill="#888" font-size="${fs}">°</text>
+                <text x="${layout.l}" y="${Math.max(10, layout.t - 4)}" text-anchor="start" fill="#888" font-size="${fs}">dive angle</text>
             </svg>`;
         this._updateFlysightGraphStats();
     }
