@@ -301,8 +301,10 @@ test('defaultSwoopCursorIndices: A is first strong flattening after peak velD', 
     const { samples } = F.buildSwoopCursorSeries(points, 5);
     const { idxA, idxB, peakVelD } = F.defaultSwoopCursorIndices(samples);
     assert.ok(idxB < idxA);
-    assert.ok(samples[idxB].velD < 1);
-    if (idxB + 1 < idxA) assert.ok(samples[idxB + 1].velD >= 1);
+    assert.ok(samples[idxB].diveAngleDeg < F.CURSOR_B_DIVE_ANGLE_DEG);
+    if (idxB + 1 < idxA) {
+        assert.ok(samples[idxB + 1].diveAngleDeg >= F.CURSOR_B_DIVE_ANGLE_DEG);
+    }
     let peakIdx = 0;
     for (let i = 1; i < samples.length; i++) {
         if (samples[i].velD > samples[peakIdx].velD) peakIdx = i;
@@ -322,11 +324,11 @@ test('defaultSwoopCursorIndices: A is first strong flattening after peak velD', 
     assert.ok(peakVelD > 0);
 });
 
-test('recoveryArcSec on 14-43-41 is about 4.0s with flattening-based A', () => {
+test('recoveryArcSec on 14-43-41 is about 3.6s with dive-angle B', () => {
     const csv = fs.readFileSync(path.join(__dirname, '..', '14-43-41.CSV'), 'utf8');
     const { points } = F.parseFlysightCsv(csv);
     const dt = F.recoveryArcSec(points, 5);
-    assert.ok(dt >= 3.9 && dt <= 4.2, `recovery ${dt}`);
+    assert.ok(dt >= 3.5 && dt <= 3.7, `recovery ${dt}`);
 });
 
 test('recoveryArcSec is the default A-B cursor time difference', () => {
@@ -353,17 +355,31 @@ test('timeAloftSec is seconds from B to the stationary cutoff', () => {
     assert.ok(aloft > 0);
 });
 
-test('defaultSwoopCursorIndices places B from A where speed drops below 1', () => {
+test('defaultSwoopCursorIndices places B after A when dive angle drops below 6°', () => {
     const samples = [
-        { velD: 0.2, flatteningDegS: 0 },
-        { velD: 0.8, flatteningDegS: -5 },
-        { velD: 12, flatteningDegS: -22 },
-        { velD: 20, flatteningDegS: -18 },
-        { velD: 24, flatteningDegS: -4 },
-        { velD: 25, flatteningDegS: 1 }
+        { velD: 0.2, flatteningDegS: 0, diveAngleDeg: 2 },
+        { velD: 0.8, flatteningDegS: -5, diveAngleDeg: 5 },
+        { velD: 12, flatteningDegS: -22, diveAngleDeg: 15 },
+        { velD: 20, flatteningDegS: -18, diveAngleDeg: 40 },
+        { velD: 24, flatteningDegS: -4, diveAngleDeg: 55 },
+        { velD: 25, flatteningDegS: 1, diveAngleDeg: 60 }
     ];
     const { idxA, idxB } = F.defaultSwoopCursorIndices(samples);
     assert.equal(idxA, 3);
     assert.equal(idxB, 1);
     assert.ok(idxB < idxA);
+});
+
+test('defaultSwoopCursorIndices B dive-angle threshold is configurable', () => {
+    const samples = [
+        { velD: 0.2, flatteningDegS: 0, diveAngleDeg: 2 },
+        { velD: 0.8, flatteningDegS: -5, diveAngleDeg: 5 },
+        { velD: 12, flatteningDegS: -22, diveAngleDeg: 15 },
+        { velD: 20, flatteningDegS: -18, diveAngleDeg: 40 },
+        { velD: 24, flatteningDegS: -4, diveAngleDeg: 55 },
+        { velD: 25, flatteningDegS: 1, diveAngleDeg: 60 }
+    ];
+    assert.equal(F.defaultSwoopCursorIndices(samples, 6).idxB, 1);
+    assert.equal(F.defaultSwoopCursorIndices(samples, 16).idxB, 2);
+    assert.equal(F.defaultSwoopCursorIndices(samples, 1).idxB, 0);
 });

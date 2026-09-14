@@ -184,7 +184,12 @@
                         <label class="flysight-avg-label" for="flysightAvgPoints">
                             Averaging: <span id="flysightAvgPointsValue">3</span> points<span id="flysightAvgDuration"></span>
                         </label>
-                        <input type="range" id="flysightAvgPoints" class="flysight-avg-slider" min="1" max="20" value="3" step="1">
+                        <div class="flysight-avg-row">
+                            <input type="range" id="flysightAvgPoints" class="flysight-avg-slider" min="1" max="20" value="3" step="1">
+                            <label class="flysight-debug-control" for="flysightCursorBDiveAngle">
+                                B&nbsp;&lt;<input type="number" id="flysightCursorBDiveAngle" class="flysight-debug-input" value="6" min="0" max="90" step="0.5">°
+                            </label>
+                        </div>
                         <label class="flysight-avg-label flysight-control-spaced" for="flysightMaxHeight">
                             Max height: <span id="flysightMaxHeightValue">500</span> m AGL
                         </label>

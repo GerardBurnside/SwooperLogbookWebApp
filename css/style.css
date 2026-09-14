@@ -2517,6 +2517,36 @@ footer.legal-footer a {
     accent-color: #2196F3;
 }
 
+.flysight-avg-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.flysight-avg-row .flysight-avg-slider {
+    flex: 1;
+    min-width: 0;
+}
+
+.flysight-debug-control {
+    display: flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin: 0;
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    color: #444;
+    white-space: nowrap;
+}
+
+.flysight-debug-input {
+    width: 3.6rem;
+    padding: 0.2rem 0.3rem;
+    border: 1px solid #c5cae9;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
 .flysight-control-spaced {
     margin-top: 0.75rem;
 }

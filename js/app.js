@@ -117,6 +117,9 @@ class SkydivingLogbook {
         this.flysightSpeedMetric = ['vertical', 'total', 'both'].includes(savedFlysightSpeedMetric)
             ? savedFlysightSpeedMetric
             : 'vertical';
+        this.flysightCursorBDiveAngleDeg = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_DIVE_ANGLE_DEG))
+            ? Flysight.CURSOR_B_DIVE_ANGLE_DEG
+            : 6;
         
         this.init();
     }
@@ -5141,6 +5144,43 @@ class SkydivingLogbook {
         if (this.flysightFiles.length) this.renderFlysightView();
     }
 
+    _parseFlysightCursorBDiveAngle(value) {
+        const fallback = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_DIVE_ANGLE_DEG))
+            ? Flysight.CURSOR_B_DIVE_ANGLE_DEG
+            : 6;
+        const n = parseFloat(value);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.min(90, Math.max(0, n));
+    }
+
+    _bindFlysightCursorBDiveAngleInput() {
+        const input = document.getElementById('flysightCursorBDiveAngle');
+        if (!input || input.dataset.bound === '1') return;
+        input.dataset.bound = '1';
+        input.value = String(this.flysightCursorBDiveAngleDeg);
+        const apply = () => {
+            this.flysightCursorBDiveAngleDeg = this._parseFlysightCursorBDiveAngle(input.value);
+            if (this.flysightFiles.length) this.renderFlysightView();
+            this._reapplyFlysightGraphDefaultCursors();
+        };
+        input.addEventListener('input', apply);
+        input.addEventListener('change', apply);
+    }
+
+    _reapplyFlysightGraphDefaultCursors() {
+        const g = this._flysightGraph;
+        const modal = document.getElementById('flysightGraphModal');
+        if (!g?.samples?.length || typeof Flysight === 'undefined') return;
+        if (!modal || modal.style.display !== 'flex') return;
+        const cursors = Flysight.defaultSwoopCursorIndices(
+            g.samples,
+            this.flysightCursorBDiveAngleDeg
+        );
+        g.idxA = cursors.idxA;
+        g.idxB = cursors.idxB;
+        this._drawFlysightGraph();
+    }
+
     _bindFlysightEvents() {
         const dropZone = document.getElementById('flysightDropZone');
         const fileInput = document.getElementById('flysightFileInput');
@@ -5156,6 +5196,7 @@ class SkydivingLogbook {
         this._updateFlysightAvgLabel();
         this._updateFlysightMaxHeightLabel();
         this._updateFlysightSpeedModeButtons();
+        this._bindFlysightCursorBDiveAngleInput();
 
         const openPicker = () => fileInput.click();
         dropZone.addEventListener('click', (e) => {
@@ -5332,7 +5373,11 @@ class SkydivingLogbook {
             }
 
             const altitude = Math.round(result.altitudeM);
-            const recoverySec = Flysight.recoveryArcSec(result.points, this.flysightAvgPoints);
+            const recoverySec = Flysight.recoveryArcSec(
+                result.points,
+                this.flysightAvgPoints,
+                this.flysightCursorBDiveAngleDeg
+            );
             const recoveryText = Number.isFinite(recoverySec)
                 ? (Flysight.formatDurationSec(recoverySec) || `${recoverySec.toFixed(1)}s`)
                 : '—';
@@ -5423,7 +5468,10 @@ class SkydivingLogbook {
             this.showMessage(series.error || 'Could not build speed graph.', 'error');
             return;
         }
-        const cursors = Flysight.defaultSwoopCursorIndices(series.samples);
+        const cursors = Flysight.defaultSwoopCursorIndices(
+            series.samples,
+            this.flysightCursorBDiveAngleDeg
+        );
         this._flysightGraph = {
             fileId,
             samples: series.samples,
@@ -5509,10 +5557,22 @@ class SkydivingLogbook {
             height,
             compact,
             l: compact ? 40 : 58,
-            r: compact ? 8 : 16,
+            r: compact ? 36 : 48,
             t: compact ? 14 : 22,
             b: compact ? 36 : 44
         };
+    }
+
+    _flysightGraphGroundHmsl(samples) {
+        return samples.reduce((min, s) => {
+            const h = s.hMSL;
+            return Number.isFinite(h) && h < min ? h : min;
+        }, Infinity);
+    }
+
+    _flysightGraphAglM(sample, ground) {
+        if (!Number.isFinite(sample?.hMSL) || !Number.isFinite(ground)) return NaN;
+        return Math.max(0, sample.hMSL - ground);
     }
 
     _flysightVelKmh(velDMs) {
@@ -5560,13 +5620,7 @@ class SkydivingLogbook {
         if (dtEl) dtEl.textContent = Flysight.formatDurationSec(dt) || `${dt.toFixed(1)}s`;
         if (aloftEl) aloftEl.textContent = Flysight.formatDurationSec(aloft) || `${aloft.toFixed(1)}s`;
         if (altAEl) {
-            const ground = g.samples.reduce((min, s) => {
-                const h = s.hMSL;
-                return Number.isFinite(h) && h < min ? h : min;
-            }, Infinity);
-            const altA = Number.isFinite(a.hMSL) && Number.isFinite(ground)
-                ? Math.max(0, a.hMSL - ground)
-                : NaN;
+            const altA = this._flysightGraphAglM(a, this._flysightGraphGroundHmsl(g.samples));
             altAEl.textContent = Number.isFinite(altA) ? `${Math.round(altA)} m` : '—';
         }
     }
@@ -5594,9 +5648,18 @@ class SkydivingLogbook {
         const handleY = yBase + (layout.compact ? 10 : 12);
         const xLabelY = layout.compact ? layout.height - 4 : layout.height - 6;
 
+        const ground = this._flysightGraphGroundHmsl(samples);
         const cursor = (which, sample, color) => {
             const x = sc.xOf(sample.tRev);
             const y = sc.yOf(kmhOf(sample));
+            let altText = '';
+            if (which === 'b') {
+                const altB = this._flysightGraphAglM(sample, ground);
+                if (Number.isFinite(altB)) {
+                    const labelX = x + (layout.compact ? 8 : 10);
+                    altText = `<text x="${labelX}" y="${y + 4}" text-anchor="start" fill="${color}" font-size="${fs}" font-weight="600" stroke="#fff" stroke-width="3" paint-order="stroke" pointer-events="none">${Math.round(altB)} m</text>`;
+                }
+            }
             return `
                 <g class="flysight-graph-cursor" data-cursor="${which}" style="cursor:ew-resize;touch-action:none">
                     <line x1="${x}" y1="${y}" x2="${x}" y2="${yBase}" stroke="${color}" stroke-width="1.5"/>
@@ -5606,6 +5669,7 @@ class SkydivingLogbook {
                     <circle cx="${x}" cy="${handleY}" r="${handleR}" fill="${color}"/>
                     <text x="${x}" y="${handleY + 4}" text-anchor="middle" fill="#fff" font-size="${fs}" font-weight="600" pointer-events="none">${which.toUpperCase()}</text>
                     <text x="${layout.l - 6}" y="${y + 4}" text-anchor="end" fill="${color}" font-size="${fs}">${kmhOf(sample).toFixed(1)}</text>
+                    ${altText}
                 </g>`;
         };
 

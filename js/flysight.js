@@ -169,6 +169,8 @@
     const STATIONARY_RADIUS_M = 2;
     const STATIONARY_SPEED_MS = 1;
     const CURSOR_B_VELD_MS = 1;
+    /** Dive angle from horizontal (deg) that marks cursor B after A. */
+    const CURSOR_B_DIVE_ANGLE_DEG = 6;
     /** Real-time dive-angle flattening (deg/s) that marks the start of the recovery arc. */
     const CURSOR_A_FLATTENING_DEG_S = 15;
 
@@ -271,6 +273,16 @@
     }
 
     /**
+     * Dive angle from horizontal (deg). Positive is downward; 0 is level.
+     * @param {{ velN?: number, velE?: number, velD: number, diveAngleDeg?: number }} point
+     * @returns {number}
+     */
+    function diveAngleDeg(point) {
+        if (Number.isFinite(point?.diveAngleDeg)) return point.diveAngleDeg;
+        return pathAngleRad(point) * (180 / Math.PI);
+    }
+
+    /**
      * Signed path-angle rate in deg/s from `earlier` to `later` in real time.
      * Negative = flattening (dive angle decreasing).
      *
@@ -305,7 +317,7 @@
      * @param {number} [avgPoints]
      * @param {number} [windowSec]
      * @returns {{
-     *   samples: { tRev: number, velD: number, velDRaw: number, velN: number, velE: number, hMSL: number, time: string, pitchRateDegS: number, flatteningDegS: number }[],
+     *   samples: { tRev: number, velD: number, velDRaw: number, velN: number, velE: number, hMSL: number, time: string, pitchRateDegS: number, flatteningDegS: number, diveAngleDeg: number }[],
      *   error?: string
      * }}
      */
@@ -360,7 +372,8 @@
                 hMSL: Number.isFinite(p.hMSL) ? p.hMSL : NaN,
                 time: p.time,
                 flatteningDegS,
-                pitchRateDegS: Math.abs(flatteningDegS)
+                pitchRateDegS: Math.abs(flatteningDegS),
+                diveAngleDeg: diveAngleDeg(p)
             };
         });
 
@@ -371,18 +384,23 @@
      * Default flare-window cursors on a reverse-time series (index 0 = landing).
      * A: after max velD, the first sample where dive angle is flattening strongly
      *    (and the next sample toward landing confirms it).
-     * B: walking from A toward landing, the nearest sample where velD drops below 1 m/s.
+     * B: walking from A toward landing, the first sample whose dive angle is below
+     *    `diveAngleDegThresh` (default 6° from horizontal).
      *
-     * @param {{ velD: number, flatteningDegS?: number }[]} samples
+     * @param {{ velD: number, flatteningDegS?: number, diveAngleDeg?: number, velN?: number, velE?: number }[]} samples
+     * @param {number} [diveAngleDegThresh]
      * @returns {{ idxA: number, idxB: number, peakVelD: number }}
      */
-    function defaultSwoopCursorIndices(samples) {
+    function defaultSwoopCursorIndices(samples, diveAngleDegThresh = CURSOR_B_DIVE_ANGLE_DEG) {
         if (!samples || samples.length === 0) {
             return { idxA: 0, idxB: 0, peakVelD: 0 };
         }
         const vel = samples.map(s => s.velD);
         const last = samples.length - 1;
         const flattenThresh = -CURSOR_A_FLATTENING_DEG_S;
+        const angleThresh = Number.isFinite(diveAngleDegThresh)
+            ? diveAngleDegThresh
+            : CURSOR_B_DIVE_ANGLE_DEG;
 
         let peakVelD = -Infinity;
         let peakIdx = 0;
@@ -412,7 +430,7 @@
 
         let idxB = 0;
         for (let i = idxA - 1; i >= 0; i--) {
-            if (vel[i] < CURSOR_B_VELD_MS) {
+            if (diveAngleDeg(samples[i]) < angleThresh) {
                 idxB = i;
                 break;
             }
@@ -440,12 +458,13 @@
      *
      * @param {{ time: string, hMSL: number, velD: number, velN?: number, velE?: number, lat?: number, lon?: number }[]} points
      * @param {number} [avgPoints]
+     * @param {number} [diveAngleDegThresh]
      * @returns {number} duration in seconds, or NaN if it cannot be computed
      */
-    function recoveryArcSec(points, avgPoints = 3) {
+    function recoveryArcSec(points, avgPoints = 3, diveAngleDegThresh = CURSOR_B_DIVE_ANGLE_DEG) {
         const series = buildSwoopCursorSeries(points, avgPoints);
         if (series.error || !series.samples.length) return NaN;
-        const { idxA, idxB } = defaultSwoopCursorIndices(series.samples);
+        const { idxA, idxB } = defaultSwoopCursorIndices(series.samples, diveAngleDegThresh);
         const a = series.samples[idxA];
         const b = series.samples[idxB];
         if (!a || !b) return NaN;
@@ -719,6 +738,7 @@
         timeAloftSec,
         recoveryArcSec,
         pathAngleRad,
+        diveAngleDeg,
         pathAngleFlatteningDegS,
         pathAngleRateDegS,
         haversineMeters,
@@ -730,6 +750,7 @@
         STATIONARY_SEC,
         STATIONARY_RADIUS_M,
         CURSOR_B_VELD_MS,
+        CURSOR_B_DIVE_ANGLE_DEG,
         CURSOR_A_FLATTENING_DEG_S,
         DEFAULT_SAMPLE_INTERVAL_SEC,
         DEFAULT_MAX_HEIGHT_M,
