@@ -420,6 +420,12 @@ class SkydivingLogbook {
         document.getElementById('searchNotesGoBtn').addEventListener('click', () => {
             this.executeNoteSearch();
         });
+        document.getElementById('searchNotesCutawaysBtn').addEventListener('click', () => {
+            this.executeNoteSearch({
+                terms: ['cutaway', 'cut-away', 'libé', 'libe'],
+                label: 'cutaways'
+            });
+        });
         document.getElementById('searchNotesInput').addEventListener('keydown', (e) => {
             if (e.key === 'Enter') this.executeNoteSearch();
         });
@@ -2303,21 +2309,34 @@ class SkydivingLogbook {
         if (modal) modal.style.display = 'none';
     }
 
-    executeNoteSearch() {
+    normalizeNoteSearchText(text) {
+        return String(text)
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '');
+    }
+
+    executeNoteSearch(options = {}) {
         const input = document.getElementById('searchNotesInput');
         const resultsContainer = document.getElementById('searchNotesResults');
         if (!input || !resultsContainer) return;
 
+        const presetTerms = Array.isArray(options.terms)
+            ? options.terms.filter(t => typeof t === 'string' && t.trim())
+            : [];
         const query = input.value.trim();
-        if (!query) {
+        const terms = presetTerms.length > 0 ? presetTerms : (query ? [query] : []);
+
+        if (terms.length === 0) {
             resultsContainer.innerHTML =
                 '<p class="search-notes-placeholder">Enter a search term to find jumps by note text.</p>';
             return;
         }
 
-        const lowerQuery = query.toLowerCase();
+        const normalizedTerms = terms.map(t => this.normalizeNoteSearchText(t)).filter(Boolean);
         const matches = this.jumps
-            .filter(j => typeof j.notes === 'string' && j.notes.toLowerCase().includes(lowerQuery))
+            .filter(j => typeof j.notes === 'string' && normalizedTerms.some(term =>
+                this.normalizeNoteSearchText(j.notes).includes(term)))
             .sort((a, b) => b.jumpNumber - a.jumpNumber);
 
         if (matches.length === 0) {
@@ -2325,10 +2344,14 @@ class SkydivingLogbook {
             return;
         }
 
-        const escapedQuery = this.escapeHtml(query);
-        const queryRegex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+        const highlightPattern = [...terms]
+            .sort((a, b) => b.length - a.length)
+            .map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/[eéèêë]/gi, '[eéèêë]'))
+            .join('|');
+        const queryRegex = new RegExp(highlightPattern, 'gi');
 
-        let html = `<p class="search-notes-count">${matches.length} result${matches.length !== 1 ? 's' : ''} found</p>`;
+        const countSuffix = options.label ? ` (${this.escapeHtml(options.label)})` : '';
+        let html = `<p class="search-notes-count">${matches.length} result${matches.length !== 1 ? 's' : ''} found${countSuffix}</p>`;
         matches.forEach(jump => {
             const dateStr = new Date(jump.date + 'T00:00:00')
                 .toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });

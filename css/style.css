@@ -2018,6 +2018,16 @@ button.jump-number.jump-number-btn:focus-visible {
     white-space: nowrap;
 }
 
+.search-notes-shortcuts {
+    margin-top: 0.5rem;
+}
+
+.search-notes-shortcuts .btn-secondary {
+    width: auto;
+    padding: 0.45rem 0.9rem;
+    white-space: nowrap;
+}
+
 .search-notes-results {
     margin-top: 1rem;
 }
