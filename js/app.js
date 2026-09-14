@@ -5331,13 +5331,16 @@ class SkydivingLogbook {
             }
 
             const altitude = Math.round(result.altitudeM);
+            const recoverySec = Flysight.recoveryArcSec(result.points, this.flysightAvgPoints);
+            const recoveryText = Number.isFinite(recoverySec)
+                ? (Flysight.formatDurationSec(recoverySec) || `${recoverySec.toFixed(1)}s`)
+                : '—';
 
             let speedMetricsHtml;
-            let metaHtml;
-
-            const metricsClass = result.speedMetric === 'both'
-                ? 'flysight-result-metrics is-both'
-                : 'flysight-result-metrics';
+            let metaHtml = '';
+            let metricsClass = 'flysight-result-metrics';
+            let altLabel = 'Altitude';
+            let recoveryLabel = 'Recovery arc';
 
             if (result.speedMetric === 'both') {
                 const verticalSpeed = result.maxVerticalSpeedKmh.toFixed(1);
@@ -5347,24 +5350,25 @@ class SkydivingLogbook {
                     : '—';
                 speedMetricsHtml = `
                         <div>
-                            <span class="flysight-metric-label">Max total speed</span>
+                            <span class="flysight-metric-label">Max total</span>
                             <span class="flysight-metric-value">${totalSpeed} km/h</span>
                         </div>
                         <div class="flysight-metric-emphasis">
-                            <span class="flysight-metric-label">Max vertical speed</span>
+                            <span class="flysight-metric-label">Max vert</span>
                             <span class="flysight-metric-value">${verticalSpeed} km/h</span>
                         </div>`;
                 metaHtml = `${result.pointCount} points · vertical peak at ${altitude} m · total peak at ${totalAltitude}`;
             } else {
                 const speed = result.maxVerticalSpeedKmh.toFixed(1);
-                const speedLabel = result.speedMetric === 'total' ? 'Max total speed' : 'Max vertical speed';
-                const timeLabel = result.time ? this.escapeHtml(result.time) : '—';
+                const speedLabel = result.speedMetric === 'total' ? 'Max tot' : 'Max vert';
+                metricsClass += ' is-single';
+                altLabel = 'Alt.';
+                recoveryLabel = 'Rec-arc';
                 speedMetricsHtml = `
                         <div>
                             <span class="flysight-metric-label">${speedLabel}</span>
                             <span class="flysight-metric-value">${speed} km/h</span>
                         </div>`;
-                metaHtml = `${result.pointCount} points · peak at ${timeLabel}`;
             }
 
             return `
@@ -5373,11 +5377,15 @@ class SkydivingLogbook {
                     <div class="${metricsClass}">
                         ${speedMetricsHtml}
                         <div>
-                            <span class="flysight-metric-label">Altitude</span>
+                            <span class="flysight-metric-label">${altLabel}</span>
                             <span class="flysight-metric-value">${altitude} m</span>
                         </div>
+                        <div>
+                            <span class="flysight-metric-label">${recoveryLabel}</span>
+                            <span class="flysight-metric-value">${recoveryText}</span>
+                        </div>
                     </div>
-                    <p class="flysight-result-meta">${metaHtml}</p>
+                    ${metaHtml ? `<p class="flysight-result-meta">${metaHtml}</p>` : ''}
                     <div class="flysight-result-actions">
                         <button type="button" class="flysight-result-graph" data-flysight-id="${file.id}">
                             <svg class="flysight-result-graph-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">

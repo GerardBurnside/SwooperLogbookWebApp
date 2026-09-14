@@ -399,6 +399,25 @@
     }
 
     /**
+     * Seconds between default swoop cursors A and B (recovery arc).
+     * Same value as A-B Time on the graph with default cursor placement.
+     *
+     * @param {{ time: string, hMSL: number, velD: number, velN?: number, velE?: number, lat?: number, lon?: number }[]} points
+     * @param {number} [avgPoints]
+     * @returns {number} duration in seconds, or NaN if it cannot be computed
+     */
+    function recoveryArcSec(points, avgPoints = 5) {
+        const series = buildSwoopCursorSeries(points, avgPoints);
+        if (series.error || !series.samples.length) return NaN;
+        const { idxA, idxB } = defaultSwoopCursorIndices(series.samples);
+        const a = series.samples[idxA];
+        const b = series.samples[idxB];
+        if (!a || !b) return NaN;
+        const dt = Math.abs(b.tRev - a.tRev);
+        return Number.isFinite(dt) ? dt : NaN;
+    }
+
+    /**
      * @param {number} sec
      * @returns {string}
      */
@@ -661,6 +680,7 @@
         averagingWindowDurationSec,
         formatDurationSec,
         timeAloftSec,
+        recoveryArcSec,
         pathAngleRad,
         pathAngleRateDegS,
         haversineMeters,

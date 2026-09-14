@@ -289,6 +289,17 @@ test('defaultSwoopCursorIndices: B is first drop below 1 m/s from A; A is near t
     assert.ok(dt > 2 && dt < 20);
 });
 
+test('recoveryArcSec is the default A-B cursor time difference', () => {
+    const csv = fs.readFileSync(path.join(__dirname, '..', '12-21-30.CSV'), 'utf8');
+    const { points } = F.parseFlysightCsv(csv);
+    const { samples } = F.buildSwoopCursorSeries(points, 5);
+    const { idxA, idxB } = F.defaultSwoopCursorIndices(samples);
+    const expected = Math.abs(samples[idxB].tRev - samples[idxA].tRev);
+    assert.equal(F.recoveryArcSec(points, 5), expected);
+    assert.ok(expected > 2 && expected < 20);
+    assert.ok(Number.isNaN(F.recoveryArcSec([], 5)));
+});
+
 test('timeAloftSec is seconds from B to the stationary cutoff', () => {
     assert.equal(F.timeAloftSec({ tRev: 3.4 }), 3.4);
     assert.equal(F.timeAloftSec({ tRev: 0 }), 0);
