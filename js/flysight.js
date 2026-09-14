@@ -265,11 +265,11 @@
     /**
      * Last `windowSec` before the first 2 s of roughly-still position (landing),
      * reversed so index 0 is that stationary point. Points after the still period
-     * are dropped. `velD` is smoothed; `pitchRateDegS` is computed from raw velocities.
+     * are dropped. Not limited by the analysis max-height slider. `velD` is
+     * smoothed; `pitchRateDegS` is computed from raw velocities.
      *
      * @param {{ time: string, hMSL: number, velD: number, velN?: number, velE?: number, lat?: number, lon?: number }[]} points
      * @param {number} [avgPoints]
-     * @param {number} [maxHeightM]
      * @param {number} [windowSec]
      * @returns {{
      *   samples: { tRev: number, velD: number, velDRaw: number, velN: number, velE: number, time: string, pitchRateDegS: number }[],
@@ -279,7 +279,6 @@
     function buildSwoopCursorSeries(
         points,
         avgPoints = 5,
-        maxHeightM = DEFAULT_MAX_HEIGHT_M,
         windowSec = SWOOP_WINDOW_SEC
     ) {
         if (!points || points.length < 2) {
@@ -289,23 +288,19 @@
         if (quality.length < 2) {
             return { samples: [], error: 'Not enough track points.' };
         }
-        const filtered = filterPointsByMaxHeight(quality, maxHeightM);
-        if (filtered.length < 2) {
-            return { samples: [], error: 'Not enough track points within the max height limit.' };
-        }
 
-        const cutoff = findStationaryCutoffMs(filtered);
-        const tEnd = Number.isFinite(cutoff) ? cutoff : lastValidTimeMs(filtered);
+        const cutoff = findStationaryCutoffMs(quality);
+        const tEnd = Number.isFinite(cutoff) ? cutoff : lastValidTimeMs(quality);
         if (!Number.isFinite(tEnd)) {
             return { samples: [], error: 'Track times are invalid.' };
         }
 
         const windowed = [];
-        for (let i = 0; i < filtered.length; i++) {
-            const t = Date.parse(filtered[i].time);
+        for (let i = 0; i < quality.length; i++) {
+            const t = Date.parse(quality[i].time);
             if (!Number.isFinite(t)) continue;
             const dt = (tEnd - t) / 1000;
-            if (dt >= 0 && dt <= windowSec) windowed.push(filtered[i]);
+            if (dt >= 0 && dt <= windowSec) windowed.push(quality[i]);
         }
         if (windowed.length < 2) {
             return { samples: [], error: 'Not enough points in the swoop window.' };

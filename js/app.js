@@ -5331,7 +5331,13 @@ class SkydivingLogbook {
                     </div>
                     <p class="flysight-result-meta">${metaHtml}</p>
                     <div class="flysight-result-actions">
-                        <button type="button" class="flysight-result-graph" data-flysight-id="${file.id}">Graph</button>
+                        <button type="button" class="flysight-result-graph" data-flysight-id="${file.id}">
+                            <svg class="flysight-result-graph-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18"/>
+                                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M6 16c2.2-1.2 3.1-7 5.6-7s2.4 5.2 4.9 5.2 2.1-4.2 3.8-4.2"/>
+                            </svg>
+                            Graph
+                        </button>
                         <button type="button" class="flysight-result-remove" onclick="logbook.removeFlysightFile('${file.id}')">Remove</button>
                     </div>
                 </div>`;
@@ -5354,8 +5360,7 @@ class SkydivingLogbook {
         }
         const series = Flysight.buildSwoopCursorSeries(
             parsed.points,
-            this.flysightAvgPoints,
-            this.flysightMaxHeightM
+            this.flysightAvgPoints
         );
         if (series.error || !series.samples.length) {
             this.showMessage(series.error || 'Could not build speed graph.', 'error');

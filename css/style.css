@@ -2680,17 +2680,30 @@ footer.legal-footer a {
 }
 
 .flysight-result-graph {
-    font-size: 0.8rem;
-    color: #1976D2;
-    background: none;
-    border: none;
-    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #1565c0;
+    background: #e3f2fd;
+    border: 1px solid #90caf9;
+    border-radius: 6px;
+    padding: 0.4rem 0.75rem;
     cursor: pointer;
-    text-decoration: underline;
-    min-height: 44px;
+    min-height: 36px;
+    line-height: 1;
+}
+
+.flysight-result-graph-icon {
+    width: 1.05rem;
+    height: 1.05rem;
+    flex-shrink: 0;
 }
 
 .flysight-result-graph:hover {
+    background: #bbdefb;
+    border-color: #64b5f6;
     color: #0d47a1;
 }
 

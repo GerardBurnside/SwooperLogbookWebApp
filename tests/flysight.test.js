@@ -230,7 +230,7 @@ test('buildSwoopCursorSeries ends at first 2s of still position, then 25s before
             lon: lastMove.lon
         });
     }
-    const { samples, error } = F.buildSwoopCursorSeries(points, 1, 500, 25);
+    const { samples, error } = F.buildSwoopCursorSeries(points, 1, 25);
     assert.equal(error, undefined);
     const endTime = Date.parse(samples[0].time);
     const stillStart = Date.parse(points[400].time);
@@ -245,7 +245,7 @@ test('buildSwoopCursorSeries reverses last 25s so index 0 is landing', () => {
     const csv = fs.readFileSync(path.join(__dirname, '..', '12-21-30.CSV'), 'utf8');
     const { points, error } = F.parseFlysightCsv(csv);
     assert.equal(error, undefined);
-    const { samples } = F.buildSwoopCursorSeries(points, 5, 500, 25);
+    const { samples } = F.buildSwoopCursorSeries(points, 5, 25);
     assert.ok(samples.length > 50);
     assert.ok(samples[0].tRev < samples[samples.length - 1].tRev);
     assert.ok(samples[0].tRev < 0.2);
@@ -256,10 +256,24 @@ test('buildSwoopCursorSeries reverses last 25s so index 0 is landing', () => {
     assert.ok(samples[samples.length - 1].tRev <= 25.05);
 });
 
+test('buildSwoopCursorSeries is not clipped by the analysis max-height ceiling', () => {
+    const csv = fs.readFileSync(path.join(__dirname, '..', '08-55-08.CSV'), 'utf8');
+    const { points } = F.parseFlysightCsv(csv);
+    const quality = F.filterPointsBySpeedAccuracy(points);
+    const below500 = F.filterPointsByMaxHeight(quality, 500);
+    const cutoff = F.findStationaryCutoffMs(quality);
+    const firstBelow500 = below500[0];
+    const clippedSpan = (cutoff - Date.parse(firstBelow500.time)) / 1000;
+    assert.ok(clippedSpan < 24, `height-filtered lookback should be under 25s (${clippedSpan})`);
+    const { samples } = F.buildSwoopCursorSeries(points, 5);
+    assert.ok(samples[samples.length - 1].tRev > 24);
+    assert.ok(samples[samples.length - 1].tRev <= 25.05);
+});
+
 test('defaultSwoopCursorIndices: B is first drop below 1 m/s from A; A is near the peak', () => {
     const csv = fs.readFileSync(path.join(__dirname, '..', '12-21-30.CSV'), 'utf8');
     const { points } = F.parseFlysightCsv(csv);
-    const { samples } = F.buildSwoopCursorSeries(points, 5, 500, 25);
+    const { samples } = F.buildSwoopCursorSeries(points, 5);
     const { idxA, idxB, peakVelD } = F.defaultSwoopCursorIndices(samples);
     assert.ok(idxB < idxA);
     assert.ok(samples[idxB].velD < 1);
@@ -281,7 +295,7 @@ test('timeAloftSec is seconds from B to the stationary cutoff', () => {
     assert.equal(F.timeAloftSec(null), 0);
     const csv = fs.readFileSync(path.join(__dirname, '..', '12-21-30.CSV'), 'utf8');
     const { points } = F.parseFlysightCsv(csv);
-    const { samples } = F.buildSwoopCursorSeries(points, 5, 500, 25);
+    const { samples } = F.buildSwoopCursorSeries(points, 5);
     const { idxB } = F.defaultSwoopCursorIndices(samples);
     const aloft = F.timeAloftSec(samples[idxB]);
     assert.equal(aloft, samples[idxB].tRev);
