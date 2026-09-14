@@ -1479,7 +1479,7 @@ button.jump-number.jump-number-btn:focus-visible {
     margin-top: 4px;
 }
 
-.show-archived-linesets-label {
+.show-older-linesets-label {
     display: flex;
     align-items: center;
     gap: 0.35rem;
@@ -1489,8 +1489,12 @@ button.jump-number.jump-number-btn:focus-visible {
     cursor: pointer;
 }
 
-.show-archived-linesets-label input[type="checkbox"] {
+.show-older-linesets-label input[type="checkbox"] {
     margin: 0;
+}
+
+.older-linesets-group {
+    margin-left: 0.35rem;
 }
 
 .archived-badge {
@@ -2649,6 +2653,79 @@ footer.legal-footer a {
 
 .flysight-result-remove:hover {
     color: #333;
+}
+
+.flysight-result-actions {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 0.6rem;
+}
+
+.flysight-result-actions .flysight-result-remove {
+    margin-top: 0;
+}
+
+.flysight-result-graph {
+    font-size: 0.8rem;
+    color: #1976D2;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+    min-height: 44px;
+}
+
+.flysight-result-graph:hover {
+    color: #0d47a1;
+}
+
+.flysight-graph-modal-content {
+    max-width: 760px;
+}
+
+.flysight-graph-caption {
+    font-size: 0.9rem;
+    color: #666;
+    margin: 0 0 0.75rem;
+}
+
+.flysight-graph-stats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem 1.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.flysight-graph-reverse {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.9rem;
+    color: #555;
+    cursor: pointer;
+    user-select: none;
+    margin-left: auto;
+}
+
+.flysight-graph-reverse input {
+    width: auto;
+}
+
+.flysight-graph-root {
+    width: 100%;
+    overflow-x: auto;
+    touch-action: none;
+}
+
+.flysight-graph-root svg {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 /* TODOs (grocery-style checklist) */

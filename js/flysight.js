@@ -128,6 +128,162 @@
         return (n - 1) * sampleIntervalSec;
     }
 
+    const SWOOP_WINDOW_SEC = 25;
+    const CURSOR_A_VELD_MS = 1;
+    const CURSOR_B_PEAK_FRACTION = 0.85;
+    const CURSOR_B_PITCH_RATE_DEG_S = 15;
+    /** After the pitch-rate hint, move this fraction of the remaining gap toward the velD peak. */
+    const CURSOR_B_TOWARD_PEAK = 0.55;
+
+    /**
+     * Flight-path angle from the velocity vector (rad). Positive velD is downward.
+     * @param {{ velN?: number, velE?: number, velD: number }} point
+     * @returns {number}
+     */
+    function pathAngleRad(point) {
+        const h = Math.hypot(Number(point.velN) || 0, Number(point.velE) || 0);
+        return Math.atan2(point.velD, h);
+    }
+
+    /**
+     * @param {{ velN?: number, velE?: number, velD: number }} a
+     * @param {{ velN?: number, velE?: number, velD: number }} b
+     * @param {number} dtSec
+     * @returns {number} absolute path-angle rate in deg/s
+     */
+    function pathAngleRateDegS(a, b, dtSec) {
+        if (!Number.isFinite(dtSec) || dtSec <= 0) return 0;
+        return Math.abs(pathAngleRad(b) - pathAngleRad(a)) / dtSec * (180 / Math.PI);
+    }
+
+    /**
+     * Last `windowSec` of a max-height-filtered track, reversed so index 0 is landing.
+     * `velD` is smoothed; `pitchRateDegS` is computed from raw velocities.
+     *
+     * @param {{ time: string, hMSL: number, velD: number, velN?: number, velE?: number }[]} points
+     * @param {number} [avgPoints]
+     * @param {number} [maxHeightM]
+     * @param {number} [windowSec]
+     * @returns {{
+     *   samples: { tRev: number, velD: number, velDRaw: number, velN: number, velE: number, time: string, pitchRateDegS: number }[],
+     *   error?: string
+     * }}
+     */
+    function buildSwoopCursorSeries(
+        points,
+        avgPoints = 5,
+        maxHeightM = DEFAULT_MAX_HEIGHT_M,
+        windowSec = SWOOP_WINDOW_SEC
+    ) {
+        if (!points || points.length < 2) {
+            return { samples: [], error: 'Not enough track points.' };
+        }
+        const filtered = filterPointsByMaxHeight(points, maxHeightM);
+        if (filtered.length < 2) {
+            return { samples: [], error: 'Not enough track points within the max height limit.' };
+        }
+
+        const times = filtered.map(p => Date.parse(p.time));
+        let tEnd = NaN;
+        for (let i = times.length - 1; i >= 0; i--) {
+            if (Number.isFinite(times[i])) {
+                tEnd = times[i];
+                break;
+            }
+        }
+        if (!Number.isFinite(tEnd)) {
+            return { samples: [], error: 'Track times are invalid.' };
+        }
+
+        const windowed = [];
+        for (let i = 0; i < filtered.length; i++) {
+            const t = times[i];
+            if (!Number.isFinite(t)) continue;
+            if ((tEnd - t) / 1000 <= windowSec) windowed.push(filtered[i]);
+        }
+        if (windowed.length < 2) {
+            return { samples: [], error: 'Not enough points in the swoop window.' };
+        }
+
+        const reversed = [...windowed].reverse();
+        const velSmooth = movingAverage(reversed.map(p => p.velD), avgPoints);
+        const samples = reversed.map((p, i) => {
+            const t = Date.parse(p.time);
+            const tRev = Number.isFinite(t) ? (tEnd - t) / 1000 : 0;
+            const prev = reversed[i - 1];
+            let pitchRateDegS = 0;
+            if (prev) {
+                const tPrev = Date.parse(prev.time);
+                const dt = (Number.isFinite(tPrev) && Number.isFinite(t)) ? Math.abs(tPrev - t) / 1000 : 0;
+                pitchRateDegS = pathAngleRateDegS(prev, p, dt);
+            }
+            return {
+                tRev,
+                velD: velSmooth[i],
+                velDRaw: p.velD,
+                velN: Number.isFinite(p.velN) ? p.velN : 0,
+                velE: Number.isFinite(p.velE) ? p.velE : 0,
+                time: p.time,
+                pitchRateDegS
+            };
+        });
+
+        return { samples };
+    }
+
+    /**
+     * Default flare-window cursors on a reverse-time series (index 0 = landing).
+     * B: pitch-rate hint near 85% of peak velD, then nudged toward the apex.
+     * A: walking from B toward landing, the nearest sample where velD drops below 1 m/s.
+     *
+     * @param {{ velD: number, pitchRateDegS?: number }[]} samples
+     * @returns {{ idxA: number, idxB: number, peakVelD: number }}
+     */
+    function defaultSwoopCursorIndices(samples) {
+        if (!samples || samples.length === 0) {
+            return { idxA: 0, idxB: 0, peakVelD: 0 };
+        }
+        const vel = samples.map(s => s.velD);
+        const last = samples.length - 1;
+
+        let peakVelD = -Infinity;
+        let peakIdx = 0;
+        for (let i = 0; i < vel.length; i++) {
+            if (vel[i] > peakVelD) {
+                peakVelD = vel[i];
+                peakIdx = i;
+            }
+        }
+        if (!Number.isFinite(peakVelD) || peakVelD < 0) peakVelD = 0;
+
+        const thresh = CURSOR_B_PEAK_FRACTION * peakVelD;
+        let idxBHint = -1;
+        for (let i = 1; i <= peakIdx && i < samples.length; i++) {
+            if (vel[i] < thresh) continue;
+            if ((samples[i].pitchRateDegS || 0) >= CURSOR_B_PITCH_RATE_DEG_S) {
+                idxBHint = i;
+                break;
+            }
+        }
+        if (idxBHint < 0) idxBHint = vel.findIndex((v, i) => i > 0 && i <= peakIdx && v >= thresh);
+        if (idxBHint < 0) idxBHint = peakIdx;
+
+        let idxB = idxBHint + Math.round((peakIdx - idxBHint) * CURSOR_B_TOWARD_PEAK);
+        if (idxB < idxBHint) idxB = idxBHint;
+        if (idxB > peakIdx) idxB = peakIdx;
+        if (idxB < 1) idxB = Math.min(1, last);
+
+        let idxA = 0;
+        for (let i = idxB - 1; i >= 0; i--) {
+            if (vel[i] < CURSOR_A_VELD_MS) {
+                idxA = i;
+                break;
+            }
+        }
+        if (idxA >= idxB) idxA = Math.max(0, idxB - 1);
+        return { idxA, idxB, peakVelD };
+    }
+
     /**
      * @param {number} sec
      * @returns {string}
@@ -368,6 +524,14 @@
         medianSampleIntervalSec,
         averagingWindowDurationSec,
         formatDurationSec,
+        pathAngleRad,
+        pathAngleRateDegS,
+        buildSwoopCursorSeries,
+        defaultSwoopCursorIndices,
+        SWOOP_WINDOW_SEC,
+        CURSOR_A_VELD_MS,
+        CURSOR_B_PEAK_FRACTION,
+        CURSOR_B_PITCH_RATE_DEG_S,
         DEFAULT_SAMPLE_INTERVAL_SEC,
         DEFAULT_MAX_HEIGHT_M,
         MIN_MAX_HEIGHT_M,

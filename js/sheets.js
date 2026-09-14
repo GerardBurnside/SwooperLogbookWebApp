@@ -1228,6 +1228,7 @@ class SheetsAPI {
                 logbook.locations.sort((a, b) => (a.sortOrder ?? Infinity) - (b.sortOrder ?? Infinity));
             }
             logbook.canopies.forEach(c => {
+                if (!Number.isFinite(Number(c.previousJumps))) c.previousJumps = 0;
                 if (!Array.isArray(c.linesets)) c.linesets = [];
                 if (c.linesets.length === 0) {
                     c.linesets.push({ number: 1, hybrid: false, previousJumps: 0, jumpCount: 0, archived: false });
@@ -1479,6 +1480,7 @@ class SheetsAPI {
             }
 
             logbook.canopies.forEach(c => {
+                if (!Number.isFinite(Number(c.previousJumps))) c.previousJumps = 0;
                 if (!Array.isArray(c.linesets)) c.linesets = [];
                 if (c.linesets.length === 0) c.linesets.push({ number: 1, hybrid: false, previousJumps: 0, jumpCount: 0, archived: false });
             });

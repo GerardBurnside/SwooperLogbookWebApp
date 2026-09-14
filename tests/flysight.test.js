@@ -117,3 +117,45 @@ test('analyzeFlysightTrack: both mode returns vertical and total peaks', () => {
 test('trajectorySpeedMs is 3D velocity magnitude', () => {
     assert.equal(F.trajectorySpeedMs({ velN: 3, velE: 4, velD: 0 }), 5);
 });
+
+test('buildSwoopCursorSeries reverses last 25s so index 0 is landing', () => {
+    const csv = fs.readFileSync(path.join(__dirname, '..', '12-21-30.CSV'), 'utf8');
+    const { points, error } = F.parseFlysightCsv(csv);
+    assert.equal(error, undefined);
+    const { samples } = F.buildSwoopCursorSeries(points, 5, 500, 25);
+    assert.ok(samples.length > 50);
+    assert.ok(samples[0].tRev < samples[samples.length - 1].tRev);
+    assert.ok(samples[0].tRev < 0.2);
+    assert.ok(samples[0].velD < 1);
+});
+
+test('defaultSwoopCursorIndices: A is first drop below 1 m/s from B; B is near the peak', () => {
+    const csv = fs.readFileSync(path.join(__dirname, '..', '12-21-30.CSV'), 'utf8');
+    const { points } = F.parseFlysightCsv(csv);
+    const { samples } = F.buildSwoopCursorSeries(points, 5, 500, 25);
+    const { idxA, idxB, peakVelD } = F.defaultSwoopCursorIndices(samples);
+    assert.ok(idxA < idxB);
+    assert.ok(samples[idxA].velD < 1);
+    if (idxA + 1 < idxB) assert.ok(samples[idxA + 1].velD >= 1);
+    assert.ok(samples[idxB].velD >= 0.85 * peakVelD);
+    let peakIdx = 0;
+    for (let i = 1; i < samples.length; i++) {
+        if (samples[i].velD > samples[peakIdx].velD) peakIdx = i;
+    }
+    assert.ok(idxB <= peakIdx);
+    assert.ok(peakIdx - idxB < peakIdx * 0.25 || peakIdx - idxB <= 12);
+    const dt = samples[idxB].tRev - samples[idxA].tRev;
+    assert.ok(dt > 2 && dt < 20);
+});
+
+test('defaultSwoopCursorIndices places A from B where speed drops below 1', () => {
+    const samples = [
+        { velD: 0.2, pitchRateDegS: 0 },
+        { velD: 1.2, pitchRateDegS: 2 },
+        { velD: 8, pitchRateDegS: 20 }
+    ];
+    const { idxA, idxB } = F.defaultSwoopCursorIndices(samples);
+    assert.equal(idxB, 2);
+    assert.equal(idxA, 0);
+    assert.ok(idxA < idxB);
+});

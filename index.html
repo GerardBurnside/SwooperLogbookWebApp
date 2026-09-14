@@ -271,6 +271,12 @@
                             <input type="number" id="harnessPreviousJumps" value="0" placeholder="e.g. jumps on this harness before logging here" title="Negative values subtract from the total (logged jumps + this field). Use to correct harness totals after mix-ups or import.">
                         </div>
                     </div>
+                    <div id="canopyPreAppSection" style="display:none; border-top: 1px solid #eee; padding-top: 1rem; margin-top: 0.5rem;">
+                        <div class="form-group">
+                            <label for="canopyPreviousJumps">Previous jumps on this canopy (before this app)</label>
+                            <input type="number" id="canopyPreviousJumps" value="0" placeholder="e.g. jumps on this canopy before logging here" title="Negative values subtract from the total (logged jumps + this field). Use to correct canopy totals after mix-ups or import.">
+                        </div>
+                    </div>
                     <div id="canopyHarnessSection" style="display:none; border-top: 1px solid #eee; padding-top: 1rem; margin-top: 0.5rem;">
                         <div class="form-group">
                             <label for="canopyHarnessSelect">Harness <span style="color:#888;font-weight:normal;">(optional — jump log stores harness per jump from this assignment)</span></label>
@@ -302,7 +308,7 @@
                             </label>
                         </div>
                         <div class="form-group">
-                            <label for="newCanopyPreviousJumps">Previous Jumps (before this app)</label>
+                            <label for="newCanopyPreviousJumps">Previous jumps on this lineset (before this app)</label>
                             <input type="number" id="newCanopyPreviousJumps" min="0" value="0" placeholder="e.g. 500 jumps on this lineset before logging">
                         </div>
                         <div id="newCanopyStatThresholdSection">
@@ -587,6 +593,33 @@
                     <div id="harnessCanopyPieRoot" class="year-stats-pie-root"></div>
                 </div>
                 <p id="harnessCanopyPiePreAppNote" class="harness-canopy-pie-pre-note" hidden></p>
+            </div>
+        </div>
+
+        <!-- Flysight vertical-speed graph -->
+        <div id="flysightGraphModal" class="modal">
+            <div class="modal-content flysight-graph-modal-content">
+                <span id="flysightGraphModalClose" class="close" title="Close">&times;</span>
+                <h2 id="flysightGraphTitle">Vertical speed</h2>
+                <p id="flysightGraphCaption" class="flysight-graph-caption"></p>
+                <div class="flysight-graph-stats">
+                    <div>
+                        <span class="flysight-metric-label">Time between cursors</span>
+                        <span id="flysightGraphDt" class="flysight-metric-value">—</span>
+                    </div>
+                    <div>
+                        <span class="flysight-metric-label">Vertical speed A</span>
+                        <span id="flysightGraphVelA" class="flysight-metric-value">—</span>
+                    </div>
+                    <div>
+                        <span class="flysight-metric-label">Vertical speed B</span>
+                        <span id="flysightGraphVelB" class="flysight-metric-value">—</span>
+                    </div>
+                    <label class="flysight-graph-reverse">
+                        <input type="checkbox" id="flysightGraphReverseTime"> Reverse time
+                    </label>
+                </div>
+                <div id="flysightGraphRoot" class="flysight-graph-root"></div>
             </div>
         </div>
 

@@ -88,6 +88,8 @@ class SkydivingLogbook {
         this.showArchivedCanopyTotals = false;
         /** Statistics view: show archived harnesses in the Harness block only. */
         this.showArchivedHarnessStats = false;
+        /** Equipment view: canopy id → whether "show older linesets" is checked. */
+        this.showOlderLinesetsByCanopyId = Object.create(null);
         this.activeJumpNoteId = null;
         this.activeEditJumpId = null;
         /** Trimmed location when edit jump modal was opened (for bulk same-day option). */
@@ -102,6 +104,7 @@ class SkydivingLogbook {
         this._monthLocationPieGroups = new Map();
         this._dayLocationPieGroups = new Map();
         this.flysightFiles = [];
+        this._flysightGraph = null;
         const savedFlysightAvg = parseInt(localStorage.getItem('flysight-avg-points'), 10);
         this.flysightAvgPoints = Number.isFinite(savedFlysightAvg) ? Math.min(20, Math.max(1, savedFlysightAvg)) : 5;
         const savedFlysightMaxHeight = parseInt(localStorage.getItem('flysight-max-height'), 10);
@@ -166,6 +169,7 @@ class SkydivingLogbook {
 
         // Ensure every canopy has a linesets array with at least one lineset
         this.canopies.forEach(canopy => {
+            if (!Number.isFinite(Number(canopy.previousJumps))) canopy.previousJumps = 0;
             if (!Array.isArray(canopy.linesets)) canopy.linesets = [];
             if (canopy.linesets.length === 0) {
                 canopy.linesets.push({ number: 1, hybrid: false, previousJumps: 0, archived: false });
@@ -625,6 +629,10 @@ class SkydivingLogbook {
             const todoItemModal = document.getElementById('todoItemModal');
             if (e.target === todoItemModal) {
                 this.closeTodoItemModal();
+            }
+            const flysightGraphModal = document.getElementById('flysightGraphModal');
+            if (e.target === flysightGraphModal) {
+                this.closeFlysightGraphModal();
             }
         });
 
@@ -3688,37 +3696,31 @@ class SkydivingLogbook {
         const sorted = [...this.canopies].sort((a, b) => !!a.archived - !!b.archived);
 
         container.innerHTML = sorted.map(canopy => {
-            const allLinesets = (canopy.linesets || []).sort((a, b) => b.number - a.number);
-            const activeLinesets = allLinesets.filter(ls => !ls.archived);
-            const archivedLinesets = allLinesets.filter(ls => ls.archived);
-            const hasArchived = archivedLinesets.length > 0;
+            const { latest, older } = this._getLatestAndOlderLinesets(canopy);
+            const showOlder = !!this.showOlderLinesetsByCanopyId?.[canopy.id];
+            const olderId = 'older-linesets-' + String(canopy.id).replace(/[^a-zA-Z0-9_-]/g, '_');
 
             const renderLinesetRow = (ls) => {
                 const logged = ls.jumpCount || 0;
                 const preApp = ls.previousJumps ?? 0;
                 const total = logged + preApp;
                 const hybridBadge = ls.hybrid ? '<span class="hybrid-badge">Hybrid</span>' : '';
-                const archivedBadge = ls.archived ? '<span class="archived-badge">Archived</span>' : '';
                 return `
                     <div class="lineset-row ${ls.archived ? 'archived' : ''}">
                         <span class="lineset-info">
-                            Lineset #${ls.number} ${hybridBadge} ${archivedBadge}
+                            Lineset #${ls.number} ${hybridBadge}
                             <span class="lineset-jumps">${total} jumps${preApp !== 0 ? ` (${logged} logged + ${preApp} pre-app)` : ''}</span>
                         </span>
                         <span class="lineset-actions">
                             <button onclick="window.logbook.editLineset('${canopy.id}', ${ls.number})" class="btn-edit btn-sm">Edit</button>
-                            <button onclick="window.logbook.toggleArchiveLineset('${canopy.id}', ${ls.number})" class="btn-toggle btn-sm">
-                                ${ls.archived ? 'Unarchive' : 'Archive'}
-                            </button>
                             ${logged === 0 ? `<button type="button" onclick="window.logbook.deleteLineset('${canopy.id}', ${ls.number})" class="btn-delete btn-sm" title="Remove this lineset (no jumps logged in this app)">Delete</button>` : ''}
                         </span>
                     </div>
                 `;
             };
 
-            const activeLinesetsHtml = activeLinesets.map(renderLinesetRow).join('');
-            const archivedLinesetsHtml = archivedLinesets.map(renderLinesetRow).join('');
-            const archivedId = 'archived-linesets-' + canopy.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+            const latestHtml = latest ? renderLinesetRow(latest) : '<p class="no-items" style="margin:4px 0;">No linesets</p>';
+            const olderHtml = older.map(renderLinesetRow).join('');
 
             const draggable = !canopy.archived;
             return `
@@ -3731,14 +3733,14 @@ class SkydivingLogbook {
                         </div>
                         ${canopy.archived ? '<span class="archived-badge">Archived</span>' : ''}
                         <div class="linesets-container">
-                            ${activeLinesetsHtml || '<p class="no-items" style="margin:4px 0;">No active linesets</p>'}
-                            ${hasArchived ? `
-                                <label class="show-archived-linesets-label">
-                                    <input type="checkbox" onchange="window.logbook.toggleArchivedLinesets('${archivedId}', this.checked)">
-                                    Show archived linesets (${archivedLinesets.length})
+                            ${latestHtml}
+                            ${older.length ? `
+                                <label class="show-older-linesets-label">
+                                    <input type="checkbox" ${showOlder ? 'checked' : ''} onchange="window.logbook.toggleOlderLinesets('${canopy.id}', this.checked)">
+                                    Show older linesets (${older.length})
                                 </label>
-                                <div id="${archivedId}" class="archived-linesets-group" style="display:none;">
-                                    ${archivedLinesetsHtml}
+                                <div id="${olderId}" class="older-linesets-group" style="display:${showOlder ? 'block' : 'none'};">
+                                    ${olderHtml}
                                 </div>
                             ` : ''}
                         </div>
@@ -3758,7 +3760,26 @@ class SkydivingLogbook {
         this._initCanopyDragAndDrop(container);
     }
 
-    toggleArchivedLinesets(id, show) {
+    /**
+     * Latest/active lineset shown by default on a canopy card; remaining linesets are "older".
+     * Latest is the highest-numbered non-archived lineset (same as jump logging).
+     * If every lineset is archived, fall back to the highest-numbered lineset so the card is not empty.
+     */
+    _getLatestAndOlderLinesets(canopy) {
+        const all = [...(canopy?.linesets || [])].sort((a, b) => b.number - a.number);
+        if (all.length === 0) return { latest: null, older: [] };
+        const active = all.filter(ls => !ls.archived);
+        const latest = active.length > 0
+            ? active.reduce((a, b) => (a.number >= b.number ? a : b))
+            : all[0];
+        const older = all.filter(ls => ls !== latest);
+        return { latest, older };
+    }
+
+    toggleOlderLinesets(canopyId, show) {
+        if (!this.showOlderLinesetsByCanopyId) this.showOlderLinesetsByCanopyId = Object.create(null);
+        this.showOlderLinesetsByCanopyId[canopyId] = !!show;
+        const id = 'older-linesets-' + String(canopyId).replace(/[^a-zA-Z0-9_-]/g, '_');
         const el = document.getElementById(id);
         if (el) el.style.display = show ? 'block' : 'none';
     }
@@ -4047,17 +4068,15 @@ class SkydivingLogbook {
         this.showMessage('Lineset saved successfully!', 'success');
     }
 
-    toggleArchiveLineset(canopyId, linesetNumber) {
-        const canopy = this.canopies.find(c => c.id === canopyId);
-        if (!canopy) return;
-        const lineset = canopy.linesets?.find(ls => ls.number === linesetNumber);
-        if (!lineset) return;
-        
-        lineset.archived = !lineset.archived;
-        this.saveComponentsToLocalStorage();
-        this.updateEquipmentOptions();
-        this.renderEquipmentView();
-        this.showMessage(`Lineset #${linesetNumber} ${lineset.archived ? 'archived' : 'unarchived'} successfully!`, 'success');
+    /**
+     * If no non-archived lineset remains, mark the highest-numbered one as active
+     * so jump logging still has a current lineset.
+     */
+    _activateHighestLinesetIfNoneActive(canopy) {
+        if (!canopy || !Array.isArray(canopy.linesets) || canopy.linesets.length === 0) return;
+        if (canopy.linesets.some(ls => !ls.archived)) return;
+        const highest = canopy.linesets.reduce((a, b) => (a.number >= b.number ? a : b));
+        highest.archived = false;
     }
 
     /**
@@ -4074,7 +4093,7 @@ class SkydivingLogbook {
             j.equipment === canopyId && j.linesetNumber === linesetNumber
         ).length;
         if (logged > 0) {
-            this.showMessage('Cannot delete a lineset that has jumps logged in this app. Archive it instead, or delete those jumps first.', 'error');
+            this.showMessage('Cannot delete a lineset that has jumps logged in this app. Keep it for history, or delete those jumps first.', 'error');
             return;
         }
 
@@ -4099,6 +4118,8 @@ class SkydivingLogbook {
                 jumpCount: 0,
                 archived: false
             });
+        } else {
+            this._activateHighestLinesetIfNoneActive(canopy);
         }
 
         this.saveComponentsToLocalStorage();
@@ -4172,9 +4193,11 @@ class SkydivingLogbook {
         document.getElementById('componentNotes').value = '';
         document.getElementById('componentModalTitle').textContent = `Add ${type.charAt(0).toUpperCase() + type.slice(1)}`;
         const harnessPre = document.getElementById('harnessPreAppSection');
+        const canopyPre = document.getElementById('canopyPreAppSection');
         const canopyHarness = document.getElementById('canopyHarnessSection');
         const canopyBackfill = document.getElementById('canopyHarnessBackfillWrap');
         if (harnessPre) harnessPre.style.display = type === 'harness' ? 'block' : 'none';
+        if (canopyPre) canopyPre.style.display = type === 'canopy' ? 'block' : 'none';
         if (canopyHarness) canopyHarness.style.display = type === 'canopy' ? 'block' : 'none';
         if (canopyBackfill) canopyBackfill.style.display = 'none';
         if (type === 'harness') {
@@ -4182,6 +4205,8 @@ class SkydivingLogbook {
             if (inp) inp.value = '0';
         }
         if (type === 'canopy') {
+            const inp = document.getElementById('canopyPreviousJumps');
+            if (inp) inp.value = '0';
             this._fillCanopyHarnessSelect('');
         }
         // Show/hide GPS coords section for locations
@@ -4267,6 +4292,9 @@ class SkydivingLogbook {
                     component.previousJumps = Number.isFinite(preParsed) ? preParsed : 0;
                 }
                 if (type === 'canopy') {
+                    const preRaw = String(document.getElementById('canopyPreviousJumps')?.value ?? '').trim();
+                    const preParsed = Number(preRaw);
+                    component.previousJumps = Number.isFinite(preParsed) ? preParsed : 0;
                     const prevH = this._normalizeHarnessId(component.harnessId);
                     const newH = this._normalizeHarnessId(document.getElementById('canopyHarnessSelect')?.value);
                     if (newH) component.harnessId = newH;
@@ -4309,6 +4337,11 @@ class SkydivingLogbook {
             const newComponent = { id: newId, name: name, notes: notes };
             if (type === 'harness') {
                 const preRaw = String(document.getElementById('harnessPreviousJumps')?.value ?? '').trim();
+                const preParsed = Number(preRaw);
+                newComponent.previousJumps = Number.isFinite(preParsed) ? preParsed : 0;
+            }
+            if (type === 'canopy') {
+                const preRaw = String(document.getElementById('canopyPreviousJumps')?.value ?? '').trim();
                 const preParsed = Number(preRaw);
                 newComponent.previousJumps = Number.isFinite(preParsed) ? preParsed : 0;
             }
@@ -4947,11 +4980,13 @@ class SkydivingLogbook {
                 }
             }
             const harnessPre = document.getElementById('harnessPreAppSection');
+            const canopyPre = document.getElementById('canopyPreAppSection');
             const canopyHarness = document.getElementById('canopyHarnessSection');
             const canopyBackfill = document.getElementById('canopyHarnessBackfillWrap');
             const isHarness = singular === 'harness';
             const isCanopy = singular === 'canopy';
             if (harnessPre) harnessPre.style.display = isHarness ? 'block' : 'none';
+            if (canopyPre) canopyPre.style.display = isCanopy ? 'block' : 'none';
             if (canopyHarness) canopyHarness.style.display = isCanopy ? 'block' : 'none';
             if (canopyBackfill) {
                 canopyBackfill.style.display = (isCanopy && !this._normalizeHarnessId(component.harnessId)) ? 'block' : 'none';
@@ -4963,6 +4998,8 @@ class SkydivingLogbook {
                 if (inp) inp.value = String(component.previousJumps ?? 0);
             }
             if (isCanopy) {
+                const inp = document.getElementById('canopyPreviousJumps');
+                if (inp) inp.value = String(component.previousJumps ?? 0);
                 this._fillCanopyHarnessSelect(component.harnessId);
             }
             // Hide initial lineset section when editing (only shown for new canopies)
@@ -5147,6 +5184,35 @@ class SkydivingLogbook {
         speedVerticalBtn.addEventListener('click', () => this._setFlysightSpeedMetric('vertical'));
         speedTotalBtn.addEventListener('click', () => this._setFlysightSpeedMetric('total'));
         speedBothBtn.addEventListener('click', () => this._setFlysightSpeedMetric('both'));
+
+        const results = document.getElementById('flysightResults');
+        results?.addEventListener('click', (e) => {
+            const el = e.target instanceof Element ? e.target : e.target?.parentElement;
+            const graphBtn = el?.closest?.('.flysight-result-graph');
+            if (graphBtn) {
+                e.preventDefault();
+                this.openFlysightGraphModal(graphBtn.dataset.flysightId);
+            }
+        });
+
+        document.getElementById('flysightGraphModalClose')?.addEventListener('click', () => {
+            this.closeFlysightGraphModal();
+        });
+
+        document.getElementById('flysightGraphReverseTime')?.addEventListener('change', (e) => {
+            if (!this._flysightGraph) return;
+            this._flysightGraph.reverseTime = !!e.target.checked;
+            this._updateFlysightGraphCaption();
+            this._drawFlysightGraph();
+        });
+
+        const graphRoot = document.getElementById('flysightGraphRoot');
+        if (graphRoot) {
+            graphRoot.addEventListener('pointerdown', (e) => this._onFlysightGraphPointerDown(e));
+            graphRoot.addEventListener('pointermove', (e) => this._onFlysightGraphPointerMove(e));
+            graphRoot.addEventListener('pointerup', (e) => this._onFlysightGraphPointerUp(e));
+            graphRoot.addEventListener('pointercancel', (e) => this._onFlysightGraphPointerUp(e));
+        }
     }
 
     async _addFlysightFiles(fileList) {
@@ -5262,15 +5328,270 @@ class SkydivingLogbook {
                         </div>
                     </div>
                     <p class="flysight-result-meta">${metaHtml}</p>
-                    <button type="button" class="flysight-result-remove" onclick="logbook.removeFlysightFile('${file.id}')">Remove</button>
+                    <div class="flysight-result-actions">
+                        <button type="button" class="flysight-result-graph" data-flysight-id="${file.id}">Graph</button>
+                        <button type="button" class="flysight-result-remove" onclick="logbook.removeFlysightFile('${file.id}')">Remove</button>
+                    </div>
                 </div>`;
         }).join('');
+    }
+
+    openFlysightGraphModal(fileId) {
+        const file = this.flysightFiles.find(f => f.id === fileId);
+        const modal = document.getElementById('flysightGraphModal');
+        if (!file || !modal) return;
+        if (typeof Flysight === 'undefined') {
+            this.showMessage('Flysight module failed to load.', 'error');
+            return;
+        }
+
+        const parsed = Flysight.parseFlysightCsv(file.text);
+        if (parsed.error) {
+            this.showMessage(parsed.error, 'error');
+            return;
+        }
+        const series = Flysight.buildSwoopCursorSeries(
+            parsed.points,
+            this.flysightAvgPoints,
+            this.flysightMaxHeightM
+        );
+        if (series.error || !series.samples.length) {
+            this.showMessage(series.error || 'Could not build speed graph.', 'error');
+            return;
+        }
+        const cursors = Flysight.defaultSwoopCursorIndices(series.samples);
+        this._flysightGraph = {
+            fileId,
+            samples: series.samples,
+            idxA: cursors.idxA,
+            idxB: cursors.idxB,
+            drag: null,
+            reverseTime: false
+        };
+        const reverseChk = document.getElementById('flysightGraphReverseTime');
+        if (reverseChk) reverseChk.checked = false;
+        const title = document.getElementById('flysightGraphTitle');
+        const caption = document.getElementById('flysightGraphCaption');
+        if (title) title.textContent = file.name;
+        this._updateFlysightGraphCaption();
+        this._drawFlysightGraph();
+        modal.style.display = 'block';
+    }
+
+    closeFlysightGraphModal() {
+        const modal = document.getElementById('flysightGraphModal');
+        if (modal) modal.style.display = 'none';
+        if (this._flysightGraph) this._flysightGraph.drag = null;
+    }
+
+    _updateFlysightGraphCaption() {
+        const caption = document.getElementById('flysightGraphCaption');
+        if (!caption) return;
+        const reverse = !!this._flysightGraph?.reverseTime;
+        caption.textContent = reverse
+            ? 'Reverse time: landing is 0 s on the left. Drag A and B on the time axis.'
+            : 'Time runs forward: earlier in the jump on the left, landing on the right. Drag A and B on the time axis.';
+    }
+
+    _flysightGraphLayout() {
+        return { width: 720, height: 340, l: 52, r: 16, t: 18, b: 48 };
+    }
+
+    _flysightGraphScales(samples, layout) {
+        const tMax = Math.max(0.001, samples[samples.length - 1]?.tRev || 25);
+        const yMin = Math.min(0, ...samples.map(s => s.velD));
+        const yMax = Math.max(1, ...samples.map(s => s.velD)) * 1.08;
+        const innerW = layout.width - layout.l - layout.r;
+        const innerH = layout.height - layout.t - layout.b;
+        const reverseTime = !!this._flysightGraph?.reverseTime;
+        const tPlotOf = (tRev) => (reverseTime ? tRev : tMax - tRev);
+        return {
+            tMax,
+            yMin,
+            yMax,
+            reverseTime,
+            tPlotOf,
+            xOf: (tRev) => layout.l + (tPlotOf(tRev) / tMax) * innerW,
+            yOf: (v) => layout.t + (1 - (v - yMin) / (yMax - yMin)) * innerH
+        };
+    }
+
+    _updateFlysightGraphStats() {
+        const g = this._flysightGraph;
+        if (!g) return;
+        const a = g.samples[g.idxA];
+        const b = g.samples[g.idxB];
+        if (!a || !b) return;
+        const dt = Math.abs(b.tRev - a.tRev);
+        const dtEl = document.getElementById('flysightGraphDt');
+        const vaEl = document.getElementById('flysightGraphVelA');
+        const vbEl = document.getElementById('flysightGraphVelB');
+        if (dtEl) dtEl.textContent = Flysight.formatDurationSec(dt) || `${dt.toFixed(1)}s`;
+        if (vaEl) vaEl.textContent = `${a.velD.toFixed(1)} m/s`;
+        if (vbEl) vbEl.textContent = `${b.velD.toFixed(1)} m/s`;
+    }
+
+    _drawFlysightGraph() {
+        const root = document.getElementById('flysightGraphRoot');
+        const g = this._flysightGraph;
+        if (!root || !g) return;
+        const samples = g.samples;
+        const layout = this._flysightGraphLayout();
+        const sc = this._flysightGraphScales(samples, layout);
+        const a = samples[g.idxA];
+        const b = samples[g.idxB];
+        const poly = samples.map(s => `${sc.xOf(s.tRev).toFixed(1)},${sc.yOf(s.velD).toFixed(1)}`).join(' ');
+        const yTicks = [0, 10, 20, 30, 40].filter(v => v >= sc.yMin && v <= sc.yMax);
+        const xTicks = [0, 5, 10, 15, 20, 25].filter(t => t <= sc.tMax + 0.05);
+        const yBase = layout.height - layout.b;
+
+        const cursor = (which, sample, color) => {
+            const x = sc.xOf(sample.tRev);
+            const y = sc.yOf(sample.velD);
+            return `
+                <g class="flysight-graph-cursor" data-cursor="${which}" style="cursor:ew-resize;touch-action:none">
+                    <line x1="${x}" y1="${y}" x2="${x}" y2="${yBase}" stroke="${color}" stroke-width="1.5"/>
+                    <line x1="${layout.l}" y1="${y}" x2="${x}" y2="${y}" stroke="${color}" stroke-width="1" stroke-dasharray="4 3"/>
+                    <circle cx="${x}" cy="${y}" r="4" fill="${color}"/>
+                    <rect x="${x - 16}" y="${yBase - 6}" width="32" height="40" fill="transparent"/>
+                    <circle cx="${x}" cy="${yBase + 12}" r="10" fill="${color}"/>
+                    <text x="${x}" y="${yBase + 16}" text-anchor="middle" fill="#fff" font-size="11" font-weight="600" pointer-events="none">${which.toUpperCase()}</text>
+                    <text x="${layout.l - 6}" y="${y + 4}" text-anchor="end" fill="${color}" font-size="11">${sample.velD.toFixed(1)}</text>
+                </g>`;
+        };
+
+        const grid = yTicks.map(v => `
+            <line x1="${layout.l}" y1="${sc.yOf(v)}" x2="${layout.width - layout.r}" y2="${sc.yOf(v)}" stroke="#eee"/>
+            <text x="${layout.l - 8}" y="${sc.yOf(v) + 4}" text-anchor="end" fill="#888" font-size="11">${v}</text>
+        `).join('');
+        const xLabels = xTicks.map(t => `
+            <text x="${sc.xOf(t)}" y="${layout.height - 6}" text-anchor="middle" fill="#888" font-size="11">${t}s</text>
+        `).join('');
+
+        root.innerHTML = `
+            <svg viewBox="0 0 ${layout.width} ${layout.height}" width="100%" height="${layout.height}"
+                 role="img" aria-label="Vertical speed versus seconds before landing">
+                ${grid}
+                ${xLabels}
+                <line x1="${layout.l}" y1="${layout.t}" x2="${layout.l}" y2="${yBase}" stroke="#ccc"/>
+                <line x1="${layout.l}" y1="${yBase}" x2="${layout.width - layout.r}" y2="${yBase}" stroke="#ccc"/>
+                <line x1="${layout.l}" y1="${sc.yOf(1)}" x2="${layout.width - layout.r}" y2="${sc.yOf(1)}" stroke="#ddd" stroke-dasharray="3 3"/>
+                <polyline fill="none" stroke="#1976D2" stroke-width="2" points="${poly}"/>
+                ${cursor('a', a, '#1976D2')}
+                ${cursor('b', b, '#555')}
+                <text x="${(layout.l + layout.width - layout.r) / 2}" y="${layout.height - 22}" text-anchor="middle" fill="#888" font-size="11">${sc.reverseTime ? 'Seconds before landing (reverse time)' : 'Seconds before landing'}</text>
+            </svg>`;
+        this._updateFlysightGraphStats();
+    }
+
+    _flysightGraphIndexFromClientX(clientX) {
+        const g = this._flysightGraph;
+        const svg = document.querySelector('#flysightGraphRoot svg');
+        if (!g || !svg) return 0;
+        const layout = this._flysightGraphLayout();
+        const sc = this._flysightGraphScales(g.samples, layout);
+        const rect = svg.getBoundingClientRect();
+        const x = ((clientX - rect.left) / rect.width) * layout.width;
+        const tPlot = ((x - layout.l) / (layout.width - layout.l - layout.r)) * sc.tMax;
+        const tRev = Math.max(0, Math.min(sc.tMax, sc.reverseTime ? tPlot : sc.tMax - tPlot));
+        let best = 0;
+        let bestD = Infinity;
+        for (let i = 0; i < g.samples.length; i++) {
+            const d = Math.abs(g.samples[i].tRev - tRev);
+            if (d < bestD) {
+                bestD = d;
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    _onFlysightGraphPointerDown(e) {
+        const g = this._flysightGraph;
+        const el = e.target instanceof Element ? e.target : e.target?.parentElement;
+        const cursorEl = el?.closest?.('[data-cursor]');
+        if (!g || !cursorEl) return;
+        e.preventDefault();
+        g.drag = cursorEl.getAttribute('data-cursor');
+        try { e.currentTarget.setPointerCapture(e.pointerId); } catch (_) { /* older WebView */ }
+    }
+
+    _onFlysightGraphPointerMove(e) {
+        const g = this._flysightGraph;
+        if (!g?.drag) return;
+        const idx = this._flysightGraphIndexFromClientX(e.clientX);
+        if (g.drag === 'a') g.idxA = Math.max(0, Math.min(idx, g.idxB - 1));
+        else g.idxB = Math.min(g.samples.length - 1, Math.max(idx, g.idxA + 1));
+        this._drawFlysightGraph();
+    }
+
+    _onFlysightGraphPointerUp() {
+        if (this._flysightGraph) this._flysightGraph.drag = null;
+    }
+
+    /** Canopy-level previous jumps plus all lineset previous jumps (not including logged jumps). */
+    _canopyPreAppTotal(canopy) {
+        const canopyPre = Number(canopy?.previousJumps);
+        const canopyPart = Number.isFinite(canopyPre) ? canopyPre : 0;
+        const linesetPart = (canopy?.linesets || []).reduce((sum, ls) => {
+            const n = Number(ls?.previousJumps);
+            return sum + (Number.isFinite(n) ? n : 0);
+        }, 0);
+        return canopyPart + linesetPart;
+    }
+
+    /** True when any canopy/lineset/harness has a non-zero previous-jumps value. */
+    _hasEquipmentPreviousJumps() {
+        if (this.canopies.some(c => this._canopyPreAppTotal(c) !== 0)) return true;
+        return this.harnesses.some(h => {
+            const n = Number(h?.previousJumps);
+            return Number.isFinite(n) && n !== 0;
+        });
+    }
+
+    /**
+     * Canopy totals for the statistics page (equipment order: active then archived).
+     * Includes canopies with only previous jumps and no logged jumps.
+     */
+    _buildCanopyTotalsStats() {
+        const canopiesForTotals = [...this.canopies].sort((a, b) => !!a.archived - !!b.archived);
+        return canopiesForTotals.map(canopy => {
+            const logged = this.jumps.filter(j => j.equipment === canopy.id).length;
+            const preApp = this._canopyPreAppTotal(canopy);
+            return {
+                name: canopy.name,
+                count: logged + preApp,
+                logged,
+                preApp,
+                archived: !!canopy.archived
+            };
+        }).filter(s => s.logged > 0 || s.preApp !== 0);
+    }
+
+    /** Harness rows for the statistics page (logged snapshots + harness.previousJumps). */
+    _buildHarnessStats() {
+        const harnessStats = [];
+        this.harnesses.forEach(h => {
+            if (!h?.id) return;
+            const hid = h.id;
+            const logged = this.jumps.filter(j => this._normalizeHarnessId(j.harnessId) === hid).length;
+            const preApp = h.previousJumps ?? 0;
+            harnessStats.push({
+                id: hid,
+                name: h.name,
+                count: logged + preApp,
+                logged,
+                preApp,
+                archived: !!h.archived
+            });
+        });
+        return harnessStats;
     }
 
     renderStats() {
         const container = document.getElementById('statsContent');
         
-        if (this.jumps.length === 0) {
+        if (this.jumps.length === 0 && !this._hasEquipmentPreviousJumps()) {
             container.innerHTML = '<p class="no-items">No jumps logged yet.</p>';
             this._updateJumpsYearSummary();
             return;
@@ -5349,12 +5670,7 @@ class SkydivingLogbook {
 
         // Add canopy aggregate statistics: same order as equipment (non-archived first, then archived;
         // within each group, order matches the canopies list / sortOrder — see renderCanopiesWithLinesets).
-        const canopiesForTotals = [...this.canopies].sort((a, b) => !!a.archived - !!b.archived);
-        const canopyTotalsArrayAll = canopiesForTotals.map(canopy => {
-            const logged = this.jumps.filter(j => j.equipment === canopy.id).length;
-            const preApp = (canopy.linesets || []).reduce((sum, ls) => sum + (ls.previousJumps ?? 0), 0);
-            return { name: canopy.name, count: logged + preApp, logged, archived: !!canopy.archived };
-        }).filter(s => s.count > 0 || s.logged > 0);
+        const canopyTotalsArrayAll = this._buildCanopyTotalsStats();
         const hasArchivedCanopyTotals = canopyTotalsArrayAll.some(s => s.archived);
         const canopyTotalsArray = this.showArchivedCanopyTotals
             ? canopyTotalsArrayAll
@@ -5370,22 +5686,7 @@ class SkydivingLogbook {
 
         // Harness stats (from jump.harnessId snapshots + harness.previousJumps).
         // Bar uses default fill only; width scales to the busiest harness (like Canopy Totals), not lineset orange/red thresholds.
-        const harnessStats = [];
-        this.harnesses.forEach(h => {
-            if (!h?.id) return;
-            const hid = h.id;
-            const logged = this.jumps.filter(j => this._normalizeHarnessId(j.harnessId) === hid).length;
-            const preApp = h.previousJumps ?? 0;
-            const total = logged + preApp;
-            harnessStats.push({
-                id: hid,
-                name: h.name,
-                count: total,
-                logged,
-                preApp,
-                archived: !!h.archived
-            });
-        });
+        const harnessStats = this._buildHarnessStats();
         const activeHarnessStats = harnessStats.filter(s => !s.archived && (s.logged > 0 || s.preApp !== 0));
         const archivedHarnessStats = harnessStats.filter(s => s.archived);
         const sortedHarnessStats = this.showArchivedHarnessStats
@@ -5510,11 +5811,16 @@ class SkydivingLogbook {
             const maxCount = Math.max(...statsArray.map(s => s.count), 1);
             statsArray.forEach(stat => {
                 const percentage = stat.count > 0 ? Math.min((stat.count / maxCount) * 100, 100) : 0;
+                const preApp = stat.preApp ?? 0;
+                const hasBreakdown = preApp !== 0;
+                const breakdown = hasBreakdown
+                    ? `${stat.count} total (${stat.logged} logged + ${preApp} pre-app)`
+                    : `${stat.count} jumps`;
                 html += `
                     <div class="stat-item${stat.archived ? ' archived' : ''}">
-                        <div class="stat-info">
+                        <div class="stat-info${hasBreakdown ? ' stat-info-stacked' : ''}">
                             <span class="stat-name">${stat.name}${stat.archived ? ' (Archived)' : ''}</span>
-                            <span class="stat-count">${stat.count} jumps</span>
+                            <span class="stat-count">${breakdown}</span>
                         </div>
                         <div class="stat-bar">
                             <div class="stat-fill" style="width: ${percentage}%"></div>
@@ -5751,6 +6057,7 @@ class SkydivingLogbook {
         }
 
         this.canopies.forEach(canopy => {
+            if (!Number.isFinite(Number(canopy.previousJumps))) canopy.previousJumps = 0;
             if (!Array.isArray(canopy.linesets)) canopy.linesets = [];
             if (canopy.linesets.length === 0) {
                 canopy.linesets.push({ number: 1, hybrid: false, previousJumps: 0, jumpCount: 0, archived: false });
@@ -5798,6 +6105,7 @@ class SkydivingLogbook {
         }
 
         this.canopies.forEach(canopy => {
+            if (!Number.isFinite(Number(canopy.previousJumps))) canopy.previousJumps = 0;
             if (!Array.isArray(canopy.linesets)) canopy.linesets = [];
             if (canopy.linesets.length === 0) {
                 canopy.linesets.push({ number: 1, hybrid: false, previousJumps: 0, jumpCount: 0, archived: false });

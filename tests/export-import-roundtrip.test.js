@@ -107,6 +107,8 @@ function createHeadlessLogbook() {
     logbook.updateStats = () => {};
     logbook.renderEquipmentView = () => {};
     logbook.renderStats = () => {};
+    logbook.applyNavVisibility = () => {};
+    logbook.showView = () => {};
 
     return { logbook, localStorage, SkydivingLogbook };
 }
@@ -118,6 +120,7 @@ test('export/import round trip restores jump and canopy data', async () => {
         id: 'c_test_1',
         name: 'Canopy Test',
         harnessId: 'h_test_1',
+        previousJumps: 17,
         linesets: [{ number: 1, hybrid: false, previousJumps: 0, jumpCount: 1, archived: false }]
     };
     const jump = {
@@ -189,6 +192,7 @@ test('export/import round trip restores jump and canopy data', async () => {
     assert.equal(logbook.canopies[0].harnessId, 'h_test_1');
     assert.equal(logbook.jumps[0].harnessId, 'h_test_1');
     assert.equal(logbook.harnesses[0].previousJumps, 42);
+    assert.equal(logbook.canopies[0].previousJumps, 17);
 
     // Import flow should reset input value and report success.
     assert.equal(event.target.value, '');
