@@ -142,11 +142,11 @@
     const STATIONARY_SEC = 2;
     const STATIONARY_RADIUS_M = 2;
     const STATIONARY_SPEED_MS = 1;
-    const CURSOR_A_VELD_MS = 1;
-    const CURSOR_B_PEAK_FRACTION = 0.85;
-    const CURSOR_B_PITCH_RATE_DEG_S = 15;
+    const CURSOR_B_VELD_MS = 1;
+    const CURSOR_A_PEAK_FRACTION = 0.85;
+    const CURSOR_A_PITCH_RATE_DEG_S = 15;
     /** After the pitch-rate hint, move this fraction of the remaining gap toward the velD peak. */
-    const CURSOR_B_TOWARD_PEAK = 0.55;
+    const CURSOR_A_TOWARD_PEAK = 0.55;
 
     /**
      * Great-circle distance in metres.
@@ -330,8 +330,8 @@
 
     /**
      * Default flare-window cursors on a reverse-time series (index 0 = landing).
-     * B: pitch-rate hint near 85% of peak velD, then nudged toward the apex.
-     * A: walking from B toward landing, the nearest sample where velD drops below 1 m/s.
+     * A: pitch-rate hint near 85% of peak velD, then nudged toward the apex.
+     * B: walking from A toward landing, the nearest sample where velD drops below 1 m/s.
      *
      * @param {{ velD: number, pitchRateDegS?: number }[]} samples
      * @returns {{ idxA: number, idxB: number, peakVelD: number }}
@@ -353,31 +353,31 @@
         }
         if (!Number.isFinite(peakVelD) || peakVelD < 0) peakVelD = 0;
 
-        const thresh = CURSOR_B_PEAK_FRACTION * peakVelD;
-        let idxBHint = -1;
+        const thresh = CURSOR_A_PEAK_FRACTION * peakVelD;
+        let idxAHint = -1;
         for (let i = 1; i <= peakIdx && i < samples.length; i++) {
             if (vel[i] < thresh) continue;
-            if ((samples[i].pitchRateDegS || 0) >= CURSOR_B_PITCH_RATE_DEG_S) {
-                idxBHint = i;
+            if ((samples[i].pitchRateDegS || 0) >= CURSOR_A_PITCH_RATE_DEG_S) {
+                idxAHint = i;
                 break;
             }
         }
-        if (idxBHint < 0) idxBHint = vel.findIndex((v, i) => i > 0 && i <= peakIdx && v >= thresh);
-        if (idxBHint < 0) idxBHint = peakIdx;
+        if (idxAHint < 0) idxAHint = vel.findIndex((v, i) => i > 0 && i <= peakIdx && v >= thresh);
+        if (idxAHint < 0) idxAHint = peakIdx;
 
-        let idxB = idxBHint + Math.round((peakIdx - idxBHint) * CURSOR_B_TOWARD_PEAK);
-        if (idxB < idxBHint) idxB = idxBHint;
-        if (idxB > peakIdx) idxB = peakIdx;
-        if (idxB < 1) idxB = Math.min(1, last);
+        let idxA = idxAHint + Math.round((peakIdx - idxAHint) * CURSOR_A_TOWARD_PEAK);
+        if (idxA < idxAHint) idxA = idxAHint;
+        if (idxA > peakIdx) idxA = peakIdx;
+        if (idxA < 1) idxA = Math.min(1, last);
 
-        let idxA = 0;
-        for (let i = idxB - 1; i >= 0; i--) {
-            if (vel[i] < CURSOR_A_VELD_MS) {
-                idxA = i;
+        let idxB = 0;
+        for (let i = idxA - 1; i >= 0; i--) {
+            if (vel[i] < CURSOR_B_VELD_MS) {
+                idxB = i;
                 break;
             }
         }
-        if (idxA >= idxB) idxA = Math.max(0, idxB - 1);
+        if (idxB >= idxA) idxB = Math.max(0, idxA - 1);
         return { idxA, idxB, peakVelD };
     }
 
@@ -631,9 +631,9 @@
         SWOOP_WINDOW_SEC,
         STATIONARY_SEC,
         STATIONARY_RADIUS_M,
-        CURSOR_A_VELD_MS,
-        CURSOR_B_PEAK_FRACTION,
-        CURSOR_B_PITCH_RATE_DEG_S,
+        CURSOR_B_VELD_MS,
+        CURSOR_A_PEAK_FRACTION,
+        CURSOR_A_PITCH_RATE_DEG_S,
         DEFAULT_SAMPLE_INTERVAL_SEC,
         DEFAULT_MAX_HEIGHT_M,
         MIN_MAX_HEIGHT_M,

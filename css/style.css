@@ -2699,21 +2699,6 @@ footer.legal-footer a {
     margin-bottom: 0.75rem;
 }
 
-.flysight-graph-reverse {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.9rem;
-    color: #555;
-    cursor: pointer;
-    user-select: none;
-    margin-left: auto;
-}
-
-.flysight-graph-reverse input {
-    width: auto;
-}
-
 .flysight-graph-root {
     width: 100%;
     overflow-x: auto;

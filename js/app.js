@@ -5199,13 +5199,6 @@ class SkydivingLogbook {
             this.closeFlysightGraphModal();
         });
 
-        document.getElementById('flysightGraphReverseTime')?.addEventListener('change', (e) => {
-            if (!this._flysightGraph) return;
-            this._flysightGraph.reverseTime = !!e.target.checked;
-            this._updateFlysightGraphCaption();
-            this._drawFlysightGraph();
-        });
-
         const graphRoot = document.getElementById('flysightGraphRoot');
         if (graphRoot) {
             graphRoot.addEventListener('pointerdown', (e) => this._onFlysightGraphPointerDown(e));
@@ -5365,13 +5358,9 @@ class SkydivingLogbook {
             samples: series.samples,
             idxA: cursors.idxA,
             idxB: cursors.idxB,
-            drag: null,
-            reverseTime: false
+            drag: null
         };
-        const reverseChk = document.getElementById('flysightGraphReverseTime');
-        if (reverseChk) reverseChk.checked = false;
         const title = document.getElementById('flysightGraphTitle');
-        const caption = document.getElementById('flysightGraphCaption');
         if (title) title.textContent = file.name;
         this._updateFlysightGraphCaption();
         this._drawFlysightGraph();
@@ -5387,10 +5376,7 @@ class SkydivingLogbook {
     _updateFlysightGraphCaption() {
         const caption = document.getElementById('flysightGraphCaption');
         if (!caption) return;
-        const reverse = !!this._flysightGraph?.reverseTime;
-        caption.textContent = reverse
-            ? 'Reverse time: landing is 0 s on the left. Drag A and B on the time axis.'
-            : 'Time runs forward: earlier in the jump on the left, landing on the right. Drag A and B on the time axis.';
+        caption.textContent = 'Time runs forward: earlier in the jump on the left, landing on the right. Drag A and B on the time axis.';
     }
 
     _flysightGraphLayout() {
@@ -5417,13 +5403,11 @@ class SkydivingLogbook {
         const yMax = Math.max(10, ...speeds) * 1.08;
         const innerW = layout.width - layout.l - layout.r;
         const innerH = layout.height - layout.t - layout.b;
-        const reverseTime = !!this._flysightGraph?.reverseTime;
-        const tPlotOf = (tRev) => (reverseTime ? tRev : tMax - tRev);
+        const tPlotOf = (tRev) => tMax - tRev;
         return {
             tMax,
             yMin,
             yMax,
-            reverseTime,
             tPlotOf,
             xOf: (tRev) => layout.l + (tPlotOf(tRev) / tMax) * innerW,
             yOf: (vKmh) => layout.t + (1 - (vKmh - yMin) / (yMax - yMin)) * innerH
@@ -5439,10 +5423,8 @@ class SkydivingLogbook {
         const dt = Math.abs(b.tRev - a.tRev);
         const dtEl = document.getElementById('flysightGraphDt');
         const vaEl = document.getElementById('flysightGraphVelA');
-        const vbEl = document.getElementById('flysightGraphVelB');
         if (dtEl) dtEl.textContent = Flysight.formatDurationSec(dt) || `${dt.toFixed(1)}s`;
         if (vaEl) vaEl.textContent = `${this._flysightVelKmh(a.velD).toFixed(1)} km/h`;
-        if (vbEl) vbEl.textContent = `${this._flysightVelKmh(b.velD).toFixed(1)} km/h`;
     }
 
     _drawFlysightGraph() {
@@ -5459,7 +5441,7 @@ class SkydivingLogbook {
         const yTicks = this._flysightKmhTicks(sc.yMin, sc.yMax);
         const xTicks = [0, 5, 10, 15, 20, 25].filter(t => t <= sc.tMax + 0.05);
         const yBase = layout.height - layout.b;
-        const nearZeroKmh = this._flysightVelKmh(Flysight.CURSOR_A_VELD_MS);
+        const nearZeroKmh = this._flysightVelKmh(Flysight.CURSOR_B_VELD_MS);
 
         const cursor = (which, sample, color) => {
             const x = sc.xOf(sample.tRev);
@@ -5496,7 +5478,7 @@ class SkydivingLogbook {
                 ${cursor('a', a, '#1976D2')}
                 ${cursor('b', b, '#555')}
                 <text x="${layout.l - 8}" y="${layout.t - 6}" text-anchor="end" fill="#888" font-size="11">km/h</text>
-                <text x="${(layout.l + layout.width - layout.r) / 2}" y="${layout.height - 22}" text-anchor="middle" fill="#888" font-size="11">${sc.reverseTime ? 'Seconds before landing (reverse time)' : 'Seconds before landing'}</text>
+                <text x="${(layout.l + layout.width - layout.r) / 2}" y="${layout.height - 22}" text-anchor="middle" fill="#888" font-size="11">Seconds before landing</text>
             </svg>`;
         this._updateFlysightGraphStats();
     }
@@ -5510,7 +5492,7 @@ class SkydivingLogbook {
         const rect = svg.getBoundingClientRect();
         const x = ((clientX - rect.left) / rect.width) * layout.width;
         const tPlot = ((x - layout.l) / (layout.width - layout.l - layout.r)) * sc.tMax;
-        const tRev = Math.max(0, Math.min(sc.tMax, sc.reverseTime ? tPlot : sc.tMax - tPlot));
+        const tRev = Math.max(0, Math.min(sc.tMax, sc.tMax - tPlot));
         let best = 0;
         let bestD = Infinity;
         for (let i = 0; i < g.samples.length; i++) {
@@ -5537,8 +5519,8 @@ class SkydivingLogbook {
         const g = this._flysightGraph;
         if (!g?.drag) return;
         const idx = this._flysightGraphIndexFromClientX(e.clientX);
-        if (g.drag === 'a') g.idxA = Math.max(0, Math.min(idx, g.idxB - 1));
-        else g.idxB = Math.min(g.samples.length - 1, Math.max(idx, g.idxA + 1));
+        if (g.drag === 'a') g.idxA = Math.min(g.samples.length - 1, Math.max(idx, g.idxB + 1));
+        else g.idxB = Math.max(0, Math.min(idx, g.idxA - 1));
         this._drawFlysightGraph();
     }
 
