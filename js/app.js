@@ -119,7 +119,10 @@ class SkydivingLogbook {
             : 'vertical';
         this.flysightCursorBDiveAngleDeg = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_DIVE_ANGLE_DEG))
             ? Flysight.CURSOR_B_DIVE_ANGLE_DEG
-            : 6;
+            : 5;
+        this.flysightCursorBAltTicks = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_ALT_TICKS))
+            ? Flysight.CURSOR_B_ALT_TICKS
+            : 2;
         
         this.init();
     }
@@ -5147,24 +5150,46 @@ class SkydivingLogbook {
     _parseFlysightCursorBDiveAngle(value) {
         const fallback = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_DIVE_ANGLE_DEG))
             ? Flysight.CURSOR_B_DIVE_ANGLE_DEG
-            : 6;
+            : 5;
         const n = parseFloat(value);
         if (!Number.isFinite(n)) return fallback;
         return Math.min(90, Math.max(0, n));
     }
 
-    _bindFlysightCursorBDiveAngleInput() {
-        const input = document.getElementById('flysightCursorBDiveAngle');
-        if (!input || input.dataset.bound === '1') return;
-        input.dataset.bound = '1';
-        input.value = String(this.flysightCursorBDiveAngleDeg);
-        const apply = () => {
-            this.flysightCursorBDiveAngleDeg = this._parseFlysightCursorBDiveAngle(input.value);
-            if (this.flysightFiles.length) this.renderFlysightView();
-            this._reapplyFlysightGraphDefaultCursors();
-        };
-        input.addEventListener('input', apply);
-        input.addEventListener('change', apply);
+    _parseFlysightCursorBAltTicks(value) {
+        const fallback = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_ALT_TICKS))
+            ? Flysight.CURSOR_B_ALT_TICKS
+            : 2;
+        const n = parseInt(value, 10);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.min(100, Math.max(1, n));
+    }
+
+    _bindFlysightCursorBDebugInputs() {
+        const angleInput = document.getElementById('flysightCursorBDiveAngle');
+        if (angleInput && angleInput.dataset.bound !== '1') {
+            angleInput.dataset.bound = '1';
+            angleInput.value = String(this.flysightCursorBDiveAngleDeg);
+            const applyAngle = () => {
+                this.flysightCursorBDiveAngleDeg = this._parseFlysightCursorBDiveAngle(angleInput.value);
+                if (this.flysightFiles.length) this.renderFlysightView();
+                this._reapplyFlysightGraphDefaultCursors();
+            };
+            angleInput.addEventListener('input', applyAngle);
+            angleInput.addEventListener('change', applyAngle);
+        }
+        const ticksInput = document.getElementById('flysightCursorBAltTicks');
+        if (ticksInput && ticksInput.dataset.bound !== '1') {
+            ticksInput.dataset.bound = '1';
+            ticksInput.value = String(this.flysightCursorBAltTicks);
+            const applyTicks = () => {
+                this.flysightCursorBAltTicks = this._parseFlysightCursorBAltTicks(ticksInput.value);
+                if (this.flysightFiles.length) this.renderFlysightView();
+                this._reapplyFlysightGraphDefaultCursors();
+            };
+            ticksInput.addEventListener('input', applyTicks);
+            ticksInput.addEventListener('change', applyTicks);
+        }
     }
 
     _reapplyFlysightGraphDefaultCursors() {
@@ -5174,7 +5199,8 @@ class SkydivingLogbook {
         if (!modal || modal.style.display !== 'flex') return;
         const cursors = Flysight.defaultSwoopCursorIndices(
             g.samples,
-            this.flysightCursorBDiveAngleDeg
+            this.flysightCursorBDiveAngleDeg,
+            this.flysightCursorBAltTicks
         );
         g.idxA = cursors.idxA;
         g.idxB = cursors.idxB;
@@ -5196,7 +5222,7 @@ class SkydivingLogbook {
         this._updateFlysightAvgLabel();
         this._updateFlysightMaxHeightLabel();
         this._updateFlysightSpeedModeButtons();
-        this._bindFlysightCursorBDiveAngleInput();
+        this._bindFlysightCursorBDebugInputs();
 
         const openPicker = () => fileInput.click();
         dropZone.addEventListener('click', (e) => {
@@ -5376,7 +5402,8 @@ class SkydivingLogbook {
             const recoverySec = Flysight.recoveryArcSec(
                 result.points,
                 this.flysightAvgPoints,
-                this.flysightCursorBDiveAngleDeg
+                this.flysightCursorBDiveAngleDeg,
+                this.flysightCursorBAltTicks
             );
             const recoveryText = Number.isFinite(recoverySec)
                 ? (Flysight.formatDurationSec(recoverySec) || `${recoverySec.toFixed(1)}s`)
@@ -5470,7 +5497,8 @@ class SkydivingLogbook {
         }
         const cursors = Flysight.defaultSwoopCursorIndices(
             series.samples,
-            this.flysightCursorBDiveAngleDeg
+            this.flysightCursorBDiveAngleDeg,
+            this.flysightCursorBAltTicks
         );
         this._flysightGraph = {
             fileId,

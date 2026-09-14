@@ -180,6 +180,69 @@ test('filterPointsBySpeedAccuracy returns original points if all would be droppe
     assert.equal(kept.length, 2);
 });
 
+test('pointsUpToFirstLanding keeps a track with no still stretch', () => {
+    const { points } = F.parseFlysightCsv(SAMPLE_CSV);
+    assert.equal(F.pointsUpToFirstLanding(points), points);
+});
+
+test('analyzeFlysightTrack ignores post-landing GNSS wander so 0 m AGL is landing', () => {
+    const t0 = Date.parse('2026-01-01T00:00:00.00Z');
+    const landHmsl = 115;
+    const nMove = 50;
+    const points = [];
+    for (let i = 0; i < nMove; i++) {
+        const frac = i / (nMove - 1);
+        const speedScale = frac < 0.7 ? 1 : (1 - (frac - 0.7) / 0.3);
+        points.push({
+            time: new Date(t0 + i * 100).toISOString(),
+            hMSL: 160 - frac * (160 - landHmsl),
+            velD: 12 * speedScale,
+            velN: 30 * speedScale,
+            velE: 20 * speedScale,
+            lat: 47.9 + i * 0.00008,
+            lon: 2.17,
+            sAcc: 0.2
+        });
+    }
+    const land = points[nMove - 1];
+    for (let i = 0; i < 40; i++) {
+        points.push({
+            time: new Date(t0 + (nMove + i) * 100).toISOString(),
+            hMSL: land.hMSL,
+            velD: 0.05,
+            velN: 0.1,
+            velE: 0,
+            lat: land.lat,
+            lon: land.lon,
+            sAcc: 0.2
+        });
+    }
+    const after = nMove + 40;
+    for (let i = 1; i <= 80; i++) {
+        points.push({
+            time: new Date(t0 + (after + i) * 100).toISOString(),
+            hMSL: land.hMSL - i * 0.35,
+            velD: 0.02,
+            velN: 0.05,
+            velE: 0,
+            lat: land.lat,
+            lon: land.lon,
+            sAcc: 0.9
+        });
+    }
+
+    const flight = F.pointsUpToFirstLanding(points);
+    assert.ok(flight.length < points.length);
+    assert.ok(flight.every(p => Date.parse(p.time) <= F.findStationaryCutoffMs(points)));
+    assert.ok(Math.min(...flight.map(p => p.hMSL)) > 110);
+
+    const r = F.analyzeFlysightTrack(points, 1, 30, 'total');
+    assert.ok(r.minHmsl > 110 && r.minHmsl < 120);
+    assert.ok(r.maxVerticalSpeedKmh > 100, `expected swoop speed, got ${r.maxVerticalSpeedKmh}`);
+    assert.ok(r.altitudeM > 20 && r.altitudeM <= 30);
+    assert.ok(r.pointCount < 80);
+});
+
 test('analyzeFlysightTrack ignores lock-on glitch so ground and peak come from the real jump', () => {
     const csv = `time,lat,lon,hMSL,velN,velE,velD,hAcc,vAcc,sAcc,heading,cAcc,gpsFix,numSV
 ,(deg),(deg),(m),(m/s),(m/s),(m/s),(m),(m),(m/s),(deg),(deg),,
@@ -301,14 +364,12 @@ test('defaultSwoopCursorIndices: A is first strong flattening after peak velD', 
     const { samples } = F.buildSwoopCursorSeries(points, 5);
     const { idxA, idxB, peakVelD } = F.defaultSwoopCursorIndices(samples);
     assert.ok(idxB < idxA);
-    assert.ok(samples[idxB].diveAngleDeg < F.CURSOR_B_DIVE_ANGLE_DEG);
-    if (idxB + 1 < idxA) {
-        assert.ok(samples[idxB + 1].diveAngleDeg >= F.CURSOR_B_DIVE_ANGLE_DEG);
-    }
-    let peakIdx = 0;
-    for (let i = 1; i < samples.length; i++) {
-        if (samples[i].velD > samples[peakIdx].velD) peakIdx = i;
-    }
+    const ground = samples.reduce((min, s) => (Number.isFinite(s.hMSL) && s.hMSL < min ? s.hMSL : min), Infinity);
+    assert.ok(
+        samples[idxB].diveAngleDeg < F.CURSOR_B_DIVE_ANGLE_DEG
+        || samples[idxB].hMSL - ground < F.CURSOR_B_AGL_M
+    );
+    const peakIdx = F.lastSignificantVelDPeakIdx(samples);
     assert.ok(idxA <= peakIdx);
     if (idxA < peakIdx) {
         assert.ok(samples[idxA].flatteningDegS <= -F.CURSOR_A_FLATTENING_DEG_S);
@@ -324,11 +385,40 @@ test('defaultSwoopCursorIndices: A is first strong flattening after peak velD', 
     assert.ok(peakVelD > 0);
 });
 
-test('recoveryArcSec on 14-43-41 is about 3.6s with dive-angle B', () => {
-    const csv = fs.readFileSync(path.join(__dirname, '..', '14-43-41.CSV'), 'utf8');
+test('lastSignificantVelDPeakIdx prefers a later near-max peak over an earlier taller one', () => {
+    const samples = [
+        { velD: 1, flatteningDegS: 0, hMSL: 100, diveAngleDeg: 1 },
+        { velD: 8, flatteningDegS: -22, hMSL: 101, diveAngleDeg: 8 },
+        { velD: 20, flatteningDegS: -22, hMSL: 110, diveAngleDeg: 20 },
+        { velD: 41, flatteningDegS: -5, hMSL: 140, diveAngleDeg: 70 },
+        { velD: 35, flatteningDegS: 8, hMSL: 160, diveAngleDeg: 60 },
+        { velD: 40, flatteningDegS: -18, hMSL: 180, diveAngleDeg: 75 },
+        { velD: 42, flatteningDegS: -16, hMSL: 200, diveAngleDeg: 78 },
+        { velD: 44, flatteningDegS: 2, hMSL: 220, diveAngleDeg: 80 },
+        { velD: 38, flatteningDegS: 5, hMSL: 240, diveAngleDeg: 70 }
+    ];
+    assert.equal(F.lastSignificantVelDPeakIdx(samples), 3);
+    const { idxA } = F.defaultSwoopCursorIndices(samples);
+    assert.equal(idxA, 2);
+});
+
+test('defaultSwoopCursorIndices A uses the later velD peak on 10-33-00', () => {
+    const csv = fs.readFileSync(path.join(__dirname, '..', '10-33-00.CSV'), 'utf8');
     const { points } = F.parseFlysightCsv(csv);
-    const dt = F.recoveryArcSec(points, 5);
-    assert.ok(dt >= 3.5 && dt <= 3.7, `recovery ${dt}`);
+    const { samples } = F.buildSwoopCursorSeries(points, 3);
+    const { idxA } = F.defaultSwoopCursorIndices(samples);
+    const peakIdx = F.lastSignificantVelDPeakIdx(samples);
+    const ground = samples.reduce((min, s) => (Number.isFinite(s.hMSL) && s.hMSL < min ? s.hMSL : min), Infinity);
+    let globalIdx = 0;
+    for (let i = 1; i < samples.length; i++) {
+        if (samples[i].velD > samples[globalIdx].velD) globalIdx = i;
+    }
+    assert.ok(samples[peakIdx].tRev < samples[globalIdx].tRev - 1.5);
+    assert.ok(samples[peakIdx].velD >= samples[globalIdx].velD * F.CURSOR_A_PEAK_FRACTION);
+    assert.ok(idxA <= peakIdx);
+    const aglA = samples[idxA].hMSL - ground;
+    assert.ok(aglA > 50 && aglA < 90, `A AGL ${aglA}`);
+    assert.ok(samples[idxA].tRev > 9.5 && samples[idxA].tRev < 11);
 });
 
 test('recoveryArcSec is the default A-B cursor time difference', () => {
@@ -355,31 +445,101 @@ test('timeAloftSec is seconds from B to the stationary cutoff', () => {
     assert.ok(aloft > 0);
 });
 
-test('defaultSwoopCursorIndices places B after A when dive angle drops below 6°', () => {
+test('defaultSwoopCursorIndices places B after A when AGL stays below 2m', () => {
     const samples = [
-        { velD: 0.2, flatteningDegS: 0, diveAngleDeg: 2 },
-        { velD: 0.8, flatteningDegS: -5, diveAngleDeg: 5 },
-        { velD: 12, flatteningDegS: -22, diveAngleDeg: 15 },
-        { velD: 20, flatteningDegS: -18, diveAngleDeg: 40 },
-        { velD: 24, flatteningDegS: -4, diveAngleDeg: 55 },
-        { velD: 25, flatteningDegS: 1, diveAngleDeg: 60 }
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 90 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 100.4, diveAngleDeg: 90 },
+        { velD: 12, flatteningDegS: -22, hMSL: 101.5, diveAngleDeg: 90 },
+        { velD: 20, flatteningDegS: -18, hMSL: 110, diveAngleDeg: 90 },
+        { velD: 24, flatteningDegS: -4, hMSL: 130, diveAngleDeg: 90 },
+        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 90 }
     ];
-    const { idxA, idxB } = F.defaultSwoopCursorIndices(samples);
+    const { idxA, idxB } = F.defaultSwoopCursorIndices(samples, 5, 1);
+    assert.equal(idxA, 3);
+    assert.equal(idxB, 2);
+    assert.ok(idxB < idxA);
+});
+
+test('defaultSwoopCursorIndices B altitude-tick threshold is configurable', () => {
+    const samples = [
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 90 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 100.4, diveAngleDeg: 90 },
+        { velD: 12, flatteningDegS: -22, hMSL: 101.5, diveAngleDeg: 90 },
+        { velD: 20, flatteningDegS: -18, hMSL: 110, diveAngleDeg: 90 },
+        { velD: 24, flatteningDegS: -4, hMSL: 130, diveAngleDeg: 90 },
+        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 90 }
+    ];
+    assert.equal(F.defaultSwoopCursorIndices(samples, 5, 1).idxB, 2);
+    assert.equal(F.defaultSwoopCursorIndices(samples, 5, 2).idxB, 1);
+    assert.equal(F.defaultSwoopCursorIndices(samples, 5, 3).idxB, 0);
+});
+
+test('defaultSwoopCursorIndices B ignores brief AGL dips shorter than x ticks', () => {
+    const samples = [
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 90 },
+        { velD: 0.3, flatteningDegS: 0, hMSL: 100.2, diveAngleDeg: 90 },
+        { velD: 0.4, flatteningDegS: 0, hMSL: 100.5, diveAngleDeg: 90 },
+        { velD: 0.5, flatteningDegS: 0, hMSL: 103.0, diveAngleDeg: 90 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 101.2, diveAngleDeg: 90 },
+        { velD: 12, flatteningDegS: -22, hMSL: 108, diveAngleDeg: 90 },
+        { velD: 20, flatteningDegS: -18, hMSL: 120, diveAngleDeg: 90 },
+        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 90 }
+    ];
+    const { idxA, idxB } = F.defaultSwoopCursorIndices(samples, 5, 2);
+    assert.equal(idxA, 6);
+    assert.equal(idxB, 1);
+});
+
+test('defaultSwoopCursorIndices places B after A when dive angle drops below 5°', () => {
+    const samples = [
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100, diveAngleDeg: 0.5 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 150, diveAngleDeg: 4 },
+        { velD: 12, flatteningDegS: -22, hMSL: 160, diveAngleDeg: 15 },
+        { velD: 20, flatteningDegS: -18, hMSL: 170, diveAngleDeg: 40 },
+        { velD: 24, flatteningDegS: -4, hMSL: 180, diveAngleDeg: 55 },
+        { velD: 25, flatteningDegS: 1, hMSL: 190, diveAngleDeg: 60 }
+    ];
+    const { idxA, idxB } = F.defaultSwoopCursorIndices(samples, 5, 20);
     assert.equal(idxA, 3);
     assert.equal(idxB, 1);
-    assert.ok(idxB < idxA);
 });
 
 test('defaultSwoopCursorIndices B dive-angle threshold is configurable', () => {
     const samples = [
-        { velD: 0.2, flatteningDegS: 0, diveAngleDeg: 2 },
-        { velD: 0.8, flatteningDegS: -5, diveAngleDeg: 5 },
-        { velD: 12, flatteningDegS: -22, diveAngleDeg: 15 },
-        { velD: 20, flatteningDegS: -18, diveAngleDeg: 40 },
-        { velD: 24, flatteningDegS: -4, diveAngleDeg: 55 },
-        { velD: 25, flatteningDegS: 1, diveAngleDeg: 60 }
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100, diveAngleDeg: 0.5 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 150, diveAngleDeg: 4 },
+        { velD: 12, flatteningDegS: -22, hMSL: 160, diveAngleDeg: 15 },
+        { velD: 20, flatteningDegS: -18, hMSL: 170, diveAngleDeg: 40 },
+        { velD: 24, flatteningDegS: -4, hMSL: 180, diveAngleDeg: 55 },
+        { velD: 25, flatteningDegS: 1, hMSL: 190, diveAngleDeg: 60 }
     ];
-    assert.equal(F.defaultSwoopCursorIndices(samples, 6).idxB, 1);
-    assert.equal(F.defaultSwoopCursorIndices(samples, 16).idxB, 2);
-    assert.equal(F.defaultSwoopCursorIndices(samples, 1).idxB, 0);
+    assert.equal(F.defaultSwoopCursorIndices(samples, 5, 20).idxB, 1);
+    assert.equal(F.defaultSwoopCursorIndices(samples, 16, 20).idxB, 2);
+    assert.equal(F.defaultSwoopCursorIndices(samples, 1, 20).idxB, 0);
+});
+
+test('defaultSwoopCursorIndices B is the later of dive-angle and below-2m', () => {
+    const angleLater = [
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 1 },
+        { velD: 0.4, flatteningDegS: 0, hMSL: 100.4, diveAngleDeg: 4 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 101.0, diveAngleDeg: 8 },
+        { velD: 12, flatteningDegS: -22, hMSL: 101.5, diveAngleDeg: 20 },
+        { velD: 20, flatteningDegS: -18, hMSL: 110, diveAngleDeg: 40 },
+        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 60 }
+    ];
+    const angleLaterCursors = F.defaultSwoopCursorIndices(angleLater, 5, 2);
+    assert.equal(angleLaterCursors.idxA, 4);
+    assert.equal(angleLaterCursors.idxB, 1);
+
+    const altLater = [
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 1 },
+        { velD: 0.4, flatteningDegS: 0, hMSL: 100.4, diveAngleDeg: 2 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 101.0, diveAngleDeg: 3 },
+        { velD: 12, flatteningDegS: -22, hMSL: 110, diveAngleDeg: 20 },
+        { velD: 20, flatteningDegS: -18, hMSL: 120, diveAngleDeg: 40 },
+        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 60 }
+    ];
+    const altLaterCursors = F.defaultSwoopCursorIndices(altLater, 5, 2);
+    assert.equal(altLaterCursors.idxA, 4);
+    assert.equal(altLaterCursors.idxB, 1);
 });

@@ -170,9 +170,15 @@
     const STATIONARY_SPEED_MS = 1;
     const CURSOR_B_VELD_MS = 1;
     /** Dive angle from horizontal (deg) that marks cursor B after A. */
-    const CURSOR_B_DIVE_ANGLE_DEG = 6;
+    const CURSOR_B_DIVE_ANGLE_DEG = 5;
+    /** AGL (m) that cursor B must stay below after A. */
+    const CURSOR_B_AGL_M = 2;
+    /** Consecutive samples below CURSOR_B_AGL_M that mark cursor B after A. */
+    const CURSOR_B_ALT_TICKS = 2;
     /** Real-time dive-angle flattening (deg/s) that marks the start of the recovery arc. */
     const CURSOR_A_FLATTENING_DEG_S = 15;
+    /** Later local velD peak may be this fraction of the window max and still count as the dive peak for cursor A. */
+    const CURSOR_A_PEAK_FRACTION = 0.9;
 
     /**
      * Great-circle distance in metres.
@@ -221,7 +227,7 @@
 
     /**
      * Earliest timestamp at which position stays roughly still for STATIONARY_SEC.
-     * Used as the swoop-window end so post-landing standing/walking is dropped.
+     * Used as landing: analysis and the swoop window drop everything after this.
      *
      * @param {{ time: string, lat?: number, lon?: number, hMSL?: number, velN?: number, velE?: number, velD?: number }[]} points
      * @returns {number} epoch ms, or NaN if no 2 s still period exists
@@ -247,6 +253,26 @@
             if (still && (lastStill - t0) / 1000 >= STATIONARY_SEC) return t0;
         }
         return NaN;
+    }
+
+    /**
+     * Keep samples through the first 2 s still stretch (landing).
+     * Drops the post-landing tail so GNSS wander or a walk cannot become
+     * ground (0 m AGL) when the device is left on.
+     * If no landing is found, returns the original array.
+     *
+     * @param {{ time: string }[]} points
+     * @returns {{ time: string }[]}
+     */
+    function pointsUpToFirstLanding(points) {
+        if (!points || points.length === 0) return points || [];
+        const cutoff = findStationaryCutoffMs(points);
+        if (!Number.isFinite(cutoff)) return points;
+        const kept = points.filter(p => {
+            const t = Date.parse(p.time);
+            return Number.isFinite(t) && t <= cutoff;
+        });
+        return kept.length ? kept : points;
     }
 
     /**
@@ -330,22 +356,22 @@
             return { samples: [], error: 'Not enough track points.' };
         }
         const quality = filterPointsBySpeedAccuracy(points);
-        if (quality.length < 2) {
+        const flight = pointsUpToFirstLanding(quality);
+        if (flight.length < 2) {
             return { samples: [], error: 'Not enough track points.' };
         }
 
-        const cutoff = findStationaryCutoffMs(quality);
-        const tEnd = Number.isFinite(cutoff) ? cutoff : lastValidTimeMs(quality);
+        const tEnd = lastValidTimeMs(flight);
         if (!Number.isFinite(tEnd)) {
             return { samples: [], error: 'Track times are invalid.' };
         }
 
         const windowed = [];
-        for (let i = 0; i < quality.length; i++) {
-            const t = Date.parse(quality[i].time);
+        for (let i = 0; i < flight.length; i++) {
+            const t = Date.parse(flight[i].time);
             if (!Number.isFinite(t)) continue;
             const dt = (tEnd - t) / 1000;
-            if (dt >= 0 && dt <= windowSec) windowed.push(quality[i]);
+            if (dt >= 0 && dt <= windowSec) windowed.push(flight[i]);
         }
         if (windowed.length < 2) {
             return { samples: [], error: 'Not enough points in the swoop window.' };
@@ -381,35 +407,130 @@
     }
 
     /**
-     * Default flare-window cursors on a reverse-time series (index 0 = landing).
-     * A: after max velD, the first sample where dive angle is flattening strongly
-     *    (and the next sample toward landing confirms it).
-     * B: walking from A toward landing, the first sample whose dive angle is below
-     *    `diveAngleDegThresh` (default 6° from horizontal).
+     * Lowest finite hMSL in the series (ground reference for AGL).
+     * @param {{ hMSL?: number }[]} samples
+     * @returns {number}
+     */
+    function minHmsl(samples) {
+        let min = Infinity;
+        for (let i = 0; i < samples.length; i++) {
+            const h = samples[i]?.hMSL;
+            if (Number.isFinite(h) && h < min) min = h;
+        }
+        return min;
+    }
+
+    /**
+     * @param {{ hMSL?: number } | null | undefined} sample
+     * @param {number} groundHmsl
+     * @returns {number}
+     */
+    function aglMeters(sample, groundHmsl) {
+        if (!Number.isFinite(sample?.hMSL) || !Number.isFinite(groundHmsl)) return NaN;
+        return sample.hMSL - groundHmsl;
+    }
+
+    /**
+     * @param {{ diveAngleDeg?: number, velN?: number, velE?: number, velD: number }[]} samples
+     * @param {number} idxA
+     * @param {number} angleThresh
+     * @returns {number} index, or -1 if none
+     */
+    function cursorBFromDiveAngle(samples, idxA, angleThresh) {
+        for (let i = idxA - 1; i >= 0; i--) {
+            if (diveAngleDeg(samples[i]) < angleThresh) return i;
+        }
+        return -1;
+    }
+
+    /**
+     * @param {{ hMSL?: number }[]} samples
+     * @param {number} idxA
+     * @param {number} ticks
+     * @param {number} ground
+     * @returns {number} index, or -1 if none
+     */
+    function cursorBFromAltTicks(samples, idxA, ticks, ground) {
+        let belowRun = 0;
+        for (let i = idxA - 1; i >= 0; i--) {
+            const agl = aglMeters(samples[i], ground);
+            if (Number.isFinite(agl) && agl < CURSOR_B_AGL_M) {
+                belowRun++;
+                if (belowRun >= ticks) return i;
+            } else {
+                belowRun = 0;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Last (closest-to-landing) local velD maximum that is still within
+     * CURSOR_A_PEAK_FRACTION of the window max. Reverse-time: index 0 is
+     * landing, so the first such peak walking from 0 is last in real time.
      *
-     * @param {{ velD: number, flatteningDegS?: number, diveAngleDeg?: number, velN?: number, velE?: number }[]} samples
+     * @param {{ velD: number }[]} samples
+     * @returns {number}
+     */
+    function lastSignificantVelDPeakIdx(samples) {
+        if (!samples || samples.length === 0) return 0;
+        let globalMax = -Infinity;
+        let globalIdx = 0;
+        for (let i = 0; i < samples.length; i++) {
+            const v = samples[i].velD;
+            if (v > globalMax) {
+                globalMax = v;
+                globalIdx = i;
+            }
+        }
+        if (!Number.isFinite(globalMax) || samples.length < 3) return globalIdx;
+        const minPeak = globalMax * CURSOR_A_PEAK_FRACTION;
+        for (let i = 1; i < samples.length - 1; i++) {
+            const v = samples[i].velD;
+            if (v >= samples[i - 1].velD && v >= samples[i + 1].velD && v >= minPeak) {
+                return i;
+            }
+        }
+        return globalIdx;
+    }
+
+    /**
+     * Default flare-window cursors on a reverse-time series (index 0 = landing).
+     * A: after the last near-max velD peak, the first sample where dive angle
+     *    is flattening strongly (and the next sample toward landing confirms it).
+     *    A later peak that is still within CURSOR_A_PEAK_FRACTION of the window
+     *    max wins over an earlier, slightly taller one.
+     * B: walking from A toward landing, the later of:
+     *    - the first sample whose dive angle is below `diveAngleDegThresh`
+     *      (default 5° from horizontal), and
+     *    - the first sample at which altitude AGL has stayed below 2 m for at
+     *      least `altTicks` consecutive samples (default 2).
+     *
+     * @param {{ velD: number, flatteningDegS?: number, diveAngleDeg?: number, hMSL?: number, velN?: number, velE?: number }[]} samples
      * @param {number} [diveAngleDegThresh]
+     * @param {number} [altTicks]
      * @returns {{ idxA: number, idxB: number, peakVelD: number }}
      */
-    function defaultSwoopCursorIndices(samples, diveAngleDegThresh = CURSOR_B_DIVE_ANGLE_DEG) {
+    function defaultSwoopCursorIndices(
+        samples,
+        diveAngleDegThresh = CURSOR_B_DIVE_ANGLE_DEG,
+        altTicks = CURSOR_B_ALT_TICKS
+    ) {
         if (!samples || samples.length === 0) {
             return { idxA: 0, idxB: 0, peakVelD: 0 };
         }
-        const vel = samples.map(s => s.velD);
         const last = samples.length - 1;
         const flattenThresh = -CURSOR_A_FLATTENING_DEG_S;
         const angleThresh = Number.isFinite(diveAngleDegThresh)
             ? diveAngleDegThresh
             : CURSOR_B_DIVE_ANGLE_DEG;
+        const ticks = Number.isFinite(altTicks)
+            ? Math.max(1, Math.floor(altTicks))
+            : CURSOR_B_ALT_TICKS;
+        const ground = minHmsl(samples);
 
-        let peakVelD = -Infinity;
-        let peakIdx = 0;
-        for (let i = 0; i < vel.length; i++) {
-            if (vel[i] > peakVelD) {
-                peakVelD = vel[i];
-                peakIdx = i;
-            }
-        }
+        const peakIdx = lastSignificantVelDPeakIdx(samples);
+        let peakVelD = samples[peakIdx]?.velD;
         if (!Number.isFinite(peakVelD) || peakVelD < 0) peakVelD = 0;
 
         const flatteningAt = (i) => {
@@ -428,19 +549,19 @@
         if (idxA < 1) idxA = Math.min(1, last);
         if (idxA > last) idxA = last;
 
-        let idxB = 0;
-        for (let i = idxA - 1; i >= 0; i--) {
-            if (diveAngleDeg(samples[i]) < angleThresh) {
-                idxB = i;
-                break;
-            }
-        }
+        const idxBAngle = cursorBFromDiveAngle(samples, idxA, angleThresh);
+        const idxBAlt = cursorBFromAltTicks(samples, idxA, ticks, ground);
+        let idxB;
+        if (idxBAngle >= 0 && idxBAlt >= 0) idxB = Math.min(idxBAngle, idxBAlt);
+        else if (idxBAngle >= 0) idxB = idxBAngle;
+        else if (idxBAlt >= 0) idxB = idxBAlt;
+        else idxB = Math.max(0, idxA - 1);
         if (idxB >= idxA) idxB = Math.max(0, idxA - 1);
         return { idxA, idxB, peakVelD };
     }
 
     /**
-     * Seconds from cursor B (near-zero vertical speed) to the start of the
+     * Seconds from cursor B to the start of the
      * 2 s stationary window (tRev = 0).
      *
      * @param {{ tRev?: number } | null | undefined} sampleB
@@ -459,12 +580,22 @@
      * @param {{ time: string, hMSL: number, velD: number, velN?: number, velE?: number, lat?: number, lon?: number }[]} points
      * @param {number} [avgPoints]
      * @param {number} [diveAngleDegThresh]
+     * @param {number} [altTicks]
      * @returns {number} duration in seconds, or NaN if it cannot be computed
      */
-    function recoveryArcSec(points, avgPoints = 3, diveAngleDegThresh = CURSOR_B_DIVE_ANGLE_DEG) {
+    function recoveryArcSec(
+        points,
+        avgPoints = 3,
+        diveAngleDegThresh = CURSOR_B_DIVE_ANGLE_DEG,
+        altTicks = CURSOR_B_ALT_TICKS
+    ) {
         const series = buildSwoopCursorSeries(points, avgPoints);
         if (series.error || !series.samples.length) return NaN;
-        const { idxA, idxB } = defaultSwoopCursorIndices(series.samples, diveAngleDegThresh);
+        const { idxA, idxB } = defaultSwoopCursorIndices(
+            series.samples,
+            diveAngleDegThresh,
+            altTicks
+        );
         const a = series.samples[idxA];
         const b = series.samples[idxB];
         if (!a || !b) return NaN;
@@ -599,9 +730,12 @@
     }
 
     /**
+     * Post-landing samples (after the first 2 s still stretch) are ignored so
+     * a device left on cannot pull ground / AGL down.
+     *
      * @param {{ hMSL: number, velD: number }[]} points
      * @param {number} avgPoints
-     * @param {number} maxHeightM — ignore points more than this many metres above the track minimum (AGL)
+     * @param {number} maxHeightM — ignore points more than this many metres above landing (AGL)
      * @param {'vertical' | 'total' | 'both'} speedMetric
      * @returns {{
      *   maxVerticalSpeedKmh: number,
@@ -638,8 +772,12 @@
         }
 
         const quality = filterPointsBySpeedAccuracy(points);
-        const minHmsl = quality.reduce((min, p) => (p.hMSL < min ? p.hMSL : min), quality[0].hMSL);
-        const eligible = filterPointsByMaxHeight(quality, maxHeightM);
+        const flight = pointsUpToFirstLanding(quality);
+        if (!flight.length) {
+            return emptyResult({ error: 'No track points.' });
+        }
+        const minHmsl = flight.reduce((min, p) => (p.hMSL < min ? p.hMSL : min), flight[0].hMSL);
+        const eligible = filterPointsByMaxHeight(flight, maxHeightM);
         if (!eligible.length) {
             return emptyResult({ minHmsl, error: 'No track points within the max height limit.' });
         }
@@ -744,6 +882,8 @@
         haversineMeters,
         displacementMeters,
         findStationaryCutoffMs,
+        pointsUpToFirstLanding,
+        lastSignificantVelDPeakIdx,
         buildSwoopCursorSeries,
         defaultSwoopCursorIndices,
         SWOOP_WINDOW_SEC,
@@ -751,7 +891,10 @@
         STATIONARY_RADIUS_M,
         CURSOR_B_VELD_MS,
         CURSOR_B_DIVE_ANGLE_DEG,
+        CURSOR_B_AGL_M,
+        CURSOR_B_ALT_TICKS,
         CURSOR_A_FLATTENING_DEG_S,
+        CURSOR_A_PEAK_FRACTION,
         DEFAULT_SAMPLE_INTERVAL_SEC,
         DEFAULT_MAX_HEIGHT_M,
         MIN_MAX_HEIGHT_M,
