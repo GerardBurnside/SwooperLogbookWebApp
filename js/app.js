@@ -5492,7 +5492,7 @@ class SkydivingLogbook {
             this.flysightAvgPoints
         );
         if (series.error || !series.samples.length) {
-            this.showMessage(series.error || 'Could not build speed graph.', 'error');
+            this.showMessage(series.error || 'Could not build graph.', 'error');
             return;
         }
         const cursors = Flysight.defaultSwoopCursorIndices(
@@ -5607,9 +5607,15 @@ class SkydivingLogbook {
         return velDMs * 3.6;
     }
 
-    _flysightKmhTicks(yMin, yMax) {
+    _flysightDiveAngleDeg(sample) {
+        if (typeof Flysight !== 'undefined') return Flysight.diveAngleDeg(sample);
+        const v = sample?.diveAngleDeg;
+        return Number.isFinite(v) ? v : 0;
+    }
+
+    _flysightDegTicks(yMin, yMax) {
         const span = yMax - yMin;
-        const step = span > 120 ? 40 : span > 60 ? 20 : 10;
+        const step = span > 60 ? 15 : span > 30 ? 10 : 5;
         const ticks = [];
         const start = Math.ceil(yMin / step) * step;
         for (let v = start; v <= yMax + 0.01; v += step) ticks.push(v);
@@ -5618,9 +5624,9 @@ class SkydivingLogbook {
 
     _flysightGraphScales(samples, layout) {
         const tMax = Math.max(0.001, samples[samples.length - 1]?.tRev || 25);
-        const speeds = samples.map(s => this._flysightVelKmh(s.velD));
-        const yMin = Math.min(0, ...speeds);
-        const yMax = Math.max(10, ...speeds) * 1.08;
+        const angles = samples.map(s => this._flysightDiveAngleDeg(s));
+        const yMin = Math.min(0, ...angles);
+        const yMax = Math.max(15, ...angles) * 1.08;
         const innerW = layout.width - layout.l - layout.r;
         const innerH = layout.height - layout.t - layout.b;
         const tPlotOf = (tRev) => tMax - tRev;
@@ -5630,7 +5636,7 @@ class SkydivingLogbook {
             yMax,
             tPlotOf,
             xOf: (tRev) => layout.l + (tPlotOf(tRev) / tMax) * innerW,
-            yOf: (vKmh) => layout.t + (1 - (vKmh - yMin) / (yMax - yMin)) * innerH
+            yOf: (deg) => layout.t + (1 - (deg - yMin) / (yMax - yMin)) * innerH
         };
     }
 
@@ -5644,12 +5650,12 @@ class SkydivingLogbook {
         const aloft = Flysight.timeAloftSec(b);
         const dtEl = document.getElementById('flysightGraphDt');
         const aloftEl = document.getElementById('flysightGraphTimeAloft');
-        const altAEl = document.getElementById('flysightGraphAltA');
+        const velAEl = document.getElementById('flysightGraphVelA');
         if (dtEl) dtEl.textContent = Flysight.formatDurationSec(dt) || `${dt.toFixed(1)}s`;
         if (aloftEl) aloftEl.textContent = Flysight.formatDurationSec(aloft) || `${aloft.toFixed(1)}s`;
-        if (altAEl) {
-            const altA = this._flysightGraphAglM(a, this._flysightGraphGroundHmsl(g.samples));
-            altAEl.textContent = Number.isFinite(altA) ? `${Math.round(altA)} m` : '—';
+        if (velAEl) {
+            const velA = this._flysightVelKmh(a.velD);
+            velAEl.textContent = Number.isFinite(velA) ? `${velA.toFixed(1)} km/h` : '—';
         }
     }
 
@@ -5665,12 +5671,15 @@ class SkydivingLogbook {
         const sc = this._flysightGraphScales(samples, layout);
         const a = samples[g.idxA];
         const b = samples[g.idxB];
-        const kmhOf = (s) => this._flysightVelKmh(s.velD);
-        const poly = samples.map(s => `${sc.xOf(s.tRev).toFixed(1)},${sc.yOf(kmhOf(s)).toFixed(1)}`).join(' ');
-        const yTicks = this._flysightKmhTicks(sc.yMin, sc.yMax);
+        const angleOf = (s) => this._flysightDiveAngleDeg(s);
+        const poly = samples.map(s => `${sc.xOf(s.tRev).toFixed(1)},${sc.yOf(angleOf(s)).toFixed(1)}`).join(' ');
+        const yTicks = this._flysightDegTicks(sc.yMin, sc.yMax);
         const xTicks = [0, 5, 10, 15, 20, 25].filter(t => t <= sc.tMax + 0.05);
         const yBase = layout.height - layout.b;
-        const nearZeroKmh = this._flysightVelKmh(Flysight.CURSOR_B_VELD_MS);
+        const bAngleThresh = Number.isFinite(this.flysightCursorBDiveAngleDeg)
+            ? this.flysightCursorBDiveAngleDeg
+            : Flysight.CURSOR_B_DIVE_ANGLE_DEG;
+        const showBThresh = bAngleThresh >= sc.yMin && bAngleThresh <= sc.yMax;
         const fs = layout.compact ? 10 : 11;
         const handleR = layout.compact ? 8 : 10;
         const handleY = yBase + (layout.compact ? 10 : 12);
@@ -5679,14 +5688,12 @@ class SkydivingLogbook {
         const ground = this._flysightGraphGroundHmsl(samples);
         const cursor = (which, sample, color) => {
             const x = sc.xOf(sample.tRev);
-            const y = sc.yOf(kmhOf(sample));
+            const y = sc.yOf(angleOf(sample));
+            const alt = this._flysightGraphAglM(sample, ground);
             let altText = '';
-            if (which === 'b') {
-                const altB = this._flysightGraphAglM(sample, ground);
-                if (Number.isFinite(altB)) {
-                    const labelX = x + (layout.compact ? 8 : 10);
-                    altText = `<text x="${labelX}" y="${y + 4}" text-anchor="start" fill="${color}" font-size="${fs}" font-weight="600" stroke="#fff" stroke-width="3" paint-order="stroke" pointer-events="none">${Math.round(altB)} m</text>`;
-                }
+            if (Number.isFinite(alt)) {
+                const labelX = x + (layout.compact ? 8 : 10);
+                altText = `<text x="${labelX}" y="${y + 4}" text-anchor="start" fill="${color}" font-size="${fs}" font-weight="600" stroke="#fff" stroke-width="3" paint-order="stroke" pointer-events="none">${Math.round(alt)} m</text>`;
             }
             return `
                 <g class="flysight-graph-cursor" data-cursor="${which}" style="cursor:ew-resize;touch-action:none">
@@ -5696,7 +5703,7 @@ class SkydivingLogbook {
                     <rect x="${x - 16}" y="${yBase - 6}" width="32" height="40" fill="transparent"/>
                     <circle cx="${x}" cy="${handleY}" r="${handleR}" fill="${color}"/>
                     <text x="${x}" y="${handleY + 4}" text-anchor="middle" fill="#fff" font-size="${fs}" font-weight="600" pointer-events="none">${which.toUpperCase()}</text>
-                    <text x="${layout.l - 6}" y="${y + 4}" text-anchor="end" fill="${color}" font-size="${fs}">${kmhOf(sample).toFixed(1)}</text>
+                    <text x="${layout.l - 6}" y="${y + 4}" text-anchor="end" fill="${color}" font-size="${fs}">${angleOf(sample).toFixed(1)}</text>
                     ${altText}
                 </g>`;
         };
@@ -5708,20 +5715,23 @@ class SkydivingLogbook {
         const xLabels = xTicks.map(t => `
             <text x="${sc.xOf(t)}" y="${xLabelY}" text-anchor="middle" fill="#888" font-size="${fs}">${t}s</text>
         `).join('');
+        const bThreshLine = showBThresh
+            ? `<line x1="${layout.l}" y1="${sc.yOf(bAngleThresh)}" x2="${layout.width - layout.r}" y2="${sc.yOf(bAngleThresh)}" stroke="#ddd" stroke-dasharray="3 3"/>`
+            : '';
 
         root.innerHTML = `
             <svg viewBox="0 0 ${layout.width} ${layout.height}" width="${layout.width}" height="${layout.height}"
                  preserveAspectRatio="none"
-                 role="img" aria-label="Vertical speed in kilometres per hour versus seconds before landing">
+                 role="img" aria-label="Dive angle in degrees versus seconds before landing">
                 ${grid}
                 ${xLabels}
                 <line x1="${layout.l}" y1="${layout.t}" x2="${layout.l}" y2="${yBase}" stroke="#ccc"/>
                 <line x1="${layout.l}" y1="${yBase}" x2="${layout.width - layout.r}" y2="${yBase}" stroke="#ccc"/>
-                <line x1="${layout.l}" y1="${sc.yOf(nearZeroKmh)}" x2="${layout.width - layout.r}" y2="${sc.yOf(nearZeroKmh)}" stroke="#ddd" stroke-dasharray="3 3"/>
+                ${bThreshLine}
                 <polyline fill="none" stroke="#1976D2" stroke-width="2" points="${poly}"/>
                 ${cursor('a', a, '#1976D2')}
                 ${cursor('b', b, '#555')}
-                <text x="${layout.l - 6}" y="${Math.max(10, layout.t - 4)}" text-anchor="end" fill="#888" font-size="${fs}">km/h</text>
+                <text x="${layout.l - 6}" y="${Math.max(10, layout.t - 4)}" text-anchor="end" fill="#888" font-size="${fs}">°</text>
             </svg>`;
         this._updateFlysightGraphStats();
     }
