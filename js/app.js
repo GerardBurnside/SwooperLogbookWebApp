@@ -108,7 +108,7 @@ class SkydivingLogbook {
         this._flysightGraphRo = null;
         this._flysightScrollY = 0;
         const savedFlysightAvg = parseInt(localStorage.getItem('flysight-avg-points'), 10);
-        this.flysightAvgPoints = Number.isFinite(savedFlysightAvg) ? Math.min(20, Math.max(1, savedFlysightAvg)) : 5;
+        this.flysightAvgPoints = Number.isFinite(savedFlysightAvg) ? Math.min(20, Math.max(1, savedFlysightAvg)) : 3;
         const savedFlysightMaxHeight = parseInt(localStorage.getItem('flysight-max-height'), 10);
         this.flysightMaxHeightM = Number.isFinite(savedFlysightMaxHeight)
             ? Math.min(500, Math.max(1, savedFlysightMaxHeight))
@@ -5196,7 +5196,7 @@ class SkydivingLogbook {
         });
 
         avgSlider.addEventListener('input', () => {
-            this.flysightAvgPoints = Math.min(20, Math.max(1, parseInt(avgSlider.value, 10) || 5));
+            this.flysightAvgPoints = Math.min(20, Math.max(1, parseInt(avgSlider.value, 10) || 3));
             this._updateFlysightAvgLabel();
             localStorage.setItem('flysight-avg-points', String(this.flysightAvgPoints));
             if (this.flysightFiles.length) this.renderFlysightView();
@@ -5556,10 +5556,19 @@ class SkydivingLogbook {
         const aloft = Flysight.timeAloftSec(b);
         const dtEl = document.getElementById('flysightGraphDt');
         const aloftEl = document.getElementById('flysightGraphTimeAloft');
-        const vaEl = document.getElementById('flysightGraphVelA');
+        const altAEl = document.getElementById('flysightGraphAltA');
         if (dtEl) dtEl.textContent = Flysight.formatDurationSec(dt) || `${dt.toFixed(1)}s`;
         if (aloftEl) aloftEl.textContent = Flysight.formatDurationSec(aloft) || `${aloft.toFixed(1)}s`;
-        if (vaEl) vaEl.textContent = `${this._flysightVelKmh(a.velD).toFixed(1)} km/h`;
+        if (altAEl) {
+            const ground = g.samples.reduce((min, s) => {
+                const h = s.hMSL;
+                return Number.isFinite(h) && h < min ? h : min;
+            }, Infinity);
+            const altA = Number.isFinite(a.hMSL) && Number.isFinite(ground)
+                ? Math.max(0, a.hMSL - ground)
+                : NaN;
+            altAEl.textContent = Number.isFinite(altA) ? `${Math.round(altA)} m` : '—';
+        }
     }
 
     _drawFlysightGraph() {

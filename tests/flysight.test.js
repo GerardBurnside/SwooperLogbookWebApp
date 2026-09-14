@@ -274,6 +274,7 @@ test('buildSwoopCursorSeries reverses last 25s so index 0 is landing', () => {
     assert.ok(samples[0].tRev < samples[samples.length - 1].tRev);
     assert.ok(samples[0].tRev < 0.2);
     assert.ok(samples[0].velD < 1);
+    assert.ok(Number.isFinite(samples[0].hMSL));
     const lastTrackTime = Date.parse(points[points.length - 1].time);
     const landingTime = Date.parse(samples[0].time);
     assert.ok(landingTime < lastTrackTime - 1500);
@@ -294,7 +295,7 @@ test('buildSwoopCursorSeries is not clipped by the analysis max-height ceiling',
     assert.ok(samples[samples.length - 1].tRev <= 25.05);
 });
 
-test('defaultSwoopCursorIndices: B is first drop below 1 m/s from A; A is near the peak', () => {
+test('defaultSwoopCursorIndices: A is first strong flattening after peak velD', () => {
     const csv = fs.readFileSync(path.join(__dirname, '..', '12-21-30.CSV'), 'utf8');
     const { points } = F.parseFlysightCsv(csv);
     const { samples } = F.buildSwoopCursorSeries(points, 5);
@@ -302,15 +303,30 @@ test('defaultSwoopCursorIndices: B is first drop below 1 m/s from A; A is near t
     assert.ok(idxB < idxA);
     assert.ok(samples[idxB].velD < 1);
     if (idxB + 1 < idxA) assert.ok(samples[idxB + 1].velD >= 1);
-    assert.ok(samples[idxA].velD >= 0.85 * peakVelD);
     let peakIdx = 0;
     for (let i = 1; i < samples.length; i++) {
         if (samples[i].velD > samples[peakIdx].velD) peakIdx = i;
     }
     assert.ok(idxA <= peakIdx);
-    assert.ok(peakIdx - idxA < peakIdx * 0.25 || peakIdx - idxA <= 12);
+    if (idxA < peakIdx) {
+        assert.ok(samples[idxA].flatteningDegS <= -F.CURSOR_A_FLATTENING_DEG_S);
+        if (idxA >= 2) assert.ok(samples[idxA - 1].flatteningDegS <= -F.CURSOR_A_FLATTENING_DEG_S);
+        for (let i = peakIdx - 1; i > idxA; i--) {
+            const strong = samples[i].flatteningDegS <= -F.CURSOR_A_FLATTENING_DEG_S
+                && (i < 2 || samples[i - 1].flatteningDegS <= -F.CURSOR_A_FLATTENING_DEG_S);
+            assert.equal(strong, false);
+        }
+    }
     const dt = samples[idxA].tRev - samples[idxB].tRev;
     assert.ok(dt > 2 && dt < 20);
+    assert.ok(peakVelD > 0);
+});
+
+test('recoveryArcSec on 14-43-41 is about 4.0s with flattening-based A', () => {
+    const csv = fs.readFileSync(path.join(__dirname, '..', '14-43-41.CSV'), 'utf8');
+    const { points } = F.parseFlysightCsv(csv);
+    const dt = F.recoveryArcSec(points, 5);
+    assert.ok(dt >= 3.9 && dt <= 4.2, `recovery ${dt}`);
 });
 
 test('recoveryArcSec is the default A-B cursor time difference', () => {
@@ -339,12 +355,15 @@ test('timeAloftSec is seconds from B to the stationary cutoff', () => {
 
 test('defaultSwoopCursorIndices places B from A where speed drops below 1', () => {
     const samples = [
-        { velD: 0.2, pitchRateDegS: 0 },
-        { velD: 1.2, pitchRateDegS: 2 },
-        { velD: 8, pitchRateDegS: 20 }
+        { velD: 0.2, flatteningDegS: 0 },
+        { velD: 0.8, flatteningDegS: -5 },
+        { velD: 12, flatteningDegS: -22 },
+        { velD: 20, flatteningDegS: -18 },
+        { velD: 24, flatteningDegS: -4 },
+        { velD: 25, flatteningDegS: 1 }
     ];
     const { idxA, idxB } = F.defaultSwoopCursorIndices(samples);
-    assert.equal(idxA, 2);
-    assert.equal(idxB, 0);
+    assert.equal(idxA, 3);
+    assert.equal(idxB, 1);
     assert.ok(idxB < idxA);
 });

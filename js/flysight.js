@@ -169,10 +169,8 @@
     const STATIONARY_RADIUS_M = 2;
     const STATIONARY_SPEED_MS = 1;
     const CURSOR_B_VELD_MS = 1;
-    const CURSOR_A_PEAK_FRACTION = 0.85;
-    const CURSOR_A_PITCH_RATE_DEG_S = 15;
-    /** After the pitch-rate hint, move this fraction of the remaining gap toward the velD peak. */
-    const CURSOR_A_TOWARD_PEAK = 0.75;
+    /** Real-time dive-angle flattening (deg/s) that marks the start of the recovery arc. */
+    const CURSOR_A_FLATTENING_DEG_S = 15;
 
     /**
      * Great-circle distance in metres.
@@ -273,33 +271,47 @@
     }
 
     /**
+     * Signed path-angle rate in deg/s from `earlier` to `later` in real time.
+     * Negative = flattening (dive angle decreasing).
+     *
+     * @param {{ velN?: number, velE?: number, velD: number }} earlier
+     * @param {{ velN?: number, velE?: number, velD: number }} later
+     * @param {number} dtSec
+     * @returns {number}
+     */
+    function pathAngleFlatteningDegS(earlier, later, dtSec) {
+        if (!Number.isFinite(dtSec) || dtSec <= 0) return 0;
+        return (pathAngleRad(later) - pathAngleRad(earlier)) / dtSec * (180 / Math.PI);
+    }
+
+    /**
      * @param {{ velN?: number, velE?: number, velD: number }} a
      * @param {{ velN?: number, velE?: number, velD: number }} b
      * @param {number} dtSec
      * @returns {number} absolute path-angle rate in deg/s
      */
     function pathAngleRateDegS(a, b, dtSec) {
-        if (!Number.isFinite(dtSec) || dtSec <= 0) return 0;
-        return Math.abs(pathAngleRad(b) - pathAngleRad(a)) / dtSec * (180 / Math.PI);
+        return Math.abs(pathAngleFlatteningDegS(a, b, dtSec));
     }
 
     /**
      * Last `windowSec` before the first 2 s of roughly-still position (landing),
      * reversed so index 0 is that stationary point. Points after the still period
      * are dropped. Not limited by the analysis max-height slider. `velD` is
-     * smoothed; `pitchRateDegS` is computed from raw velocities.
+     * smoothed; `flatteningDegS` is signed dγ/dt from raw velocities
+     * (negative = dive angle decreasing in real time).
      *
      * @param {{ time: string, hMSL: number, velD: number, velN?: number, velE?: number, lat?: number, lon?: number }[]} points
      * @param {number} [avgPoints]
      * @param {number} [windowSec]
      * @returns {{
-     *   samples: { tRev: number, velD: number, velDRaw: number, velN: number, velE: number, time: string, pitchRateDegS: number }[],
+     *   samples: { tRev: number, velD: number, velDRaw: number, velN: number, velE: number, hMSL: number, time: string, pitchRateDegS: number, flatteningDegS: number }[],
      *   error?: string
      * }}
      */
     function buildSwoopCursorSeries(
         points,
-        avgPoints = 5,
+        avgPoints = 3,
         windowSec = SWOOP_WINDOW_SEC
     ) {
         if (!points || points.length < 2) {
@@ -333,11 +345,11 @@
             const t = Date.parse(p.time);
             const tRev = Number.isFinite(t) ? (tEnd - t) / 1000 : 0;
             const prev = reversed[i - 1];
-            let pitchRateDegS = 0;
+            let flatteningDegS = 0;
             if (prev) {
                 const tPrev = Date.parse(prev.time);
                 const dt = (Number.isFinite(tPrev) && Number.isFinite(t)) ? Math.abs(tPrev - t) / 1000 : 0;
-                pitchRateDegS = pathAngleRateDegS(prev, p, dt);
+                flatteningDegS = pathAngleFlatteningDegS(p, prev, dt);
             }
             return {
                 tRev,
@@ -345,8 +357,10 @@
                 velDRaw: p.velD,
                 velN: Number.isFinite(p.velN) ? p.velN : 0,
                 velE: Number.isFinite(p.velE) ? p.velE : 0,
+                hMSL: Number.isFinite(p.hMSL) ? p.hMSL : NaN,
                 time: p.time,
-                pitchRateDegS
+                flatteningDegS,
+                pitchRateDegS: Math.abs(flatteningDegS)
             };
         });
 
@@ -355,10 +369,11 @@
 
     /**
      * Default flare-window cursors on a reverse-time series (index 0 = landing).
-     * A: pitch-rate hint near 85% of peak velD, then nudged toward the apex.
+     * A: after max velD, the first sample where dive angle is flattening strongly
+     *    (and the next sample toward landing confirms it).
      * B: walking from A toward landing, the nearest sample where velD drops below 1 m/s.
      *
-     * @param {{ velD: number, pitchRateDegS?: number }[]} samples
+     * @param {{ velD: number, flatteningDegS?: number }[]} samples
      * @returns {{ idxA: number, idxB: number, peakVelD: number }}
      */
     function defaultSwoopCursorIndices(samples) {
@@ -367,6 +382,7 @@
         }
         const vel = samples.map(s => s.velD);
         const last = samples.length - 1;
+        const flattenThresh = -CURSOR_A_FLATTENING_DEG_S;
 
         let peakVelD = -Infinity;
         let peakIdx = 0;
@@ -378,22 +394,21 @@
         }
         if (!Number.isFinite(peakVelD) || peakVelD < 0) peakVelD = 0;
 
-        const thresh = CURSOR_A_PEAK_FRACTION * peakVelD;
-        let idxAHint = -1;
-        for (let i = 1; i <= peakIdx && i < samples.length; i++) {
-            if (vel[i] < thresh) continue;
-            if ((samples[i].pitchRateDegS || 0) >= CURSOR_A_PITCH_RATE_DEG_S) {
-                idxAHint = i;
-                break;
-            }
-        }
-        if (idxAHint < 0) idxAHint = vel.findIndex((v, i) => i > 0 && i <= peakIdx && v >= thresh);
-        if (idxAHint < 0) idxAHint = peakIdx;
+        const flatteningAt = (i) => {
+            const v = samples[i]?.flatteningDegS;
+            return Number.isFinite(v) ? v : 0;
+        };
 
-        let idxA = idxAHint + Math.round((peakIdx - idxAHint) * CURSOR_A_TOWARD_PEAK);
-        if (idxA < idxAHint) idxA = idxAHint;
-        if (idxA > peakIdx) idxA = peakIdx;
+        let idxA = peakIdx;
+        for (let i = peakIdx - 1; i >= 1; i--) {
+            if (flatteningAt(i) > flattenThresh) continue;
+            const later = i >= 2 ? flatteningAt(i - 1) : flatteningAt(i);
+            if (later > flattenThresh) continue;
+            idxA = i;
+            break;
+        }
         if (idxA < 1) idxA = Math.min(1, last);
+        if (idxA > last) idxA = last;
 
         let idxB = 0;
         for (let i = idxA - 1; i >= 0; i--) {
@@ -427,7 +442,7 @@
      * @param {number} [avgPoints]
      * @returns {number} duration in seconds, or NaN if it cannot be computed
      */
-    function recoveryArcSec(points, avgPoints = 5) {
+    function recoveryArcSec(points, avgPoints = 3) {
         const series = buildSwoopCursorSeries(points, avgPoints);
         if (series.error || !series.samples.length) return NaN;
         const { idxA, idxB } = defaultSwoopCursorIndices(series.samples);
@@ -704,6 +719,7 @@
         timeAloftSec,
         recoveryArcSec,
         pathAngleRad,
+        pathAngleFlatteningDegS,
         pathAngleRateDegS,
         haversineMeters,
         displacementMeters,
@@ -714,8 +730,7 @@
         STATIONARY_SEC,
         STATIONARY_RADIUS_M,
         CURSOR_B_VELD_MS,
-        CURSOR_A_PEAK_FRACTION,
-        CURSOR_A_PITCH_RATE_DEG_S,
+        CURSOR_A_FLATTENING_DEG_S,
         DEFAULT_SAMPLE_INTERVAL_SEC,
         DEFAULT_MAX_HEIGHT_M,
         MIN_MAX_HEIGHT_M,
