@@ -2685,12 +2685,6 @@ footer.legal-footer a {
     max-width: 760px;
 }
 
-.flysight-graph-caption {
-    font-size: 0.9rem;
-    color: #666;
-    margin: 0 0 0.75rem;
-}
-
 .flysight-graph-stats {
     display: flex;
     flex-wrap: wrap;

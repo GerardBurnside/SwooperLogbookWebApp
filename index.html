@@ -33,6 +33,26 @@
                 <button id="flysightViewBtn" class="nav-btn">Flysight</button>
                 <button id="todosViewBtn" class="nav-btn">TODOs</button>
             </nav>
+            <script>
+            (function () {
+                try {
+                    var s = JSON.parse(localStorage.getItem('skydiving-settings') || '{}');
+                    var visible = s.visibleNavViews;
+                    if (!Array.isArray(visible) || visible.length === 0) return;
+                    document.querySelectorAll('.nav-btn').forEach(function (btn) {
+                        var id = btn.id.replace(/ViewBtn$/, '');
+                        if (visible.indexOf(id) === -1) {
+                            btn.hidden = true;
+                            btn.style.display = 'none';
+                        }
+                    });
+                    if (visible.length <= 1) {
+                        var nav = document.querySelector('.main-nav');
+                        if (nav) nav.style.display = 'none';
+                    }
+                } catch (e) {}
+            })();
+            </script>
         </header>
 
         <main>
@@ -601,7 +621,6 @@
             <div class="modal-content flysight-graph-modal-content">
                 <span id="flysightGraphModalClose" class="close" title="Close">&times;</span>
                 <h2 id="flysightGraphTitle">Vertical speed</h2>
-                <p id="flysightGraphCaption" class="flysight-graph-caption"></p>
                 <div class="flysight-graph-stats">
                     <div>
                         <span class="flysight-metric-label">Time between cursors</span>

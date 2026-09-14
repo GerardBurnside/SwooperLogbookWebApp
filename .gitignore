@@ -24,3 +24,4 @@ build/
 *.log
 npm-debug.log*
 *.swp
+*.csv

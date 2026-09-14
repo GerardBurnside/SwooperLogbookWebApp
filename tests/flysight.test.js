@@ -124,6 +124,53 @@ test('parseFlysightCsv includes lat/lon when present', () => {
     assert.equal(points[0].lon, 2.1750580);
 });
 
+test('parseFlysightCsv includes sAcc when present', () => {
+    const { points } = F.parseFlysightCsv(SAMPLE_CSV);
+    assert.equal(points[0].sAcc, 0.52);
+});
+
+test('filterPointsBySpeedAccuracy drops sAcc above 2 m/s and keeps missing sAcc', () => {
+    const points = [
+        { hMSL: -586, velD: 220.51, sAcc: 428 },
+        { hMSL: 1667, velD: 10.85, sAcc: 22.08 },
+        { hMSL: 1763, velD: 1.2, sAcc: 2 },
+        { hMSL: 1750, velD: 50, sAcc: 0.3 },
+        { hMSL: 120, velD: 0.1 }
+    ];
+    const kept = F.filterPointsBySpeedAccuracy(points);
+    assert.equal(kept.length, 3);
+    assert.equal(kept[0].hMSL, 1763);
+    assert.equal(kept[1].velD, 50);
+    assert.equal(kept[2].hMSL, 120);
+});
+
+test('filterPointsBySpeedAccuracy returns original points if all would be dropped', () => {
+    const points = [
+        { hMSL: 100, velD: 1, sAcc: 5 },
+        { hMSL: 101, velD: 2, sAcc: 8 }
+    ];
+    const kept = F.filterPointsBySpeedAccuracy(points);
+    assert.equal(kept, points);
+    assert.equal(kept.length, 2);
+});
+
+test('analyzeFlysightTrack ignores lock-on glitch so ground and peak come from the real jump', () => {
+    const csv = `time,lat,lon,hMSL,velN,velE,velD,hAcc,vAcc,sAcc,heading,cAcc,gpsFix,numSV
+,(deg),(deg),(m),(m/s),(m/s),(m/s),(m),(m),(m/s),(deg),(deg),,
+2026-09-12T13:03:14.00Z,47.9043890,2.1625255,-586.421,-6.13,-71.47,220.51,636.209,5254.726,427.99,265.10087,21.88398,3,4
+2026-09-12T13:03:14.20Z,47.9037940,2.1657076,1667.132,-13.63,-47.26,10.85,200.972,654.677,22.08,253.90975,17.69536,3,5
+2026-09-12T13:07:20.00Z,47.9039000,2.1710000,160.000,20.00,30.00,25.00,0.40,0.60,0.20,240.00000,0.50,3,16
+2026-09-12T13:07:20.10Z,47.9039020,2.1710100,157.500,19.50,29.50,24.80,0.40,0.60,0.18,240.00000,0.50,3,16
+2026-09-12T13:07:20.20Z,47.9039040,2.1710200,155.000,19.00,29.00,24.50,0.40,0.60,0.17,240.00000,0.50,3,16
+2026-09-12T13:07:25.00Z,47.9039600,2.1716100,118.560,0.20,0.10,0.05,0.44,0.62,0.15,40.00000,10.00,3,16`;
+    const { points } = F.parseFlysightCsv(csv);
+    const r = F.analyzeFlysightTrack(points, 1, 500, 'vertical');
+    assert.ok(r.minHmsl > 100 && r.minHmsl < 120);
+    assert.ok(r.maxVerticalSpeedKmh > 88 && r.maxVerticalSpeedKmh < 91);
+    assert.ok(r.altitudeM > 30 && r.altitudeM < 50);
+    assert.ok(r.pointCount >= 4);
+});
+
 test('findStationaryCutoffMs is the start of the first 2s still stretch', () => {
     const t0 = Date.parse('2026-01-01T00:00:00.00Z');
     const points = [];

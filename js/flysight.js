@@ -30,7 +30,7 @@
 
     /**
      * @param {string} text
-     * @returns {{ points: { time: string, hMSL: number, velD: number, velN?: number, velE?: number, lat?: number, lon?: number }[], error?: string }}
+     * @returns {{ points: { time: string, hMSL: number, velD: number, velN?: number, velE?: number, lat?: number, lon?: number, sAcc?: number }[], error?: string }}
      */
     function parseFlysightCsv(text) {
         const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim() !== '');
@@ -60,6 +60,7 @@
         const velECol = colMap.has('velE') ? colMap.get('velE') : -1;
         const latCol = colMap.has('lat') ? colMap.get('lat') : -1;
         const lonCol = colMap.has('lon') ? colMap.get('lon') : -1;
+        const sAccCol = colMap.has('sAcc') ? colMap.get('sAcc') : -1;
         const points = [];
 
         for (let i = headerIdx + 1; i < lines.length; i++) {
@@ -90,6 +91,10 @@
                     point.lat = lat;
                     point.lon = lon;
                 }
+            }
+            if (sAccCol >= 0) {
+                const sAcc = parseFloat(cols[sAccCol]);
+                if (Number.isFinite(sAcc)) point.sAcc = sAcc;
             }
             points.push(point);
         }
@@ -280,7 +285,11 @@
         if (!points || points.length < 2) {
             return { samples: [], error: 'Not enough track points.' };
         }
-        const filtered = filterPointsByMaxHeight(points, maxHeightM);
+        const quality = filterPointsBySpeedAccuracy(points);
+        if (quality.length < 2) {
+            return { samples: [], error: 'Not enough track points.' };
+        }
+        const filtered = filterPointsByMaxHeight(quality, maxHeightM);
         if (filtered.length < 2) {
             return { samples: [], error: 'Not enough track points within the max height limit.' };
         }
@@ -433,6 +442,8 @@
     const MIN_MAX_HEIGHT_M = 1;
     const MAX_MAX_HEIGHT_M = 500;
     const DEFAULT_SPEED_METRIC = 'vertical';
+    /** Drop GNSS samples whose speed-accuracy estimate exceeds this (m/s). Missing sAcc is kept. */
+    const MAX_SPEED_ACCURACY_MS = 2;
 
     /**
      * @param {{ velN?: number, velE?: number, velD: number }} point
@@ -492,6 +503,22 @@
     }
 
     /**
+     * Drop points with a reported speed accuracy worse than `maxSAccMs`.
+     * Points with missing/non-finite `sAcc` are kept. If every point would be
+     * dropped, return the original array so analysis can still run.
+     *
+     * @param {{ sAcc?: number }[]} points
+     * @param {number} [maxSAccMs]
+     * @returns {{ sAcc?: number }[]}
+     */
+    function filterPointsBySpeedAccuracy(points, maxSAccMs = MAX_SPEED_ACCURACY_MS) {
+        if (!points || points.length === 0) return [];
+        const limit = Number.isFinite(maxSAccMs) && maxSAccMs > 0 ? maxSAccMs : MAX_SPEED_ACCURACY_MS;
+        const kept = points.filter(p => !Number.isFinite(p.sAcc) || p.sAcc <= limit);
+        return kept.length ? kept : points;
+    }
+
+    /**
      * @param {{ hMSL: number }[]} points
      * @param {number} maxHeightM
      * @returns {{ hMSL: number, velD: number }[]}
@@ -540,8 +567,9 @@
             return emptyResult({ error: 'No track points.' });
         }
 
-        const minHmsl = points.reduce((min, p) => (p.hMSL < min ? p.hMSL : min), points[0].hMSL);
-        const eligible = filterPointsByMaxHeight(points, maxHeightM);
+        const quality = filterPointsBySpeedAccuracy(points);
+        const minHmsl = quality.reduce((min, p) => (p.hMSL < min ? p.hMSL : min), quality[0].hMSL);
+        const eligible = filterPointsByMaxHeight(quality, maxHeightM);
         if (!eligible.length) {
             return emptyResult({ minHmsl, error: 'No track points within the max height limit.' });
         }
@@ -628,6 +656,7 @@
         analyzeFlysightTrack,
         analyzeFlysightCsv,
         filterPointsByMaxHeight,
+        filterPointsBySpeedAccuracy,
         trajectorySpeedMs,
         normalizeSpeedMetric,
         movingAverage,
@@ -652,6 +681,7 @@
         DEFAULT_MAX_HEIGHT_M,
         MIN_MAX_HEIGHT_M,
         MAX_MAX_HEIGHT_M,
+        MAX_SPEED_ACCURACY_MS,
         DEFAULT_SPEED_METRIC
     };
 

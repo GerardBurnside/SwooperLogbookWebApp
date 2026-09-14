@@ -120,6 +120,9 @@ class SkydivingLogbook {
     }
 
     async init() {
+        // Hide deselected tabs before IndexedDB work so they never flash on startup
+        this.applyNavVisibility();
+
         // Open IndexedDB and migrate from localStorage if needed
         try {
             await DB.open();
@@ -5362,7 +5365,6 @@ class SkydivingLogbook {
         };
         const title = document.getElementById('flysightGraphTitle');
         if (title) title.textContent = file.name;
-        this._updateFlysightGraphCaption();
         this._drawFlysightGraph();
         modal.style.display = 'block';
     }
@@ -5371,12 +5373,6 @@ class SkydivingLogbook {
         const modal = document.getElementById('flysightGraphModal');
         if (modal) modal.style.display = 'none';
         if (this._flysightGraph) this._flysightGraph.drag = null;
-    }
-
-    _updateFlysightGraphCaption() {
-        const caption = document.getElementById('flysightGraphCaption');
-        if (!caption) return;
-        caption.textContent = 'Time runs forward: earlier in the jump on the left, landing on the right. Drag A and B on the time axis.';
     }
 
     _flysightGraphLayout() {
