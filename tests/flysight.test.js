@@ -118,6 +118,80 @@ test('trajectorySpeedMs is 3D velocity magnitude', () => {
     assert.equal(F.trajectorySpeedMs({ velN: 3, velE: 4, velD: 0 }), 5);
 });
 
+test('parseFlysightCsv includes lat/lon when present', () => {
+    const { points } = F.parseFlysightCsv(SAMPLE_CSV);
+    assert.equal(points[0].lat, 47.9038276);
+    assert.equal(points[0].lon, 2.1750580);
+});
+
+test('findStationaryCutoffMs is the start of the first 2s still stretch', () => {
+    const t0 = Date.parse('2026-01-01T00:00:00.00Z');
+    const points = [];
+    for (let i = 0; i < 50; i++) {
+        points.push({
+            time: new Date(t0 + i * 100).toISOString(),
+            hMSL: 120 - i * 0.4,
+            velD: 4,
+            velN: 10,
+            velE: 0,
+            lat: 47.9 + i * 0.00008,
+            lon: 2.17
+        });
+    }
+    const stillStart = points.length;
+    for (let i = 0; i < 40; i++) {
+        points.push({
+            time: new Date(t0 + (stillStart + i) * 100).toISOString(),
+            hMSL: points[stillStart - 1].hMSL,
+            velD: 0.05,
+            velN: 0.1,
+            velE: 0,
+            lat: points[stillStart - 1].lat,
+            lon: points[stillStart - 1].lon
+        });
+    }
+    const cutoff = F.findStationaryCutoffMs(points);
+    // Last moving sample is already at the still position, so cutoff is that point.
+    assert.equal(cutoff, Date.parse(points[stillStart - 1].time));
+});
+
+test('buildSwoopCursorSeries ends at first 2s of still position, then 25s before that', () => {
+    const t0 = Date.parse('2026-01-01T00:00:00.00Z');
+    const points = [];
+    for (let i = 0; i < 400; i++) {
+        points.push({
+            time: new Date(t0 + i * 100).toISOString(),
+            hMSL: 150 - i * 0.1,
+            velD: 5,
+            velN: 8,
+            velE: 0,
+            lat: 47.9 + i * 0.00001,
+            lon: 2.17
+        });
+    }
+    const lastMove = points[points.length - 1];
+    for (let i = 1; i <= 100; i++) {
+        points.push({
+            time: new Date(t0 + (400 + i) * 100).toISOString(),
+            hMSL: lastMove.hMSL,
+            velD: 0.02,
+            velN: 0.05,
+            velE: 0,
+            lat: lastMove.lat,
+            lon: lastMove.lon
+        });
+    }
+    const { samples, error } = F.buildSwoopCursorSeries(points, 1, 500, 25);
+    assert.equal(error, undefined);
+    const endTime = Date.parse(samples[0].time);
+    const stillStart = Date.parse(points[400].time);
+    assert.ok(Math.abs(endTime - stillStart) < 1000);
+    assert.ok(samples[samples.length - 1].tRev > 24);
+    assert.ok(samples[samples.length - 1].tRev <= 25.05);
+    const lastTrackTime = Date.parse(points[points.length - 1].time);
+    assert.ok(endTime < lastTrackTime - 5000);
+});
+
 test('buildSwoopCursorSeries reverses last 25s so index 0 is landing', () => {
     const csv = fs.readFileSync(path.join(__dirname, '..', '12-21-30.CSV'), 'utf8');
     const { points, error } = F.parseFlysightCsv(csv);
@@ -127,6 +201,10 @@ test('buildSwoopCursorSeries reverses last 25s so index 0 is landing', () => {
     assert.ok(samples[0].tRev < samples[samples.length - 1].tRev);
     assert.ok(samples[0].tRev < 0.2);
     assert.ok(samples[0].velD < 1);
+    const lastTrackTime = Date.parse(points[points.length - 1].time);
+    const landingTime = Date.parse(samples[0].time);
+    assert.ok(landingTime < lastTrackTime - 1500);
+    assert.ok(samples[samples.length - 1].tRev <= 25.05);
 });
 
 test('defaultSwoopCursorIndices: A is first drop below 1 m/s from B; B is near the peak', () => {

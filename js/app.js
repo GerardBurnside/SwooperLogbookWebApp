@@ -5394,13 +5394,27 @@ class SkydivingLogbook {
     }
 
     _flysightGraphLayout() {
-        return { width: 720, height: 340, l: 52, r: 16, t: 18, b: 48 };
+        return { width: 720, height: 340, l: 58, r: 16, t: 22, b: 48 };
+    }
+
+    _flysightVelKmh(velDMs) {
+        return velDMs * 3.6;
+    }
+
+    _flysightKmhTicks(yMin, yMax) {
+        const span = yMax - yMin;
+        const step = span > 120 ? 40 : span > 60 ? 20 : 10;
+        const ticks = [];
+        const start = Math.ceil(yMin / step) * step;
+        for (let v = start; v <= yMax + 0.01; v += step) ticks.push(v);
+        return ticks;
     }
 
     _flysightGraphScales(samples, layout) {
         const tMax = Math.max(0.001, samples[samples.length - 1]?.tRev || 25);
-        const yMin = Math.min(0, ...samples.map(s => s.velD));
-        const yMax = Math.max(1, ...samples.map(s => s.velD)) * 1.08;
+        const speeds = samples.map(s => this._flysightVelKmh(s.velD));
+        const yMin = Math.min(0, ...speeds);
+        const yMax = Math.max(10, ...speeds) * 1.08;
         const innerW = layout.width - layout.l - layout.r;
         const innerH = layout.height - layout.t - layout.b;
         const reverseTime = !!this._flysightGraph?.reverseTime;
@@ -5412,7 +5426,7 @@ class SkydivingLogbook {
             reverseTime,
             tPlotOf,
             xOf: (tRev) => layout.l + (tPlotOf(tRev) / tMax) * innerW,
-            yOf: (v) => layout.t + (1 - (v - yMin) / (yMax - yMin)) * innerH
+            yOf: (vKmh) => layout.t + (1 - (vKmh - yMin) / (yMax - yMin)) * innerH
         };
     }
 
@@ -5427,8 +5441,8 @@ class SkydivingLogbook {
         const vaEl = document.getElementById('flysightGraphVelA');
         const vbEl = document.getElementById('flysightGraphVelB');
         if (dtEl) dtEl.textContent = Flysight.formatDurationSec(dt) || `${dt.toFixed(1)}s`;
-        if (vaEl) vaEl.textContent = `${a.velD.toFixed(1)} m/s`;
-        if (vbEl) vbEl.textContent = `${b.velD.toFixed(1)} m/s`;
+        if (vaEl) vaEl.textContent = `${this._flysightVelKmh(a.velD).toFixed(1)} km/h`;
+        if (vbEl) vbEl.textContent = `${this._flysightVelKmh(b.velD).toFixed(1)} km/h`;
     }
 
     _drawFlysightGraph() {
@@ -5440,14 +5454,16 @@ class SkydivingLogbook {
         const sc = this._flysightGraphScales(samples, layout);
         const a = samples[g.idxA];
         const b = samples[g.idxB];
-        const poly = samples.map(s => `${sc.xOf(s.tRev).toFixed(1)},${sc.yOf(s.velD).toFixed(1)}`).join(' ');
-        const yTicks = [0, 10, 20, 30, 40].filter(v => v >= sc.yMin && v <= sc.yMax);
+        const kmhOf = (s) => this._flysightVelKmh(s.velD);
+        const poly = samples.map(s => `${sc.xOf(s.tRev).toFixed(1)},${sc.yOf(kmhOf(s)).toFixed(1)}`).join(' ');
+        const yTicks = this._flysightKmhTicks(sc.yMin, sc.yMax);
         const xTicks = [0, 5, 10, 15, 20, 25].filter(t => t <= sc.tMax + 0.05);
         const yBase = layout.height - layout.b;
+        const nearZeroKmh = this._flysightVelKmh(Flysight.CURSOR_A_VELD_MS);
 
         const cursor = (which, sample, color) => {
             const x = sc.xOf(sample.tRev);
-            const y = sc.yOf(sample.velD);
+            const y = sc.yOf(kmhOf(sample));
             return `
                 <g class="flysight-graph-cursor" data-cursor="${which}" style="cursor:ew-resize;touch-action:none">
                     <line x1="${x}" y1="${y}" x2="${x}" y2="${yBase}" stroke="${color}" stroke-width="1.5"/>
@@ -5456,7 +5472,7 @@ class SkydivingLogbook {
                     <rect x="${x - 16}" y="${yBase - 6}" width="32" height="40" fill="transparent"/>
                     <circle cx="${x}" cy="${yBase + 12}" r="10" fill="${color}"/>
                     <text x="${x}" y="${yBase + 16}" text-anchor="middle" fill="#fff" font-size="11" font-weight="600" pointer-events="none">${which.toUpperCase()}</text>
-                    <text x="${layout.l - 6}" y="${y + 4}" text-anchor="end" fill="${color}" font-size="11">${sample.velD.toFixed(1)}</text>
+                    <text x="${layout.l - 6}" y="${y + 4}" text-anchor="end" fill="${color}" font-size="11">${kmhOf(sample).toFixed(1)}</text>
                 </g>`;
         };
 
@@ -5470,15 +5486,16 @@ class SkydivingLogbook {
 
         root.innerHTML = `
             <svg viewBox="0 0 ${layout.width} ${layout.height}" width="100%" height="${layout.height}"
-                 role="img" aria-label="Vertical speed versus seconds before landing">
+                 role="img" aria-label="Vertical speed in kilometres per hour versus seconds before landing">
                 ${grid}
                 ${xLabels}
                 <line x1="${layout.l}" y1="${layout.t}" x2="${layout.l}" y2="${yBase}" stroke="#ccc"/>
                 <line x1="${layout.l}" y1="${yBase}" x2="${layout.width - layout.r}" y2="${yBase}" stroke="#ccc"/>
-                <line x1="${layout.l}" y1="${sc.yOf(1)}" x2="${layout.width - layout.r}" y2="${sc.yOf(1)}" stroke="#ddd" stroke-dasharray="3 3"/>
+                <line x1="${layout.l}" y1="${sc.yOf(nearZeroKmh)}" x2="${layout.width - layout.r}" y2="${sc.yOf(nearZeroKmh)}" stroke="#ddd" stroke-dasharray="3 3"/>
                 <polyline fill="none" stroke="#1976D2" stroke-width="2" points="${poly}"/>
                 ${cursor('a', a, '#1976D2')}
                 ${cursor('b', b, '#555')}
+                <text x="${layout.l - 8}" y="${layout.t - 6}" text-anchor="end" fill="#888" font-size="11">km/h</text>
                 <text x="${(layout.l + layout.width - layout.r) / 2}" y="${layout.height - 22}" text-anchor="middle" fill="#888" font-size="11">${sc.reverseTime ? 'Seconds before landing (reverse time)' : 'Seconds before landing'}</text>
             </svg>`;
         this._updateFlysightGraphStats();

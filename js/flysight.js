@@ -30,7 +30,7 @@
 
     /**
      * @param {string} text
-     * @returns {{ points: { time: string, hMSL: number, velD: number, velN?: number, velE?: number }[], error?: string }}
+     * @returns {{ points: { time: string, hMSL: number, velD: number, velN?: number, velE?: number, lat?: number, lon?: number }[], error?: string }}
      */
     function parseFlysightCsv(text) {
         const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim() !== '');
@@ -58,6 +58,8 @@
         const velDCol = colMap.get('velD');
         const velNCol = colMap.has('velN') ? colMap.get('velN') : -1;
         const velECol = colMap.has('velE') ? colMap.get('velE') : -1;
+        const latCol = colMap.has('lat') ? colMap.get('lat') : -1;
+        const lonCol = colMap.has('lon') ? colMap.get('lon') : -1;
         const points = [];
 
         for (let i = headerIdx + 1; i < lines.length; i++) {
@@ -79,6 +81,14 @@
                 if (Number.isFinite(velN) && Number.isFinite(velE)) {
                     point.velN = velN;
                     point.velE = velE;
+                }
+            }
+            if (latCol >= 0 && lonCol >= 0) {
+                const lat = parseFloat(cols[latCol]);
+                const lon = parseFloat(cols[lonCol]);
+                if (Number.isFinite(lat) && Number.isFinite(lon)) {
+                    point.lat = lat;
+                    point.lon = lon;
                 }
             }
             points.push(point);
@@ -129,11 +139,102 @@
     }
 
     const SWOOP_WINDOW_SEC = 25;
+    const STATIONARY_SEC = 2;
+    const STATIONARY_RADIUS_M = 2;
+    const STATIONARY_SPEED_MS = 1;
     const CURSOR_A_VELD_MS = 1;
     const CURSOR_B_PEAK_FRACTION = 0.85;
     const CURSOR_B_PITCH_RATE_DEG_S = 15;
     /** After the pitch-rate hint, move this fraction of the remaining gap toward the velD peak. */
     const CURSOR_B_TOWARD_PEAK = 0.55;
+
+    /**
+     * Great-circle distance in metres.
+     * @param {number} lat1
+     * @param {number} lon1
+     * @param {number} lat2
+     * @param {number} lon2
+     * @returns {number}
+     */
+    function haversineMeters(lat1, lon1, lat2, lon2) {
+        const R = 6371000;
+        const rad = Math.PI / 180;
+        const dLat = (lat2 - lat1) * rad;
+        const dLon = (lon2 - lon1) * rad;
+        const sLat = Math.sin(dLat / 2);
+        const sLon = Math.sin(dLon / 2);
+        const h = sLat * sLat + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * sLon * sLon;
+        return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+    }
+
+    /**
+     * 3D displacement in metres (horizontal haversine + altitude).
+     * @param {{ lat?: number, lon?: number, hMSL?: number }} a
+     * @param {{ lat?: number, lon?: number, hMSL?: number }} b
+     * @returns {number}
+     */
+    function displacementMeters(a, b) {
+        const dAlt = Math.abs((Number(a.hMSL) || 0) - (Number(b.hMSL) || 0));
+        if (Number.isFinite(a.lat) && Number.isFinite(a.lon) && Number.isFinite(b.lat) && Number.isFinite(b.lon)) {
+            return Math.hypot(haversineMeters(a.lat, a.lon, b.lat, b.lon), dAlt);
+        }
+        return NaN;
+    }
+
+    /**
+     * @param {{ lat?: number, lon?: number, hMSL?: number, velN?: number, velE?: number, velD?: number }} origin
+     * @param {{ lat?: number, lon?: number, hMSL?: number, velN?: number, velE?: number, velD?: number }} p
+     * @returns {boolean}
+     */
+    function isStationaryRelativeTo(origin, p) {
+        const disp = displacementMeters(origin, p);
+        if (Number.isFinite(disp)) return disp <= STATIONARY_RADIUS_M;
+        const speed = Math.hypot(Number(p.velN) || 0, Number(p.velE) || 0, Number(p.velD) || 0);
+        return speed <= STATIONARY_SPEED_MS;
+    }
+
+    /**
+     * Earliest timestamp at which position stays roughly still for STATIONARY_SEC.
+     * Used as the swoop-window end so post-landing standing/walking is dropped.
+     *
+     * @param {{ time: string, lat?: number, lon?: number, hMSL?: number, velN?: number, velE?: number, velD?: number }[]} points
+     * @returns {number} epoch ms, or NaN if no 2 s still period exists
+     */
+    function findStationaryCutoffMs(points) {
+        if (!points || points.length < 2) return NaN;
+        const times = points.map(p => Date.parse(p.time));
+        for (let i = 0; i < points.length; i++) {
+            const t0 = times[i];
+            if (!Number.isFinite(t0)) continue;
+            let lastStill = t0;
+            let still = true;
+            for (let j = i; j < points.length; j++) {
+                const tj = times[j];
+                if (!Number.isFinite(tj)) continue;
+                if (!isStationaryRelativeTo(points[i], points[j])) {
+                    still = false;
+                    break;
+                }
+                lastStill = tj;
+                if ((lastStill - t0) / 1000 >= STATIONARY_SEC) break;
+            }
+            if (still && (lastStill - t0) / 1000 >= STATIONARY_SEC) return t0;
+        }
+        return NaN;
+    }
+
+    /**
+     * Last valid timestamp in the track, or NaN.
+     * @param {{ time: string }[]} points
+     * @returns {number}
+     */
+    function lastValidTimeMs(points) {
+        for (let i = points.length - 1; i >= 0; i--) {
+            const t = Date.parse(points[i].time);
+            if (Number.isFinite(t)) return t;
+        }
+        return NaN;
+    }
 
     /**
      * Flight-path angle from the velocity vector (rad). Positive velD is downward.
@@ -157,10 +258,11 @@
     }
 
     /**
-     * Last `windowSec` of a max-height-filtered track, reversed so index 0 is landing.
-     * `velD` is smoothed; `pitchRateDegS` is computed from raw velocities.
+     * Last `windowSec` before the first 2 s of roughly-still position (landing),
+     * reversed so index 0 is that stationary point. Points after the still period
+     * are dropped. `velD` is smoothed; `pitchRateDegS` is computed from raw velocities.
      *
-     * @param {{ time: string, hMSL: number, velD: number, velN?: number, velE?: number }[]} points
+     * @param {{ time: string, hMSL: number, velD: number, velN?: number, velE?: number, lat?: number, lon?: number }[]} points
      * @param {number} [avgPoints]
      * @param {number} [maxHeightM]
      * @param {number} [windowSec]
@@ -183,23 +285,18 @@
             return { samples: [], error: 'Not enough track points within the max height limit.' };
         }
 
-        const times = filtered.map(p => Date.parse(p.time));
-        let tEnd = NaN;
-        for (let i = times.length - 1; i >= 0; i--) {
-            if (Number.isFinite(times[i])) {
-                tEnd = times[i];
-                break;
-            }
-        }
+        const cutoff = findStationaryCutoffMs(filtered);
+        const tEnd = Number.isFinite(cutoff) ? cutoff : lastValidTimeMs(filtered);
         if (!Number.isFinite(tEnd)) {
             return { samples: [], error: 'Track times are invalid.' };
         }
 
         const windowed = [];
         for (let i = 0; i < filtered.length; i++) {
-            const t = times[i];
+            const t = Date.parse(filtered[i].time);
             if (!Number.isFinite(t)) continue;
-            if ((tEnd - t) / 1000 <= windowSec) windowed.push(filtered[i]);
+            const dt = (tEnd - t) / 1000;
+            if (dt >= 0 && dt <= windowSec) windowed.push(filtered[i]);
         }
         if (windowed.length < 2) {
             return { samples: [], error: 'Not enough points in the swoop window.' };
@@ -526,9 +623,14 @@
         formatDurationSec,
         pathAngleRad,
         pathAngleRateDegS,
+        haversineMeters,
+        displacementMeters,
+        findStationaryCutoffMs,
         buildSwoopCursorSeries,
         defaultSwoopCursorIndices,
         SWOOP_WINDOW_SEC,
+        STATIONARY_SEC,
+        STATIONARY_RADIUS_M,
         CURSOR_A_VELD_MS,
         CURSOR_B_PEAK_FRACTION,
         CURSOR_B_PITCH_RATE_DEG_S,
