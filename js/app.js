@@ -5449,6 +5449,16 @@ class SkydivingLogbook {
         document.getElementById('flysightGraphResetZoom')?.addEventListener('click', () => {
             this._resetFlysightGraphZoom();
         });
+        document.getElementById('flysightGraphPrev')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.navigateFlysightGraph(-1);
+        });
+        document.getElementById('flysightGraphNext')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.navigateFlysightGraph(1);
+        });
 
         const graphModal = document.getElementById('flysightGraphModal');
         graphModal?.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
@@ -5675,8 +5685,49 @@ class SkydivingLogbook {
         modal.style.display = 'flex';
         this._setFlysightGraphScrollLock(true);
         this._syncFlysightGraphViewport();
+        this._syncFlysightGraphNav();
         this._drawFlysightGraph();
         requestAnimationFrame(() => this._drawFlysightGraph());
+    }
+
+    _isFlysightGraphable(file) {
+        if (!file || typeof Flysight === 'undefined') return false;
+        const result = Flysight.analyzeFlysightCsv(
+            file.text,
+            this.flysightAvgPoints,
+            this.flysightMaxHeightM,
+            this.flysightSpeedMetric
+        );
+        return !result.error;
+    }
+
+    _flysightGraphNeighbor(delta) {
+        const fileId = this._flysightGraph?.fileId;
+        if (!fileId || !delta) return null;
+        const idx = this.flysightFiles.findIndex(f => f.id === fileId);
+        if (idx < 0) return null;
+        let i = idx + delta;
+        while (i >= 0 && i < this.flysightFiles.length) {
+            const file = this.flysightFiles[i];
+            if (this._isFlysightGraphable(file)) return file;
+            i += delta;
+        }
+        return null;
+    }
+
+    _syncFlysightGraphNav() {
+        const prevBtn = document.getElementById('flysightGraphPrev');
+        const nextBtn = document.getElementById('flysightGraphNext');
+        if (!prevBtn || !nextBtn) return;
+        prevBtn.hidden = !this._flysightGraphNeighbor(-1);
+        nextBtn.hidden = !this._flysightGraphNeighbor(1);
+    }
+
+    navigateFlysightGraph(delta) {
+        const g = this._flysightGraph;
+        const neighbor = this._flysightGraphNeighbor(delta);
+        if (!g || !neighbor) return;
+        this.openFlysightGraphModal(neighbor.id, g.mode);
     }
 
     closeFlysightGraphModal() {
@@ -5693,6 +5744,10 @@ class SkydivingLogbook {
         this._setFlysightGraphScrollLock(false);
         this._clearFlysightGraphInteraction();
         this._syncFlysightGraphResetZoomBtn();
+        const prevBtn = document.getElementById('flysightGraphPrev');
+        const nextBtn = document.getElementById('flysightGraphNext');
+        if (prevBtn) prevBtn.hidden = true;
+        if (nextBtn) nextBtn.hidden = true;
     }
 
     _setFlysightGraphScrollLock(lock) {

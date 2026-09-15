@@ -2931,6 +2931,52 @@ footer.legal-footer a {
     cursor: grabbing;
 }
 
+.flysight-graph-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+    width: 1.7rem;
+    height: 1.7rem;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.62);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    color: #5a5a5a;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.flysight-graph-nav svg {
+    width: 0.82rem;
+    height: 0.82rem;
+    display: block;
+}
+
+.flysight-graph-nav[hidden] {
+    display: none !important;
+}
+
+.flysight-graph-nav-prev {
+    left: 0.35rem;
+}
+
+.flysight-graph-nav-next {
+    right: 0.35rem;
+}
+
+.flysight-graph-nav:hover,
+.flysight-graph-nav:focus-visible {
+    background: rgba(255, 255, 255, 0.92);
+    color: #1976D2;
+    outline: none;
+}
+
 .flysight-graph-reset-zoom {
     position: absolute;
     top: 0.15rem;
