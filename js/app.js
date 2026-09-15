@@ -5343,7 +5343,7 @@ class SkydivingLogbook {
         const g = this._flysightGraph;
         const modal = document.getElementById('flysightGraphModal');
         if (!g?.fileId || !modal || modal.style.display !== 'flex') return;
-        this.openFlysightGraphModal(g.fileId);
+        this.openFlysightGraphModal(g.fileId, g.mode);
     }
 
     _bindFlysightEvents() {
@@ -5426,7 +5426,7 @@ class SkydivingLogbook {
             const graphBtn = el?.closest?.('.flysight-result-graph');
             if (graphBtn) {
                 e.preventDefault();
-                this.openFlysightGraphModal(graphBtn.dataset.flysightId);
+                this.openFlysightGraphModal(graphBtn.dataset.flysightId, graphBtn.dataset.flysightGraph);
             }
         });
 
@@ -5580,8 +5580,8 @@ class SkydivingLogbook {
                 const speed = result.maxVerticalSpeedKmh.toFixed(1);
                 const speedLabel = result.speedMetric === 'total' ? 'Max total' : 'Max vertical';
                 metricsClass += ' is-single';
-                altLabel = 'Alt.';
-                recoveryLabel = 'Rec-arc';
+                altLabel = 'Altitude';
+                recoveryLabel = 'Recovery arc';
                 speedMetricsHtml = `
                         <div>
                             <span class="flysight-metric-label">${speedLabel}</span>
@@ -5605,12 +5605,19 @@ class SkydivingLogbook {
                     </div>
                     ${metaHtml ? `<p class="flysight-result-meta">${metaHtml}</p>` : ''}
                     <div class="flysight-result-actions">
-                        <button type="button" class="flysight-result-graph" data-flysight-id="${file.id}">
+                        <button type="button" class="flysight-result-graph" data-flysight-id="${file.id}" data-flysight-graph="diveAngle">
                             <svg class="flysight-result-graph-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                                 <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18"/>
                                 <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M6 16c2.2-1.2 3.1-7 5.6-7s2.4 5.2 4.9 5.2 2.1-4.2 3.8-4.2"/>
                             </svg>
-                            Graph
+                            Dive Angle
+                        </button>
+                        <button type="button" class="flysight-result-graph" data-flysight-id="${file.id}" data-flysight-graph="verticalSpeed">
+                            <svg class="flysight-result-graph-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18"/>
+                                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M6 16c2.2-1.2 3.1-7 5.6-7s2.4 5.2 4.9 5.2 2.1-4.2 3.8-4.2"/>
+                            </svg>
+                            Vertical Speed
                         </button>
                         <button type="button" class="flysight-result-remove" onclick="logbook.removeFlysightFile('${file.id}')">Remove</button>
                     </div>
@@ -5618,7 +5625,7 @@ class SkydivingLogbook {
         }).join('');
     }
 
-    openFlysightGraphModal(fileId) {
+    openFlysightGraphModal(fileId, mode) {
         const file = this.flysightFiles.find(f => f.id === fileId);
         const modal = document.getElementById('flysightGraphModal');
         if (!file || !modal) return;
@@ -5645,8 +5652,10 @@ class SkydivingLogbook {
             this.flysightCursorBDiveAngleDeg,
             this.flysightCursorBAltTicks
         );
+        const graphMode = mode === 'verticalSpeed' ? 'verticalSpeed' : 'diveAngle';
         this._flysightGraph = {
             fileId,
+            mode: graphMode,
             samples: series.samples,
             idxA: cursors.idxA,
             idxB: cursors.idxB,
@@ -5657,6 +5666,11 @@ class SkydivingLogbook {
             _layoutW: 0,
             _layoutH: 0
         };
+        const title = Flysight.formatTrackStartTitle(parsed.points?.[0]?.time) || file.name;
+        const titleEl = document.getElementById('flysightGraphTitle');
+        if (titleEl) titleEl.textContent = title;
+        const kind = graphMode === 'verticalSpeed' ? 'vertical speed' : 'dive angle';
+        modal.setAttribute('aria-label', title ? `${title} ${kind} graph` : `${kind.charAt(0).toUpperCase()}${kind.slice(1)} graph`);
         this._initFlysightGraphView(this._flysightGraph);
         modal.style.display = 'flex';
         this._setFlysightGraphScrollLock(true);
@@ -5730,11 +5744,12 @@ class SkydivingLogbook {
         const width = Math.max(240, Math.round(root?.clientWidth || 720));
         const height = Math.max(140, Math.round(root?.clientHeight || 340));
         const compact = width < 520 || height < 300;
+        const speedMode = this._flysightGraphMode() === 'verticalSpeed';
         return {
             width,
             height,
             compact,
-            l: compact ? 40 : 58,
+            l: compact ? (speedMode ? 54 : 46) : (speedMode ? 72 : 64),
             r: compact ? 36 : 48,
             t: compact ? 14 : 22,
             b: compact ? 36 : 44
@@ -5757,6 +5772,34 @@ class SkydivingLogbook {
         return velDMs * 3.6;
     }
 
+    _flysightTotalSpeedKmh(sample) {
+        if (!sample) return NaN;
+        if (typeof Flysight !== 'undefined') {
+            const ms = Flysight.trajectorySpeedMs(sample);
+            return Number.isFinite(ms) ? ms * 3.6 : NaN;
+        }
+        const n = Number(sample.velN);
+        const e = Number(sample.velE);
+        const d = Number(sample.velD);
+        if (![n, e, d].every(Number.isFinite)) {
+            const v = this._flysightVelKmh(d);
+            return Number.isFinite(v) ? v : NaN;
+        }
+        return Math.hypot(n, e, d) * 3.6;
+    }
+
+    _flysightGraphMode() {
+        return this._flysightGraph?.mode === 'verticalSpeed' ? 'verticalSpeed' : 'diveAngle';
+    }
+
+    _flysightGraphYValue(sample) {
+        if (this._flysightGraphMode() === 'verticalSpeed') {
+            const v = this._flysightVelKmh(sample?.velD);
+            return Number.isFinite(v) ? v : 0;
+        }
+        return this._flysightDiveAngleDeg(sample);
+    }
+
     _flysightDiveAngleDeg(sample) {
         if (typeof Flysight !== 'undefined') return Flysight.diveAngleDeg(sample);
         const v = sample?.diveAngleDeg;
@@ -5767,6 +5810,18 @@ class SkydivingLogbook {
         const span = yMax - yMin;
         const step = span > 60 ? 15 : span > 30 ? 10 : span > 15 ? 5 : span > 6 ? 2 : span > 3 ? 1 : span > 1.5 ? 0.5 : 0.2;
         return this._flysightTicksInRange(yMin, yMax, step);
+    }
+
+    _flysightSpeedTicks(yMin, yMax) {
+        const span = yMax - yMin;
+        const step = span > 250 ? 50 : span > 120 ? 20 : span > 60 ? 10 : span > 30 ? 5 : span > 15 ? 2 : span > 6 ? 1 : span > 3 ? 0.5 : 0.2;
+        return this._flysightTicksInRange(yMin, yMax, step);
+    }
+
+    _flysightGraphYTicks(yMin, yMax) {
+        return this._flysightGraphMode() === 'verticalSpeed'
+            ? this._flysightSpeedTicks(yMin, yMax)
+            : this._flysightDegTicks(yMin, yMax);
     }
 
     _flysightTimeTicks(tMin, tMax) {
@@ -5793,9 +5848,10 @@ class SkydivingLogbook {
 
     _flysightGraphFullExtents(samples) {
         const tMax = Math.max(0.001, samples[samples.length - 1]?.tRev || 25);
-        const angles = samples.map(s => this._flysightDiveAngleDeg(s));
-        const yMin = Math.min(0, ...angles);
-        const yMax = Math.max(15, ...angles) * 1.08;
+        const values = samples.map(s => this._flysightGraphYValue(s)).filter(Number.isFinite);
+        const floorMax = this._flysightGraphMode() === 'verticalSpeed' ? 40 : 15;
+        const yMin = values.length ? Math.min(0, ...values) : 0;
+        const yMax = (values.length ? Math.max(floorMax, ...values) : floorMax) * 1.08;
         return { tMin: 0, tMax, yMin, yMax };
     }
 
@@ -6011,11 +6067,14 @@ class SkydivingLogbook {
         const dtEl = document.getElementById('flysightGraphDt');
         const aloftEl = document.getElementById('flysightGraphTimeAloft');
         const velAEl = document.getElementById('flysightGraphVelA');
+        const velLabelEl = document.getElementById('flysightGraphVelLabel');
         if (dtEl) dtEl.textContent = Flysight.formatDurationSec(dt) || `${dt.toFixed(1)}s`;
         if (aloftEl) aloftEl.textContent = Flysight.formatDurationSec(aloft) || `${aloft.toFixed(1)}s`;
+        const speedMode = this._flysightGraphMode() === 'verticalSpeed';
+        if (velLabelEl) velLabelEl.textContent = speedMode ? 'Total Speed @ B' : 'Vertical@A';
         if (velAEl) {
-            const velA = this._flysightVelKmh(a.velD);
-            velAEl.textContent = Number.isFinite(velA) ? `${velA.toFixed(1)} km/h` : '—';
+            const vel = speedMode ? this._flysightTotalSpeedKmh(b) : this._flysightVelKmh(a.velD);
+            velAEl.textContent = Number.isFinite(vel) ? `${vel.toFixed(1)} km/h` : '—';
         }
     }
 
@@ -6031,18 +6090,19 @@ class SkydivingLogbook {
         const sc = this._flysightGraphScales(samples, layout);
         const a = samples[g.idxA];
         const b = samples[g.idxB];
-        const angleOf = (s) => this._flysightDiveAngleDeg(s);
-        const poly = samples.map(s => `${sc.xOf(s.tRev).toFixed(1)},${sc.yOf(angleOf(s)).toFixed(1)}`).join(' ');
-        const yTick = this._flysightDegTicks(sc.viewYMin, sc.viewYMax);
+        const speedMode = this._flysightGraphMode() === 'verticalSpeed';
+        const yValue = (s) => this._flysightGraphYValue(s);
+        const poly = samples.map(s => `${sc.xOf(s.tRev).toFixed(1)},${sc.yOf(yValue(s)).toFixed(1)}`).join(' ');
+        const yTick = this._flysightGraphYTicks(sc.viewYMin, sc.viewYMax);
         const xTick = this._flysightTimeTicks(sc.viewTMin, sc.viewTMax);
         const yBase = layout.height - layout.b;
         const plotRight = layout.width - layout.r;
         const bAngleThresh = Number.isFinite(this.flysightCursorBDiveAngleDeg)
             ? this.flysightCursorBDiveAngleDeg
             : Flysight.CURSOR_B_DIVE_ANGLE_DEG;
-        const showBThresh = bAngleThresh >= sc.viewYMin && bAngleThresh <= sc.viewYMax;
+        const showBThresh = !speedMode && bAngleThresh >= sc.viewYMin && bAngleThresh <= sc.viewYMax;
         const fs = layout.compact ? 10 : 11;
-        const pointFs = layout.compact ? 14 : 16;
+        const pointFs = layout.compact ? 17 : 19;
         const handleR = layout.compact ? 8 : 10;
         const handleY = yBase + (layout.compact ? 10 : 12);
         const xLabelY = layout.compact ? layout.height - 4 : layout.height - 6;
@@ -6051,12 +6111,12 @@ class SkydivingLogbook {
         const peakIdx = Flysight.maxVelDIdx(samples);
         const peak = samples[peakIdx];
         const maxVerticalMark = (() => {
-            if (!peak) return '';
+            if (speedMode || !peak) return '';
             const x = sc.xOf(peak.tRev);
-            const y = sc.yOf(angleOf(peak));
+            const y = sc.yOf(yValue(peak));
             const vel = this._flysightVelKmh(peak.velD);
             const velText = Number.isFinite(vel) ? `${vel.toFixed(1)} km/h` : '—';
-            const estimateW = layout.compact ? 220 : 260;
+            const estimateW = layout.compact ? 264 : 312;
             const putRight = (x - estimateW) < 8;
             const dx = layout.compact ? 10 : 12;
             const labelX = putRight ? x + dx : x - dx;
@@ -6072,7 +6132,7 @@ class SkydivingLogbook {
             if (!sample) return '';
             if (sample.tRev < sc.viewTMin - 1e-6 || sample.tRev > sc.viewTMax + 1e-6) return '';
             const x = sc.xOf(sample.tRev);
-            const y = sc.yOf(angleOf(sample));
+            const y = sc.yOf(yValue(sample));
             const alt = this._flysightGraphAglM(sample, ground);
             let altText = '';
             if (Number.isFinite(alt)) {
@@ -6080,12 +6140,17 @@ class SkydivingLogbook {
                 altText = `<text x="${labelX}" y="${y + 5}" text-anchor="start" fill="${color}" font-size="${pointFs}" font-weight="600" stroke="#fff" stroke-width="4" paint-order="stroke" pointer-events="none">${Math.round(alt)} m</text>`;
             }
             const yOnPlot = y >= layout.t - 2 && y <= yBase + 2;
-            const angleText = yOnPlot
-                ? `<text x="${layout.l - 6}" y="${y + 4}" text-anchor="end" fill="${color}" font-size="${fs}">${angleOf(sample).toFixed(1)}</text>`
+            const aYFs = layout.compact ? 14 : 16;
+            const angleText = !yOnPlot ? '' : which === 'a'
+                ? `<text x="${layout.l - 6}" y="${y + 5}" text-anchor="end" fill="#0D47A1" font-size="${aYFs}" font-weight="700" stroke="#fff" stroke-width="4" paint-order="stroke">${yValue(sample).toFixed(1)}</text>`
+                : `<text x="${layout.l - 6}" y="${y + 4}" text-anchor="end" fill="${color}" font-size="${fs}">${yValue(sample).toFixed(1)}</text>`;
+            const aToAxis = which === 'a' && yOnPlot
+                ? `<line x1="${layout.l}" y1="${y}" x2="${x}" y2="${y}" stroke="${color}" stroke-width="1.5" stroke-dasharray="3 3" pointer-events="none"/>`
                 : '';
             return `
                 <g class="flysight-graph-cursor" data-cursor="${which}" style="cursor:ew-resize;touch-action:none">
                     <g clip-path="url(#flysightPlotClip)">
+                        ${aToAxis}
                         <line x1="${x}" y1="${y}" x2="${x}" y2="${yBase}" stroke="${color}" stroke-width="1.5"/>
                         <circle cx="${x}" cy="${y}" r="4" fill="${color}"/>
                         ${altText}
@@ -6114,10 +6179,14 @@ class SkydivingLogbook {
             : '';
         const zoomedClass = this._isFlysightGraphZoomed() ? 'is-zoomed' : '';
 
+        const yAxisTitle = speedMode ? 'km/h' : 'dive angle';
+        const svgAria = speedMode
+            ? 'Vertical speed in kilometres per hour versus seconds before landing. Pinch or scroll to zoom, drag to pan.'
+            : 'Dive angle in degrees versus seconds before landing. Pinch or scroll to zoom, drag to pan.';
         root.innerHTML = `
             <svg viewBox="0 0 ${layout.width} ${layout.height}" width="${layout.width}" height="${layout.height}"
                  preserveAspectRatio="none" class="${zoomedClass}"
-                 role="img" aria-label="Dive angle in degrees versus seconds before landing. Pinch or scroll to zoom, drag to pan.">
+                 role="img" aria-label="${svgAria}">
                 <defs>
                     <clipPath id="flysightPlotClip">
                         <rect x="${layout.l}" y="${layout.t}" width="${sc.innerW}" height="${sc.innerH}"/>
@@ -6134,7 +6203,7 @@ class SkydivingLogbook {
                 ${maxVerticalMark}
                 ${cursor('a', a, '#1976D2')}
                 ${cursor('b', b, '#555')}
-                <text x="${layout.l}" y="${Math.max(10, layout.t - 4)}" text-anchor="start" fill="#888" font-size="${fs}">dive angle</text>
+                <text x="${layout.l}" y="${Math.max(10, layout.t - 4)}" text-anchor="middle" fill="#888" font-size="${fs}">${yAxisTitle}</text>
             </svg>`;
         this._updateFlysightGraphStats();
         this._syncFlysightGraphResetZoomBtn();

@@ -662,10 +662,11 @@
             </div>
         </div>
 
-        <!-- Flysight dive-angle graph -->
+        <!-- Flysight dive-angle / vertical-speed graph -->
         <div id="flysightGraphModal" class="modal" role="dialog" aria-modal="true" aria-label="Dive angle graph">
             <div class="modal-content flysight-graph-modal-content">
                 <span id="flysightGraphModalClose" class="close" title="Close">&times;</span>
+                <h2 id="flysightGraphTitle" class="flysight-graph-title"></h2>
                 <div class="flysight-graph-stats">
                     <div>
                         <span class="flysight-metric-label">A-B Time</span>
@@ -676,7 +677,7 @@
                         <span id="flysightGraphTimeAloft" class="flysight-metric-value">—</span>
                     </div>
                     <div>
-                        <span class="flysight-metric-label">Vertical@A</span>
+                        <span id="flysightGraphVelLabel" class="flysight-metric-label">Vertical@A</span>
                         <span id="flysightGraphVelA" class="flysight-metric-value">—</span>
                     </div>
                 </div>
