@@ -35,6 +35,7 @@ function loadSkydivingLogbookClass() {
         localStorage,
         confirm: () => true,
         navigator: { onLine: true },
+        URLSearchParams,
         document: {
             addEventListener: () => {},
             createElement: () => ({ style: {}, click: () => {} }),
@@ -160,4 +161,25 @@ test('archived harness with previous jumps is not in the active stats list', () 
     assert.equal(active.length, 0);
     assert.equal(harnessStats[0].archived, true);
     assert.equal(logbook._hasEquipmentPreviousJumps(), true);
+});
+
+test('parseLandingViewFromSearch reads ?landing= tab ids', () => {
+    const SkydivingLogbook = loadSkydivingLogbookClass();
+    const parse = SkydivingLogbook.parseLandingViewFromSearch;
+    assert.equal(parse('?landing=flysight'), 'flysight');
+    assert.equal(parse('?foo=1&landing=todos'), 'todos');
+    assert.equal(parse('?landing=STATS'), 'stats');
+    assert.equal(parse('?landing=equipment'), 'equipment');
+    assert.equal(parse('?landing=jumps'), 'jumps');
+    assert.equal(parse('landing=flysight'), 'flysight');
+});
+
+test('parseLandingViewFromSearch ignores missing or invalid landing values', () => {
+    const SkydivingLogbook = loadSkydivingLogbookClass();
+    const parse = SkydivingLogbook.parseLandingViewFromSearch;
+    assert.equal(parse(''), null);
+    assert.equal(parse('?other=flysight'), null);
+    assert.equal(parse('?landing='), null);
+    assert.equal(parse('?landing=nope'), null);
+    assert.equal(parse('?landing=todo'), null);
 });

@@ -38,18 +38,30 @@
                 try {
                     var s = JSON.parse(localStorage.getItem('skydiving-settings') || '{}');
                     var visible = s.visibleNavViews;
-                    if (!Array.isArray(visible) || visible.length === 0) return;
-                    document.querySelectorAll('.nav-btn').forEach(function (btn) {
-                        var id = btn.id.replace(/ViewBtn$/, '');
-                        if (visible.indexOf(id) === -1) {
-                            btn.hidden = true;
-                            btn.style.display = 'none';
+                    if (Array.isArray(visible) && visible.length > 0) {
+                        document.querySelectorAll('.nav-btn').forEach(function (btn) {
+                            var id = btn.id.replace(/ViewBtn$/, '');
+                            if (visible.indexOf(id) === -1) {
+                                btn.hidden = true;
+                                btn.style.display = 'none';
+                            }
+                        });
+                        if (visible.length <= 1) {
+                            var nav = document.querySelector('.main-nav');
+                            if (nav) nav.style.display = 'none';
                         }
-                    });
-                    if (visible.length <= 1) {
-                        var nav = document.querySelector('.main-nav');
-                        if (nav) nav.style.display = 'none';
                     }
+                    var landing = new URLSearchParams(window.location.search).get('landing');
+                    var views = ['jumps', 'equipment', 'stats', 'flysight', 'todos'];
+                    if (!landing) return;
+                    landing = String(landing).trim().toLowerCase();
+                    if (views.indexOf(landing) === -1) return;
+                    document.querySelectorAll('.view').forEach(function (view) {
+                        view.style.display = view.id === landing + 'View' ? 'block' : 'none';
+                    });
+                    document.querySelectorAll('.nav-btn').forEach(function (btn) {
+                        btn.classList.toggle('active', btn.id === landing + 'ViewBtn');
+                    });
                 } catch (e) {}
             })();
             </script>
@@ -416,7 +428,7 @@
 
                 <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
                 <h3 style="margin-bottom: 8px;">Main navigation</h3>
-                <small style="color:#888; font-size:12px; display:block; margin-bottom:10px;">Choose which tabs appear at the top. The app opens on the start tab. At least one tab must stay on — for a TODOs-only home screen, leave only TODOs checked.</small>
+                    <small style="color:#888; font-size:12px; display:block; margin-bottom:10px;">Choose which tabs appear at the top. The app opens on the start tab, or on a tab from the URL such as ?landing=flysight (also jumps, equipment, stats, todos). At least one tab must stay on — for a TODOs-only home screen, leave only TODOs checked.</small>
                 <div id="navVisibilityOptions" class="nav-visibility-options">
                     <label><input type="checkbox" class="nav-visibility-chk" value="jumps"> Jumps</label>
                     <label><input type="checkbox" class="nav-visibility-chk" value="equipment"> Equipment</label>

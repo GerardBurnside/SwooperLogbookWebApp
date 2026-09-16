@@ -14,6 +14,24 @@ const MAIN_NAV_VIEWS = [
     { id: 'todos', label: 'TODO' }
 ];
 
+/**
+ * Optional `?landing=flysight` (or jumps, equipment, stats, todos) overrides the start tab.
+ * @param {string} [search] `location.search`, including a leading `?`
+ * @returns {string|null}
+ */
+function parseLandingViewFromSearch(search) {
+    if (typeof search !== 'string' || search === '') return null;
+    let landing;
+    try {
+        landing = new URLSearchParams(search).get('landing');
+    } catch (_) {
+        return null;
+    }
+    if (landing == null || landing === '') return null;
+    const id = String(landing).trim().toLowerCase();
+    return MAIN_NAV_VIEWS.some(v => v.id === id) ? id : null;
+}
+
 class SkydivingLogbook {
     constructor() {
         // Data arrays — populated asynchronously from IndexedDB in init()
@@ -210,9 +228,10 @@ class SkydivingLogbook {
         this.setupLocationAutocomplete();
         this.setupNotesAutocomplete();
         this.preFillFormWithLastJump();
-        this.applyAutoDetectDropZoneUi(true);
         this.applyNavVisibility();
-        this.showView(this.settings.startView);
+        const initialView = parseLandingViewFromSearch(window.location.search) || this.settings.startView;
+        this.applyAutoDetectDropZoneUi(initialView !== 'flysight');
+        this.showView(initialView);
         
         // Kick off background geocoding for any location missing coordinates
         this.geocodeAllLocations();
@@ -7821,6 +7840,8 @@ class SkydivingLogbook {
         }
     }
 }
+
+SkydivingLogbook.parseLandingViewFromSearch = parseLandingViewFromSearch;
 
 // Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
