@@ -104,7 +104,6 @@ class SkydivingLogbook {
         this._monthLocationPieGroups = new Map();
         this._dayLocationPieGroups = new Map();
         this.flysightFiles = [];
-        this._flysightPendingFolderFiles = [];
         this._flysightGraph = null;
         this._flysightGraphRo = null;
         this._flysightScrollY = 0;
@@ -5395,21 +5394,9 @@ class SkydivingLogbook {
         });
         dirInput?.addEventListener('change', () => {
             if (dirInput.files?.length) {
-                this._queueFlysightFolderFiles(dirInput.files);
+                this._addFlysightFolderFiles(dirInput.files);
                 dirInput.value = '';
             }
-        });
-        document.getElementById('flysightFolderPickAdd')?.addEventListener('click', (e) => {
-            e.preventDefault();
-            this._openFlysightFolderPicker();
-        });
-        document.getElementById('flysightFolderPickDone')?.addEventListener('click', (e) => {
-            e.preventDefault();
-            this._commitFlysightFolderPicks();
-        });
-        document.getElementById('flysightFolderPickCancel')?.addEventListener('click', (e) => {
-            e.preventDefault();
-            this._cancelFlysightFolderPicks();
         });
 
         ['dragenter', 'dragover'].forEach(evt => {
@@ -5513,62 +5500,41 @@ class SkydivingLogbook {
         }
     }
 
-    _openFlysightFolderPicker() {
+    async _openFlysightFolderPicker() {
+        if (typeof window.showDirectoryPicker === 'function') {
+            try {
+                const dirHandle = await window.showDirectoryPicker({
+                    id: 'flysight-csv',
+                    mode: 'read'
+                });
+                const files = typeof Flysight !== 'undefined'
+                    ? await Flysight.collectCsvFilesFromDirectoryHandle(dirHandle)
+                    : [];
+                this._addFlysightFolderFiles(files);
+                return;
+            } catch (err) {
+                if (err && (err.name === 'AbortError' || err.name === 'NotAllowedError')) return;
+                console.error('[Flysight] Directory picker failed:', err);
+                if (err && err.name === 'SecurityError') {
+                    document.getElementById('flysightDirInput')?.click();
+                    return;
+                }
+                this.showMessage('Could not read that folder.', 'error');
+                return;
+            }
+        }
         document.getElementById('flysightDirInput')?.click();
     }
 
-    _uniqueFlysightFolderCount(files) {
-        const names = new Set();
-        for (const file of files || []) {
-            const rel = String(file.webkitRelativePath || '').replace(/\\/g, '/');
-            const slash = rel.indexOf('/');
-            const folder = slash < 0 ? '' : rel.slice(0, slash);
-            names.add(folder || file.name || '');
-        }
-        names.delete('');
-        return names.size || (files?.length ? 1 : 0);
-    }
-
-    _updateFlysightFolderPickBar() {
-        const bar = document.getElementById('flysightFolderPickBar');
-        const status = document.getElementById('flysightFolderPickStatus');
-        if (!bar) return;
-        const count = this._uniqueFlysightFolderCount(this._flysightPendingFolderFiles);
-        if (!count) {
-            bar.hidden = true;
-            return;
-        }
-        bar.hidden = false;
-        if (status) {
-            status.textContent = count === 1
-                ? '1 folder selected'
-                : `${count} folders selected`;
-        }
-    }
-
-    _queueFlysightFolderFiles(fileList) {
+    _addFlysightFolderFiles(fileList) {
         const files = typeof Flysight !== 'undefined'
             ? Flysight.collectCsvFilesFromFileList(fileList)
             : [...(fileList || [])].filter(f => /\.csv$/i.test(f.name) || f.type === 'text/csv');
         if (!files.length) {
             this.showMessage('No CSV files found in that folder.', 'error');
-            this._updateFlysightFolderPickBar();
             return;
         }
-        this._flysightPendingFolderFiles.push(...files);
-        this._updateFlysightFolderPickBar();
-    }
-
-    _commitFlysightFolderPicks() {
-        const files = this._flysightPendingFolderFiles;
-        this._flysightPendingFolderFiles = [];
-        this._updateFlysightFolderPickBar();
-        if (files.length) this._addFlysightFiles(files);
-    }
-
-    _cancelFlysightFolderPicks() {
-        this._flysightPendingFolderFiles = [];
-        this._updateFlysightFolderPickBar();
+        this._addFlysightFiles(files);
     }
 
     async _collectFlysightFilesFromDataTransfer(dataTransfer) {

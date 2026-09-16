@@ -715,3 +715,49 @@ test('collectCsvFilesFromFileList orders files by dropped folder name', () => {
     ]);
     assert.equal(files.map(f => f.name).join(','), 'a.csv,m.csv,z.csv');
 });
+
+function mockFsFileHandle(name) {
+    const handle = {
+        name,
+        kind: 'file',
+        getFileCount: 0,
+        async getFile() {
+            handle.getFileCount += 1;
+            return { name, type: '', webkitRelativePath: '' };
+        }
+    };
+    return handle;
+}
+
+function mockFsDirHandle(name, children) {
+    return {
+        name,
+        kind: 'directory',
+        async *values() {
+            for (const child of children) yield child;
+        }
+    };
+}
+
+test('collectCsvFilesFromDirectoryHandle skips non-csv before reading', async () => {
+    const csv = mockFsFileHandle('08-47-08.CSV');
+    const txt = mockFsFileHandle('CONFIG.TXT');
+    const laterCsv = mockFsFileHandle('09-00-00.csv');
+    const notes = mockFsFileHandle('notes.txt');
+    const root = mockFsDirHandle('FLY', [
+        mockFsDirHandle('24-03-09', [laterCsv]),
+        notes,
+        mockFsDirHandle('24-03-08', [txt, csv])
+    ]);
+    const files = await F.collectCsvFilesFromDirectoryHandle(root);
+    assert.equal(files.map(f => f.name).join(','), '08-47-08.CSV,09-00-00.csv');
+    assert.equal(txt.getFileCount, 0);
+    assert.equal(notes.getFileCount, 0);
+    assert.equal(csv.getFileCount, 1);
+    assert.equal(files[0].webkitRelativePath, 'FLY/24-03-08/08-47-08.CSV');
+    assert.equal(files[1].webkitRelativePath, 'FLY/24-03-09/09-00-00.csv');
+});
+
+test('collectCsvFilesFromDirectoryHandle returns empty for missing handles', async () => {
+    assert.equal((await F.collectCsvFilesFromDirectoryHandle(null)).length, 0);
+});

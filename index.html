@@ -206,18 +206,10 @@
                         <p class="flysight-drop-title">Drop CSV files or folders here</p>
                         <p class="flysight-drop-hint">
                             or tap to select files, or
-                            <button type="button" id="flysightPickFolderBtn" class="flysight-pick-folder">select folders</button>
+                            <button type="button" id="flysightPickFolderBtn" class="flysight-pick-folder">select a folder</button>
                         </p>
                         <input type="file" id="flysightFileInput" accept=".csv,text/csv" multiple hidden>
-                        <input type="file" id="flysightDirInput" webkitdirectory directory multiple hidden>
-                    </div>
-                    <div id="flysightFolderPickBar" class="flysight-folder-pick-bar" hidden>
-                        <p id="flysightFolderPickStatus" class="flysight-folder-pick-status">No folders selected yet.</p>
-                        <div class="flysight-folder-pick-actions">
-                            <button type="button" id="flysightFolderPickAdd" class="flysight-folder-pick-add">Add another folder</button>
-                            <button type="button" id="flysightFolderPickDone" class="flysight-folder-pick-done">Load</button>
-                            <button type="button" id="flysightFolderPickCancel" class="flysight-folder-pick-cancel">Cancel</button>
-                        </div>
+                        <input type="file" id="flysightDirInput" accept=".csv,text/csv" webkitdirectory directory multiple hidden>
                     </div>
                     <div id="flysightResults" class="flysight-results">
                         <p class="no-items flysight-empty">No files analyzed yet.</p>

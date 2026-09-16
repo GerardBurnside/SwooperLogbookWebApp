@@ -903,12 +903,20 @@
     }
 
     /**
+     * @param {{ webkitRelativePath?: string }} file
+     * @returns {string}
+     */
+    function relativePathOf(file) {
+        return String(file?.webkitRelativePath || '').replace(/\\/g, '/');
+    }
+
+    /**
      * Top-level folder from a dropped/selected relative path (`folder/file.csv`).
      * @param {{ webkitRelativePath?: string }} file
      * @returns {string}
      */
     function droppedFolderName(file) {
-        const rel = String(file?.webkitRelativePath || '').replace(/\\/g, '/');
+        const rel = relativePathOf(file);
         if (!rel) return '';
         const i = rel.indexOf('/');
         return i < 0 ? '' : rel.slice(0, i);
@@ -936,10 +944,7 @@
         return Array.from(fileList).filter(isCsvFile).sort((a, b) => {
             const folderCmp = compareNames(droppedFolderName(a), droppedFolderName(b));
             if (folderCmp) return folderCmp;
-            const relCmp = compareNames(
-                String(a.webkitRelativePath || ''),
-                String(b.webkitRelativePath || '')
-            );
+            const relCmp = compareNames(relativePathOf(a), relativePathOf(b));
             if (relCmp) return relCmp;
             return compareNames(a.name, b.name);
         });
@@ -1015,12 +1020,107 @@
         return files;
     }
 
+    /**
+     * Shadow `webkitRelativePath` so File System Access picks sort like
+     * `<input webkitdirectory>` files (`selectedFolder/.../file.csv`).
+     * @param {File} file
+     * @param {string} relativePath
+     * @returns {File}
+     */
+    function withRelativePath(file, relativePath) {
+        const path = String(relativePath || '').replace(/\\/g, '/');
+        if (!file) return file;
+        try {
+            Object.defineProperty(file, 'webkitRelativePath', {
+                configurable: true,
+                enumerable: true,
+                value: path
+            });
+        } catch {
+            file.webkitRelativePath = path;
+        }
+        return file;
+    }
+
+    /**
+     * @param {{ values?: Function, entries?: Function } | null | undefined} dirHandle
+     * @returns {Promise<object[]>}
+     */
+    async function listDirectoryHandleEntries(dirHandle) {
+        const entries = [];
+        if (!dirHandle) return entries;
+        try {
+            if (typeof dirHandle.values === 'function') {
+                for await (const entry of dirHandle.values()) {
+                    if (entry) entries.push(entry);
+                }
+                return entries;
+            }
+            if (typeof dirHandle.entries === 'function') {
+                for await (const item of dirHandle.entries()) {
+                    const entry = Array.isArray(item) ? item[1] : item;
+                    if (entry) entries.push(entry);
+                }
+            }
+        } catch (err) {
+            console.error('[Flysight] Failed to list directory:', dirHandle.name, err);
+        }
+        return entries;
+    }
+
+    /**
+     * @param {ArrayLike<{ name?: string, kind?: string }> | null | undefined} entries
+     * @returns {object[]}
+     */
+    function sortDirectoryHandleEntries(entries) {
+        const list = Array.from(entries || []).filter(Boolean);
+        const dirs = list.filter(e => e.kind === 'directory');
+        const files = list.filter(e => e.kind !== 'directory');
+        dirs.sort((a, b) => compareNames(a.name, b.name));
+        return [...dirs, ...files];
+    }
+
+    /**
+     * Recursively collect CSV File objects from a FileSystemDirectoryHandle.
+     * Non-CSV entries are skipped by name before they are read.
+     *
+     * @param {{ name?: string, kind?: string, values?: Function, entries?: Function, getFile?: Function } | null | undefined} dirHandle
+     * @returns {Promise<File[]>}
+     */
+    async function collectCsvFilesFromDirectoryHandle(dirHandle) {
+        const files = [];
+        if (!dirHandle) return files;
+
+        async function walk(handle, relDir) {
+            const children = sortDirectoryHandleEntries(await listDirectoryHandleEntries(handle));
+            for (const entry of children) {
+                const rel = relDir ? `${relDir}/${entry.name}` : String(entry.name || '');
+                if (entry.kind === 'directory') {
+                    await walk(entry, rel);
+                    continue;
+                }
+                if (entry.kind !== 'file' || typeof entry.getFile !== 'function') continue;
+                if (!isCsvFile({ name: entry.name })) continue;
+                try {
+                    const file = await entry.getFile();
+                    files.push(withRelativePath(file, rel));
+                } catch (err) {
+                    console.error('[Flysight] Failed to read file:', entry.name, err);
+                }
+            }
+        }
+
+        await walk(dirHandle, dirHandle.name || '');
+        return collectCsvFilesFromFileList(files);
+    }
+
     const Flysight = {
         parseFlysightCsv,
         formatTrackStartTitle,
         isCsvFile,
         collectCsvFilesFromFileList,
         collectCsvFilesFromEntries,
+        collectCsvFilesFromDirectoryHandle,
         analyzeFlysightTrack,
         analyzeFlysightCsv,
         filterPointsByMaxHeight,
