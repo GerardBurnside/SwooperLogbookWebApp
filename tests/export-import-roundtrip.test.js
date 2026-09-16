@@ -292,3 +292,25 @@ test('renumberJumps assigns from starting jump when resequencing is enabled', ()
     logbook.renumberJumps();
     assert.deepEqual(logbook.jumps.map(j => j.jumpNumber), [10, 11]);
 });
+
+test('handleExportClick shows download/share choice only when file sharing is available', () => {
+    const { logbook } = createHeadlessLogbook();
+    logbook.jumps = [{ id: 1 }];
+    let shownChoice = false;
+    let exported = false;
+    logbook.showExportChoiceModal = () => { shownChoice = true; };
+    logbook.exportData = () => { exported = true; };
+    logbook.showMessage = () => {};
+
+    logbook.canShareBackupFile = () => true;
+    logbook.handleExportClick();
+    assert.equal(shownChoice, true);
+    assert.equal(exported, false);
+
+    shownChoice = false;
+    exported = false;
+    logbook.canShareBackupFile = () => false;
+    logbook.handleExportClick();
+    assert.equal(shownChoice, false);
+    assert.equal(exported, true);
+});

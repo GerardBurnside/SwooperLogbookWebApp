@@ -461,9 +461,20 @@ class SkydivingLogbook {
             this.closeModal();
         });
 
-        // Export data
+        // Export data (download, or a download/share choice when sharing is available)
         document.getElementById('exportBtn').addEventListener('click', () => {
+            this.handleExportClick();
+        });
+        document.getElementById('exportChoiceDownloadBtn')?.addEventListener('click', () => {
+            this.closeExportChoiceModal();
             this.exportData();
+        });
+        document.getElementById('exportChoiceShareBtn')?.addEventListener('click', () => {
+            this.closeExportChoiceModal();
+            this.shareDataViaEmail();
+        });
+        document.getElementById('exportChoiceModalClose')?.addEventListener('click', () => {
+            this.closeExportChoiceModal();
         });
 
         // Auto-detect DZ checkbox in the log jump form
@@ -485,20 +496,6 @@ class SkydivingLogbook {
                 localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
                 this.renderJumpsList();
             });
-        }
-
-        // Share backup via native share sheet (e.g. Gmail on Android)
-        document.getElementById('shareBtn').addEventListener('click', () => {
-            this.shareDataViaEmail();
-        });
-        const shareBtn = document.getElementById('shareBtn');
-        const canShareFiles = !!navigator.share && (
-            !navigator.canShare || navigator.canShare({
-                files: [new File(['{}'], 'share-test.json', { type: 'application/json' })]
-            })
-        );
-        if (!canShareFiles) {
-            shareBtn.style.display = 'none';
         }
 
         // Import data
@@ -630,6 +627,10 @@ class SkydivingLogbook {
             const importChoiceModal = document.getElementById('importChoiceModal');
             if (e.target === importChoiceModal) {
                 this.closeImportChoiceModal();
+            }
+            const exportChoiceModal = document.getElementById('exportChoiceModal');
+            if (e.target === exportChoiceModal) {
+                this.closeExportChoiceModal();
             }
             const conflictModal = document.getElementById('conflictModal');
             if (e.target === conflictModal && window.SheetsAPI?._syncConflictPending) {
@@ -7188,6 +7189,40 @@ class SkydivingLogbook {
 
     buildExportFilename() {
         return `skydiving-logbook-backup-${new Date().toISOString().split('T')[0]}.json`;
+    }
+
+    canShareBackupFile() {
+        try {
+            if (!navigator.share) return false;
+            if (!navigator.canShare) return true;
+            return navigator.canShare({
+                files: [new File(['{}'], 'share-test.json', { type: 'application/json' })]
+            });
+        } catch {
+            return false;
+        }
+    }
+
+    handleExportClick() {
+        if (!this.hasExportableData()) {
+            this.showMessage('No data to export', 'error');
+            return;
+        }
+        if (this.canShareBackupFile()) {
+            this.showExportChoiceModal();
+            return;
+        }
+        this.exportData();
+    }
+
+    showExportChoiceModal() {
+        const modal = document.getElementById('exportChoiceModal');
+        if (modal) modal.style.display = 'block';
+    }
+
+    closeExportChoiceModal() {
+        const modal = document.getElementById('exportChoiceModal');
+        if (modal) modal.style.display = 'none';
     }
 
     exportData() {

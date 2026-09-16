@@ -771,6 +771,19 @@
             </div>
         </div>
 
+        <!-- Export: download vs share -->
+        <div id="exportChoiceModal" class="modal">
+            <div class="modal-content">
+                <span id="exportChoiceModalClose" class="close">&times;</span>
+                <h2>Export data</h2>
+                <p class="import-choice-message">Download a backup file to this device, or share it (for example via Gmail or Drive).</p>
+                <div class="import-choice-buttons">
+                    <button type="button" id="exportChoiceDownloadBtn" class="btn-secondary">Download</button>
+                    <button type="button" id="exportChoiceShareBtn" class="btn-primary">Share</button>
+                </div>
+            </div>
+        </div>
+
         <!-- After external CSV import: fill missing jump # range below imported block -->
         <div id="importCsvGapFillModal" class="modal">
             <div class="modal-content import-gap-fill-modal">
@@ -795,7 +808,6 @@
         <footer>
             <button id="settingsBtn" class="btn-secondary">Settings</button>
             <button id="importBtn" class="btn-secondary">Import Data</button>
-            <button id="shareBtn" class="btn-secondary">Share Backup</button>
             <button id="exportBtn" class="btn-secondary">Export Data</button>
             <input type="file" id="importFileInput" accept="application/json,.json,text/csv,.csv" style="display:none;">
         </footer>
