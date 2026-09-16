@@ -202,14 +202,9 @@
                             </div>
                         </div>
                     </div>
-                    <div id="flysightDropZone" class="flysight-drop-zone" tabindex="0" aria-label="Drop Flysight CSV files or folders, or tap to select files">
-                        <p class="flysight-drop-title">Drop CSV files or folders here</p>
-                        <p class="flysight-drop-hint">
-                            or tap to select files, or
-                            <button type="button" id="flysightPickFolderBtn" class="flysight-pick-folder">select a folder</button>
-                        </p>
-                        <input type="file" id="flysightFileInput" accept=".csv,text/csv" multiple hidden>
-                        <input type="file" id="flysightDirInput" accept=".csv,text/csv" webkitdirectory directory multiple hidden>
+                    <div id="flysightDropZone" class="flysight-drop-zone" tabindex="0" aria-label="Drop Flysight CSV files or folders, or tap to browse">
+                        <p class="flysight-drop-title">Drop CSV files or folders here, or tap to browse.</p>
+                        <input type="file" id="flysightDirInput" webkitdirectory directory multiple hidden>
                     </div>
                     <div id="flysightResults" class="flysight-results">
                         <p class="no-items flysight-empty">No files analyzed yet.</p>
@@ -624,6 +619,25 @@
                     <div id="harnessCanopyPieRoot" class="year-stats-pie-root"></div>
                 </div>
                 <p id="harnessCanopyPiePreAppNote" class="harness-canopy-pie-pre-note" hidden></p>
+            </div>
+        </div>
+
+        <!-- Flysight in-app folder / CSV browser (after OS folder grant) -->
+        <div id="flysightBrowserModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="flysightBrowserTitle">
+            <div class="modal-content flysight-browser-modal-content">
+                <span id="flysightBrowserModalClose" class="close" title="Cancel">&times;</span>
+                <h2 id="flysightBrowserTitle">Select Flysight files</h2>
+                <nav id="flysightBrowserCrumbs" class="flysight-browser-crumbs" aria-label="Folder path"></nav>
+                <p id="flysightBrowserHint" class="flysight-browser-hint" hidden>
+                    This snapshot includes the whole folder you granted. Prefer a day folder (for example TRACKS/25-09-16) rather than the Flysight volume root.
+                </p>
+                <div id="flysightBrowserList" class="flysight-browser-list" role="list"></div>
+                <p id="flysightBrowserEmpty" class="flysight-browser-empty" hidden>No folders or CSV files here.</p>
+                <div class="flysight-browser-actions">
+                    <button type="button" id="flysightBrowserChangeFolderBtn" class="btn-secondary flysight-browser-change">Use a different folder</button>
+                    <button type="button" id="flysightBrowserCancelBtn" class="btn-secondary">Cancel</button>
+                    <button type="button" id="flysightBrowserImportBtn" class="btn-primary">Import folder</button>
+                </div>
             </div>
         </div>
 

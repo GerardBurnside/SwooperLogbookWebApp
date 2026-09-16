@@ -761,3 +761,89 @@ test('collectCsvFilesFromDirectoryHandle skips non-csv before reading', async ()
 test('collectCsvFilesFromDirectoryHandle returns empty for missing handles', async () => {
     assert.equal((await F.collectCsvFilesFromDirectoryHandle(null)).length, 0);
 });
+
+test('fileListHasRelativePaths is true only when a folder tree is present', () => {
+    assert.equal(F.fileListHasRelativePaths(null), false);
+    assert.equal(F.fileListHasRelativePaths([{ name: 'a.csv', webkitRelativePath: '' }]), false);
+    assert.equal(F.fileListHasRelativePaths([{ name: 'a.csv', webkitRelativePath: 'a.csv' }]), false);
+    assert.equal(F.fileListHasRelativePaths([
+        { name: 'a.csv', webkitRelativePath: '' },
+        { name: 'b.csv', webkitRelativePath: 'TRACKS/25-09-16/b.csv' }
+    ]), true);
+});
+
+test('buildVirtualTreeFromFileList nests Flysight TRACKS days and hides non-csv', () => {
+    const tree = F.buildVirtualTreeFromFileList([
+        { name: 'CONFIG.TXT', webkitRelativePath: 'TRACKS/CONFIG.TXT' },
+        { name: '09-12-33.CSV', webkitRelativePath: 'TRACKS/25-09-16/09-12-33.CSV' },
+        { name: '08-47-08.CSV', webkitRelativePath: 'TRACKS/25-09-16/08-47-08.CSV' },
+        { name: '10-00-00.csv', webkitRelativePath: 'TRACKS/25-09-17/10-00-00.csv' }
+    ]);
+    assert.equal(tree.name, 'TRACKS');
+    assert.equal(tree.path, 'TRACKS');
+    assert.equal(tree.files.length, 0);
+    assert.equal(tree.dirs.map(d => d.name).join(','), '25-09-16,25-09-17');
+    const listed = F.listVirtualTreeBrowserEntries(tree);
+    assert.equal(listed.dirs.map(d => d.name).join(','), '25-09-16,25-09-17');
+    assert.equal(listed.files.length, 0);
+    const day = tree.dirs[0];
+    assert.equal(day.path, 'TRACKS/25-09-16');
+    assert.equal(day.files.map(f => f.name).join(','), '08-47-08.CSV,09-12-33.CSV');
+    assert.equal(F.countCsvFilesFromVirtualNode(tree), 3);
+    assert.equal(F.countCsvFilesFromVirtualNode(day), 2);
+});
+
+test('collectCsvFilesFromVirtualNode imports the current folder recursively', () => {
+    const tree = F.buildVirtualTreeFromFileList([
+        { name: '08-47-08.CSV', webkitRelativePath: 'TRACKS/25-09-16/08-47-08.CSV' },
+        { name: '09-12-33.CSV', webkitRelativePath: 'TRACKS/25-09-16/09-12-33.CSV' },
+        { name: '10-00-00.csv', webkitRelativePath: 'TRACKS/25-09-17/10-00-00.csv' }
+    ]);
+    const day = tree.dirs.find(d => d.name === '25-09-16');
+    const files = F.collectCsvFilesFromVirtualNode(day);
+    assert.equal(files.map(f => f.name).join(','), '08-47-08.CSV,09-12-33.CSV');
+    const all = F.collectCsvFilesFromVirtualNode(tree);
+    assert.equal(all.map(f => f.name).join(','), '08-47-08.CSV,09-12-33.CSV,10-00-00.csv');
+});
+
+test('buildVirtualTreeFromFileList keeps CSVs at the selected folder root', () => {
+    const tree = F.buildVirtualTreeFromFileList([
+        { name: 'loose.csv', webkitRelativePath: 'TRACKS/loose.csv' },
+        { name: 'a.csv', webkitRelativePath: 'TRACKS/25-09-16/a.csv' }
+    ]);
+    assert.equal(tree.name, 'TRACKS');
+    assert.equal(tree.files.map(f => f.name).join(','), 'loose.csv');
+    assert.equal(tree.dirs.map(d => d.name).join(','), '25-09-16');
+});
+
+test('buildVirtualTreeFromFileList returns an empty root for missing lists', () => {
+    const tree = F.buildVirtualTreeFromFileList(null);
+    assert.equal(tree.dirs.length, 0);
+    assert.equal(tree.files.length, 0);
+    assert.equal(F.collectCsvFilesFromVirtualNode(tree).length, 0);
+});
+
+test('listDirectoryHandleBrowserEntries lists dirs then csv without reading', async () => {
+    const csv = mockFsFileHandle('08-47-08.CSV');
+    const txt = mockFsFileHandle('CONFIG.TXT');
+    const nested = mockFsFileHandle('later.csv');
+    const day = mockFsDirHandle('25-09-16', [nested]);
+    const root = mockFsDirHandle('TRACKS', [txt, csv, day]);
+    const listed = await F.listDirectoryHandleBrowserEntries(root);
+    assert.equal(listed.dirs.map(d => d.name).join(','), '25-09-16');
+    assert.equal(listed.files.map(f => f.name).join(','), '08-47-08.CSV');
+    assert.equal(csv.getFileCount, 0);
+    assert.equal(txt.getFileCount, 0);
+    assert.equal(nested.getFileCount, 0);
+    assert.equal(await F.countCsvFilesFromDirectoryHandle(root), 2);
+});
+
+test('readCsvFilesFromFileHandles reads only the chosen csv handles', async () => {
+    const csv = mockFsFileHandle('08-47-08.CSV');
+    const txt = mockFsFileHandle('CONFIG.TXT');
+    const files = await F.readCsvFilesFromFileHandles([txt, csv], 'TRACKS/25-09-16');
+    assert.equal(files.map(f => f.name).join(','), '08-47-08.CSV');
+    assert.equal(files[0].webkitRelativePath, 'TRACKS/25-09-16/08-47-08.CSV');
+    assert.equal(csv.getFileCount, 1);
+    assert.equal(txt.getFileCount, 0);
+});

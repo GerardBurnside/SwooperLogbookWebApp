@@ -104,6 +104,7 @@ class SkydivingLogbook {
         this._monthLocationPieGroups = new Map();
         this._dayLocationPieGroups = new Map();
         this.flysightFiles = [];
+        this._flysightBrowser = null;
         this._flysightGraph = null;
         this._flysightGraphRo = null;
         this._flysightScrollY = 0;
@@ -665,6 +666,10 @@ class SkydivingLogbook {
             const flysightSettingsModal = document.getElementById('flysightSettingsModal');
             if (e.target === flysightSettingsModal) {
                 this.closeFlysightSettingsModal();
+            }
+            const flysightBrowserModal = document.getElementById('flysightBrowserModal');
+            if (e.target === flysightBrowserModal) {
+                this.closeFlysightBrowserModal();
             }
         });
 
@@ -5348,15 +5353,13 @@ class SkydivingLogbook {
 
     _bindFlysightEvents() {
         const dropZone = document.getElementById('flysightDropZone');
-        const fileInput = document.getElementById('flysightFileInput');
         const dirInput = document.getElementById('flysightDirInput');
-        const pickFolderBtn = document.getElementById('flysightPickFolderBtn');
         const avgSlider = document.getElementById('flysightAvgPoints');
         const maxHeightSlider = document.getElementById('flysightMaxHeight');
         const speedVerticalBtn = document.getElementById('flysightSpeedVertical');
         const speedTotalBtn = document.getElementById('flysightSpeedTotal');
         const speedBothBtn = document.getElementById('flysightSpeedBoth');
-        if (!dropZone || !fileInput || !avgSlider || !maxHeightSlider || !speedVerticalBtn || !speedTotalBtn || !speedBothBtn) return;
+        if (!dropZone || !dirInput || !avgSlider || !maxHeightSlider || !speedVerticalBtn || !speedTotalBtn || !speedBothBtn) return;
 
         avgSlider.value = String(this.flysightAvgPoints);
         this._syncFlysightMaxHeightSlider();
@@ -5365,38 +5368,71 @@ class SkydivingLogbook {
         this._syncFlysightSettingsForm();
         this._bindFlysightSettingsInputs();
 
-        const isFolderPickerTarget = (target) => (
-            target === dirInput || !!(target?.closest?.('#flysightPickFolderBtn'))
-        );
-        const openPicker = () => fileInput.click();
+        const openPicker = () => this._openFlysightFolderPicker();
         dropZone.addEventListener('click', (e) => {
-            if (e.target === fileInput || isFolderPickerTarget(e.target)) return;
+            if (e.target === dirInput) return;
             openPicker();
         });
         dropZone.addEventListener('keydown', (e) => {
-            if (e.target === fileInput || isFolderPickerTarget(e.target)) return;
+            if (e.target === dirInput) return;
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 openPicker();
             }
         });
 
-        fileInput.addEventListener('change', () => {
-            if (fileInput.files?.length) {
-                this._addFlysightFiles(fileInput.files);
-                fileInput.value = '';
-            }
+        dirInput.addEventListener('change', () => {
+            if (!dirInput.files?.length) return;
+            const files = Array.from(dirInput.files);
+            dirInput.value = '';
+            this._onFlysightDirectoryInputFiles(files);
         });
-        pickFolderBtn?.addEventListener('click', (e) => {
+
+        document.getElementById('flysightBrowserModalClose')?.addEventListener('click', () => {
+            this.closeFlysightBrowserModal();
+        });
+        document.getElementById('flysightBrowserCancelBtn')?.addEventListener('click', () => {
+            this.closeFlysightBrowserModal();
+        });
+        document.getElementById('flysightBrowserChangeFolderBtn')?.addEventListener('click', (e) => {
             e.preventDefault();
-            e.stopPropagation();
             this._openFlysightFolderPicker();
         });
-        dirInput?.addEventListener('change', () => {
-            if (dirInput.files?.length) {
-                const files = dirInput.files;
-                dirInput.value = '';
-                this._addFlysightFolderFiles(files);
+        document.getElementById('flysightBrowserImportBtn')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this._importFlysightBrowserSelection();
+        });
+        document.getElementById('flysightBrowserCrumbs')?.addEventListener('click', (e) => {
+            const btn = e.target instanceof Element ? e.target.closest('[data-crumb-index]') : null;
+            if (!btn) return;
+            const idx = parseInt(btn.dataset.crumbIndex, 10);
+            if (Number.isFinite(idx)) this._goToFlysightBrowserCrumb(idx);
+        });
+        document.getElementById('flysightBrowserList')?.addEventListener('click', (e) => {
+            const dirBtn = e.target instanceof Element ? e.target.closest('.flysight-browser-dir-enter') : null;
+            if (!dirBtn) return;
+            e.preventDefault();
+            this._enterFlysightBrowserDir(dirBtn.dataset.dirIndex);
+        });
+        document.getElementById('flysightBrowserList')?.addEventListener('change', (e) => {
+            const input = e.target instanceof HTMLInputElement ? e.target : null;
+            if (!input || !this._flysightBrowser) return;
+            if (input.dataset.dirKey) {
+                this._toggleFlysightBrowserSelection(
+                    input.dataset.dirKey,
+                    input.checked,
+                    'dir',
+                    Number(input.dataset.dirIndex)
+                );
+                return;
+            }
+            if (input.dataset.fileKey) {
+                this._toggleFlysightBrowserSelection(
+                    input.dataset.fileKey,
+                    input.checked,
+                    'file',
+                    Number(input.dataset.fileIndex)
+                );
             }
         });
 
@@ -5517,6 +5553,10 @@ class SkydivingLogbook {
         });
     }
 
+    _clickFlysightDirInput() {
+        document.getElementById('flysightDirInput')?.click();
+    }
+
     async _openFlysightFolderPicker() {
         if (typeof window.showDirectoryPicker === 'function') {
             try {
@@ -5524,38 +5564,364 @@ class SkydivingLogbook {
                     id: 'flysight-csv',
                     mode: 'read'
                 });
-                this._setFlysightEmptyResults('Analysing files');
-                await this._waitForFlysightUiPaint();
-                const files = typeof Flysight !== 'undefined'
-                    ? await Flysight.collectCsvFilesFromDirectoryHandle(dirHandle)
-                    : [];
-                await this._addFlysightFolderFiles(files);
+                await this._openFlysightHandleBrowser(dirHandle);
                 return;
             } catch (err) {
                 if (err && (err.name === 'AbortError' || err.name === 'NotAllowedError')) return;
                 console.error('[Flysight] Directory picker failed:', err);
                 if (err && err.name === 'SecurityError') {
-                    document.getElementById('flysightDirInput')?.click();
+                    this._clickFlysightDirInput();
                     return;
                 }
                 this.showMessage('Could not read that folder.', 'error');
                 return;
             }
         }
-        document.getElementById('flysightDirInput')?.click();
+        this._clickFlysightDirInput();
     }
 
-    async _addFlysightFolderFiles(fileList) {
-        this._setFlysightEmptyResults('Analysing files');
-        await this._waitForFlysightUiPaint();
-        const files = typeof Flysight !== 'undefined'
-            ? Flysight.collectCsvFilesFromFileList(fileList)
-            : [...(fileList || [])].filter(f => /\.csv$/i.test(f.name) || f.type === 'text/csv');
+    _onFlysightDirectoryInputFiles(files) {
+        if (typeof Flysight !== 'undefined' && Flysight.fileListHasRelativePaths(files)) {
+            this._openFlysightVirtualBrowser(files);
+            return;
+        }
+        this._addFlysightFiles(files);
+    }
+
+    _showFlysightBrowserModal() {
+        const modal = document.getElementById('flysightBrowserModal');
+        if (modal) modal.style.display = 'block';
+    }
+
+    closeFlysightBrowserModal() {
+        const modal = document.getElementById('flysightBrowserModal');
+        if (modal) modal.style.display = 'none';
+        this._flysightBrowser = null;
+        const list = document.getElementById('flysightBrowserList');
+        if (list) list.innerHTML = '';
+        const crumbs = document.getElementById('flysightBrowserCrumbs');
+        if (crumbs) crumbs.innerHTML = '';
+        const empty = document.getElementById('flysightBrowserEmpty');
+        if (empty) empty.hidden = true;
+        const hint = document.getElementById('flysightBrowserHint');
+        if (hint) hint.hidden = true;
+    }
+
+    async _openFlysightHandleBrowser(dirHandle) {
+        if (!dirHandle) return;
+        this._flysightBrowser = {
+            kind: 'handle',
+            stack: [{ name: dirHandle.name || 'Folder', handle: dirHandle }],
+            selected: new Map(),
+            listing: { dirs: [], files: [] },
+            csvCount: null,
+            listGen: 0
+        };
+        this._showFlysightBrowserModal();
+        await this._renderFlysightBrowser();
+    }
+
+    _openFlysightVirtualBrowser(fileList) {
+        if (typeof Flysight === 'undefined') {
+            this._addFlysightFiles(fileList);
+            return;
+        }
+        const root = Flysight.buildVirtualTreeFromFileList(fileList);
+        this._flysightBrowser = {
+            kind: 'tree',
+            stack: [{ name: root.name || 'Folder', node: root }],
+            selected: new Map(),
+            listing: { dirs: [], files: [] },
+            csvCount: Flysight.countCsvFilesFromVirtualNode(root),
+            listGen: 0
+        };
+        this._showFlysightBrowserModal();
+        this._renderFlysightBrowser();
+    }
+
+    _flysightBrowserCurrent() {
+        const stack = this._flysightBrowser?.stack;
+        return stack?.length ? stack[stack.length - 1] : null;
+    }
+
+    _flysightBrowserRelDir() {
+        return (this._flysightBrowser?.stack || []).map(s => s.name).filter(Boolean).join('/');
+    }
+
+    _flysightBrowserFileKey(name) {
+        const rel = this._flysightBrowserRelDir();
+        return rel ? `${rel}/${name}` : String(name || '');
+    }
+
+    async _renderFlysightBrowser() {
+        const state = this._flysightBrowser;
+        if (!state || typeof Flysight === 'undefined') return;
+        const gen = ++state.listGen;
+        const current = this._flysightBrowserCurrent();
+        const hint = document.getElementById('flysightBrowserHint');
+        if (hint) hint.hidden = state.kind !== 'tree';
+
+        let dirs = [];
+        let files = [];
+        if (state.kind === 'handle') {
+            const listed = await Flysight.listDirectoryHandleBrowserEntries(current?.handle);
+            if (gen !== state.listGen || this._flysightBrowser !== state) return;
+            dirs = listed.dirs.map((handle, i) => ({
+                index: i,
+                name: handle.name,
+                handle,
+                key: this._flysightBrowserFileKey(handle.name)
+            }));
+            files = listed.files.map((handle, i) => ({
+                index: i,
+                name: handle.name,
+                handle,
+                key: this._flysightBrowserFileKey(handle.name)
+            }));
+            state.csvCount = null;
+            Flysight.countCsvFilesFromDirectoryHandle(current?.handle).then((n) => {
+                if (this._flysightBrowser !== state || state.listGen !== gen) return;
+                state.csvCount = n;
+                this._updateFlysightBrowserImportButton();
+            }).catch((err) => {
+                console.error('[Flysight] Failed to count folder CSVs:', err);
+                if (this._flysightBrowser !== state || state.listGen !== gen) return;
+                state.csvCount = files.length;
+                this._updateFlysightBrowserImportButton();
+            });
+        } else {
+            const listed = Flysight.listVirtualTreeBrowserEntries(current?.node);
+            dirs = listed.dirs.map((node, i) => ({
+                index: i,
+                name: node.name,
+                node,
+                key: this._flysightBrowserFileKey(node.name)
+            }));
+            files = listed.files.map((file, i) => ({
+                index: i,
+                name: file.name,
+                file,
+                key: this._flysightBrowserFileKey(file.name)
+            }));
+            state.csvCount = Flysight.countCsvFilesFromVirtualNode(current?.node);
+        }
+        if (gen !== state.listGen || this._flysightBrowser !== state) return;
+        state.listing = { dirs, files };
+        this._renderFlysightBrowserCrumbs();
+        this._renderFlysightBrowserList();
+        this._updateFlysightBrowserImportButton();
+    }
+
+    _renderFlysightBrowserCrumbs() {
+        const nav = document.getElementById('flysightBrowserCrumbs');
+        const state = this._flysightBrowser;
+        if (!nav || !state) return;
+        const last = state.stack.length - 1;
+        nav.innerHTML = state.stack.map((crumb, i) => {
+            const name = this.escapeHtml(crumb.name || 'Folder');
+            const sep = i ? '<span class="flysight-browser-crumb-sep" aria-hidden="true">/</span>' : '';
+            if (i === last) {
+                return `${sep}<span class="flysight-browser-crumb is-current" aria-current="page">${name}</span>`;
+            }
+            return `${sep}<button type="button" class="flysight-browser-crumb" data-crumb-index="${i}">${name}</button>`;
+        }).join('');
+    }
+
+    _renderFlysightBrowserList() {
+        const list = document.getElementById('flysightBrowserList');
+        const empty = document.getElementById('flysightBrowserEmpty');
+        const state = this._flysightBrowser;
+        if (!list || !state) return;
+        const { dirs, files } = state.listing;
+        if (!dirs.length && !files.length) {
+            list.innerHTML = '';
+            if (empty) empty.hidden = false;
+            return;
+        }
+        if (empty) empty.hidden = true;
+        const dirHtml = dirs.map((dir, i) => {
+            const checked = state.selected?.get(dir.key)?.type === 'dir' ? ' checked' : '';
+            const name = this.escapeHtml(dir.name);
+            const key = this.escapeHtml(dir.key);
+            return `
+            <div class="flysight-browser-dir" role="listitem">
+                <label class="flysight-browser-check">
+                    <input type="checkbox" data-dir-key="${key}" data-dir-index="${i}"${checked} aria-label="Select folder ${name}">
+                </label>
+                <button type="button" class="flysight-browser-dir-enter" data-dir-index="${i}" aria-label="Open folder ${name}">
+                    <span class="flysight-browser-dir-name">${name}</span>
+                    <span class="flysight-browser-dir-chevron" aria-hidden="true">›</span>
+                </button>
+            </div>`;
+        }).join('');
+        const fileHtml = files.map((file, i) => {
+            const checked = state.selected?.get(file.key)?.type === 'file' ? ' checked' : '';
+            return `
+            <label class="flysight-browser-file" role="listitem">
+                <input type="checkbox" data-file-key="${this.escapeHtml(file.key)}" data-file-index="${i}"${checked}>
+                <span class="flysight-browser-file-name">${this.escapeHtml(file.name)}</span>
+            </label>`;
+        }).join('');
+        list.innerHTML = dirHtml + fileHtml;
+    }
+
+    _toggleFlysightBrowserSelection(key, checked, type, index) {
+        const state = this._flysightBrowser;
+        if (!state?.selected || !key) return;
+        if (!checked) {
+            state.selected.delete(key);
+            this._updateFlysightBrowserImportButton();
+            return;
+        }
+        if (type === 'dir') {
+            const dir = state.listing?.dirs?.[index];
+            if (!dir) return;
+            state.selected.set(key, {
+                type: 'dir',
+                name: dir.name,
+                handle: dir.handle,
+                node: dir.node
+            });
+        } else {
+            const file = state.listing?.files?.[index];
+            if (!file) return;
+            state.selected.set(key, {
+                type: 'file',
+                name: file.name,
+                key,
+                handle: file.handle,
+                file: file.file
+            });
+        }
+        this._updateFlysightBrowserImportButton();
+    }
+
+    _flysightBrowserSelectionCounts() {
+        let files = 0;
+        let dirs = 0;
+        const selected = this._flysightBrowser?.selected;
+        if (selected) {
+            for (const item of selected.values()) {
+                if (item.type === 'dir') dirs += 1;
+                else files += 1;
+            }
+        }
+        return { files, dirs };
+    }
+
+    _uniqueFlysightFiles(files) {
+        const seen = new Set();
+        const out = [];
+        for (const file of files || []) {
+            const key = String(file?.webkitRelativePath || file?.name || '');
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            out.push(file);
+        }
+        return out;
+    }
+
+    _updateFlysightBrowserImportButton() {
+        const btn = document.getElementById('flysightBrowserImportBtn');
+        const state = this._flysightBrowser;
+        if (!btn) return;
+        if (!state) {
+            btn.disabled = true;
+            btn.textContent = 'Import folder';
+            return;
+        }
+        const { files, dirs } = this._flysightBrowserSelectionCounts();
+        if (dirs || files) {
+            btn.disabled = false;
+            const parts = [];
+            if (dirs) parts.push(dirs === 1 ? '1 folder' : `${dirs} folders`);
+            if (files) parts.push(files === 1 ? '1 file' : `${files} files`);
+            btn.textContent = `Import ${parts.join(', ')}`;
+            return;
+        }
+        const n = state.csvCount;
+        const maybeNested = (state.listing?.dirs?.length || 0) + (state.listing?.files?.length || 0) > 0;
+        if (n == null) {
+            btn.disabled = !maybeNested;
+            btn.textContent = 'Import folder';
+            return;
+        }
+        btn.textContent = n ? `Import folder (${n} CSV)` : 'Import folder';
+        btn.disabled = n === 0;
+    }
+
+    async _enterFlysightBrowserDir(index) {
+        const state = this._flysightBrowser;
+        const dir = state?.listing?.dirs?.[Number(index)];
+        if (!dir) return;
+        if (state.kind === 'handle') {
+            state.stack.push({ name: dir.name, handle: dir.handle });
+        } else {
+            state.stack.push({ name: dir.name, node: dir.node });
+        }
+        await this._renderFlysightBrowser();
+    }
+
+    async _goToFlysightBrowserCrumb(index) {
+        const state = this._flysightBrowser;
+        if (!state) return;
+        const i = Number(index);
+        if (!Number.isFinite(i) || i < 0 || i >= state.stack.length - 1) return;
+        state.stack = state.stack.slice(0, i + 1);
+        await this._renderFlysightBrowser();
+    }
+
+    _flysightBrowserRelDirOfKey(key) {
+        const path = String(key || '');
+        const i = path.lastIndexOf('/');
+        return i < 0 ? '' : path.slice(0, i);
+    }
+
+    async _importFlysightBrowserSelection() {
+        const state = this._flysightBrowser;
+        if (!state || typeof Flysight === 'undefined') return;
+        const btn = document.getElementById('flysightBrowserImportBtn');
+        if (btn) btn.disabled = true;
+        let files = [];
+        try {
+            const current = this._flysightBrowserCurrent();
+            if (state.selected?.size) {
+                const collected = [];
+                for (const [key, item] of state.selected) {
+                    if (item.type === 'dir') {
+                        if (state.kind === 'handle') {
+                            collected.push(...await Flysight.collectCsvFilesFromDirectoryHandle(item.handle));
+                        } else {
+                            collected.push(...Flysight.collectCsvFilesFromVirtualNode(item.node));
+                        }
+                    } else if (state.kind === 'handle') {
+                        collected.push(...await Flysight.readCsvFilesFromFileHandles(
+                            [item.handle],
+                            this._flysightBrowserRelDirOfKey(item.key || key)
+                        ));
+                    } else if (item.file) {
+                        collected.push(item.file);
+                    }
+                }
+                files = this._uniqueFlysightFiles(collected);
+            } else if (state.kind === 'handle') {
+                files = await Flysight.collectCsvFilesFromDirectoryHandle(current?.handle);
+            } else {
+                files = Flysight.collectCsvFilesFromVirtualNode(current?.node);
+            }
+        } catch (err) {
+            console.error('[Flysight] Failed to collect folder files:', err);
+            this.showMessage('Could not read that folder.', 'error');
+            this._updateFlysightBrowserImportButton();
+            return;
+        }
+        this.closeFlysightBrowserModal();
         if (!files.length) {
-            this._setFlysightEmptyResults('No files analyzed yet.');
             this.showMessage('No CSV files found in that folder.', 'error');
             return;
         }
+        this._setFlysightEmptyResults('Analysing files');
+        await this._waitForFlysightUiPaint();
         await this._addFlysightFiles(files);
     }
 

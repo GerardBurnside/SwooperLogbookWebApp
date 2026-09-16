@@ -2667,33 +2667,174 @@ footer.legal-footer a {
 .flysight-drop-title {
     font-weight: 600;
     color: #1565C0;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0;
 }
 
-.flysight-drop-hint {
-    font-size: 0.85rem;
-    color: #666;
-    margin: 0;
+.flysight-browser-modal-content {
+    max-width: 480px;
 }
 
-.flysight-pick-folder {
-    display: inline-block;
-    padding: 0.35rem 0.1rem;
-    margin: 0;
+.flysight-browser-crumbs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.15rem 0.25rem;
+    font-size: 0.9rem;
+    color: #1565C0;
+    margin: 0.35rem 0 0.5rem;
+}
+
+.flysight-browser-crumb {
     border: none;
     background: none;
+    padding: 0.15rem 0.2rem;
     color: #1565C0;
     font: inherit;
-    font-size: inherit;
     font-weight: 600;
+    cursor: pointer;
     text-decoration: underline;
+}
+
+.flysight-browser-crumb:hover,
+.flysight-browser-crumb:focus {
+    color: #0d47a1;
+    outline: none;
+}
+
+.flysight-browser-crumb.is-current {
+    color: #333;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: default;
+}
+
+.flysight-browser-crumb-sep {
+    color: #90a4ae;
+    user-select: none;
+}
+
+.flysight-browser-hint {
+    font-size: 0.82rem;
+    line-height: 1.4;
+    color: #666;
+    margin: 0 0 0.5rem;
+}
+
+.flysight-browser-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    max-height: min(50vh, 24rem);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0.5rem 0;
+}
+
+.flysight-browser-dir,
+.flysight-browser-file {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    width: 100%;
+    text-align: left;
+    padding: 0.7rem 0.75rem;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    background: #fff;
+    font: inherit;
+    color: #333;
     cursor: pointer;
 }
 
-.flysight-pick-folder:hover,
-.flysight-pick-folder:focus {
-    color: #0d47a1;
+.flysight-browser-dir {
+    padding: 0;
+    gap: 0;
+    cursor: default;
+}
+
+.flysight-browser-dir:hover,
+.flysight-browser-file:hover {
+    border-color: #90caf9;
+    background: #f8fbff;
+}
+
+.flysight-browser-check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.7rem 0.75rem;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.flysight-browser-dir-enter {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 0.7rem 0.75rem 0.7rem 0.15rem;
+    border: none;
+    background: none;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    text-align: left;
+}
+
+.flysight-browser-dir-enter:hover,
+.flysight-browser-dir-enter:focus {
     outline: none;
+}
+
+.flysight-browser-dir-name,
+.flysight-browser-file-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.flysight-browser-dir-chevron {
+    color: #90a4ae;
+    font-size: 1.1rem;
+    line-height: 1;
+}
+
+.flysight-browser-file input,
+.flysight-browser-check input {
+    width: auto;
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.flysight-browser-empty {
+    text-align: center;
+    color: #888;
+    font-size: 0.9rem;
+    margin: 0.75rem 0;
+}
+
+.flysight-browser-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.flysight-browser-change {
+    width: 100%;
+}
+
+.flysight-browser-actions .btn-primary {
+    width: auto;
+    flex: 1 1 140px;
+}
+
+.flysight-browser-actions .btn-secondary:not(.flysight-browser-change) {
+    flex: 0 0 auto;
 }
 
 .flysight-results {

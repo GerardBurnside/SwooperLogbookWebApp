@@ -1114,6 +1114,187 @@
         return collectCsvFilesFromFileList(files);
     }
 
+    /**
+     * True when a directory input (or similar) produced a folder tree
+     * (`selectedFolder/.../file.csv`). A flat file picker leaves this empty.
+     * @param {ArrayLike<{ webkitRelativePath?: string }> | null | undefined} fileList
+     * @returns {boolean}
+     */
+    function fileListHasRelativePaths(fileList) {
+        if (!fileList || typeof fileList.length !== 'number') return false;
+        return Array.from(fileList).some(file => relativePathOf(file).includes('/'));
+    }
+
+    /**
+     * @param {{ webkitRelativePath?: string, name?: string }} file
+     * @returns {string[]}
+     */
+    function relativePathParts(file) {
+        const rel = relativePathOf(file);
+        if (rel) return rel.split('/').filter(Boolean);
+        const name = String(file?.name || '');
+        return name ? [name] : [];
+    }
+
+    /**
+     * @param {string} name
+     * @param {string} path
+     * @returns {{ name: string, path: string, dirs: Record<string, object>, files: object[] }}
+     */
+    function emptyVirtualNode(name, path) {
+        return { name: String(name || ''), path: String(path || ''), dirs: Object.create(null), files: [] };
+    }
+
+    /**
+     * @param {{ name: string, path: string, dirs: Record<string, object> | object[], files: object[] }} node
+     * @returns {{ name: string, path: string, dirs: object[], files: object[] }}
+     */
+    function freezeVirtualNode(node) {
+        const dirList = Array.isArray(node.dirs)
+            ? node.dirs.slice()
+            : Object.keys(node.dirs || {}).map(key => node.dirs[key]);
+        dirList.sort((a, b) => compareNames(a.name, b.name));
+        const files = (node.files || []).slice().sort((a, b) => compareNames(a.name, b.name));
+        return {
+            name: node.name,
+            path: node.path,
+            dirs: dirList.map(freezeVirtualNode),
+            files
+        };
+    }
+
+    /**
+     * Build a navigable folder tree from `<input webkitdirectory>` files.
+     * CSVs only; the selected-folder prefix becomes the root when present.
+     *
+     * @param {ArrayLike<{ name?: string, type?: string, webkitRelativePath?: string }> | null | undefined} fileList
+     * @returns {{ name: string, path: string, dirs: object[], files: object[] }}
+     */
+    function buildVirtualTreeFromFileList(fileList) {
+        const csvs = collectCsvFilesFromFileList(fileList);
+        const root = emptyVirtualNode('', '');
+        for (const file of csvs) {
+            const parts = relativePathParts(file);
+            if (!parts.length) continue;
+            let node = root;
+            const dirParts = parts.slice(0, -1);
+            const pathParts = [];
+            for (const part of dirParts) {
+                pathParts.push(part);
+                if (!node.dirs[part]) {
+                    node.dirs[part] = emptyVirtualNode(part, pathParts.join('/'));
+                }
+                node = node.dirs[part];
+            }
+            node.files.push(file);
+        }
+        const topNames = Object.keys(root.dirs);
+        const start = (!root.files.length && topNames.length === 1)
+            ? root.dirs[topNames[0]]
+            : root;
+        if (!start.name && topNames.length) start.name = topNames[0];
+        return freezeVirtualNode(start);
+    }
+
+    /**
+     * One-level listing for the in-app folder browser: directories first, then CSVs.
+     * @param {{ dirs?: object[], files?: object[] } | null | undefined} node
+     * @returns {{ dirs: object[], files: object[] }}
+     */
+    function listVirtualTreeBrowserEntries(node) {
+        if (!node) return { dirs: [], files: [] };
+        return {
+            dirs: Array.from(node.dirs || []),
+            files: Array.from(node.files || [])
+        };
+    }
+
+    /**
+     * All CSV File objects under this virtual node, nested folders included.
+     * @param {{ dirs?: object[], files?: object[] } | null | undefined} node
+     * @returns {object[]}
+     */
+    function collectCsvFilesFromVirtualNode(node) {
+        const files = [];
+        function walk(n) {
+            if (!n) return;
+            for (const dir of n.dirs || []) walk(dir);
+            files.push(...(n.files || []));
+        }
+        walk(node);
+        return collectCsvFilesFromFileList(files);
+    }
+
+    /**
+     * @param {{ dirs?: object[], files?: object[] } | null | undefined} node
+     * @returns {number}
+     */
+    function countCsvFilesFromVirtualNode(node) {
+        if (!node) return 0;
+        let n = (node.files || []).length;
+        for (const dir of node.dirs || []) n += countCsvFilesFromVirtualNode(dir);
+        return n;
+    }
+
+    /**
+     * One-level File System Access listing: directories first, CSV handles only.
+     * Does not call `getFile()`.
+     *
+     * @param {{ values?: Function, entries?: Function } | null | undefined} dirHandle
+     * @returns {Promise<{ dirs: object[], files: object[] }>}
+     */
+    async function listDirectoryHandleBrowserEntries(dirHandle) {
+        const children = sortDirectoryHandleEntries(await listDirectoryHandleEntries(dirHandle));
+        const dirs = children.filter(e => e.kind === 'directory');
+        const files = children.filter(e => e.kind === 'file' && isCsvFile({ name: e.name }));
+        return { dirs, files };
+    }
+
+    /**
+     * Count CSV names under a directory handle without reading file bytes.
+     * @param {{ values?: Function, entries?: Function } | null | undefined} dirHandle
+     * @returns {Promise<number>}
+     */
+    async function countCsvFilesFromDirectoryHandle(dirHandle) {
+        let count = 0;
+        if (!dirHandle) return count;
+        async function walk(handle) {
+            const children = sortDirectoryHandleEntries(await listDirectoryHandleEntries(handle));
+            for (const entry of children) {
+                if (entry.kind === 'directory') {
+                    await walk(entry);
+                    continue;
+                }
+                if (entry.kind === 'file' && isCsvFile({ name: entry.name })) count += 1;
+            }
+        }
+        await walk(dirHandle);
+        return count;
+    }
+
+    /**
+     * Read chosen CSV handles (used when the browser modal has files checked).
+     * @param {ArrayLike<{ name?: string, getFile?: Function }> | null | undefined} fileHandles
+     * @param {string} [relDir]
+     * @returns {Promise<File[]>}
+     */
+    async function readCsvFilesFromFileHandles(fileHandles, relDir) {
+        const files = [];
+        if (!fileHandles || typeof fileHandles.length !== 'number') return files;
+        for (const handle of fileHandles) {
+            if (!handle || typeof handle.getFile !== 'function') continue;
+            if (!isCsvFile({ name: handle.name })) continue;
+            try {
+                const file = await handle.getFile();
+                const rel = relDir ? `${relDir}/${handle.name}` : String(handle.name || '');
+                files.push(withRelativePath(file, rel));
+            } catch (err) {
+                console.error('[Flysight] Failed to read file:', handle.name, err);
+            }
+        }
+        return collectCsvFilesFromFileList(files);
+    }
+
     const Flysight = {
         parseFlysightCsv,
         formatTrackStartTitle,
@@ -1121,6 +1302,16 @@
         collectCsvFilesFromFileList,
         collectCsvFilesFromEntries,
         collectCsvFilesFromDirectoryHandle,
+        listDirectoryHandleEntries,
+        sortDirectoryHandleEntries,
+        listDirectoryHandleBrowserEntries,
+        countCsvFilesFromDirectoryHandle,
+        readCsvFilesFromFileHandles,
+        fileListHasRelativePaths,
+        buildVirtualTreeFromFileList,
+        listVirtualTreeBrowserEntries,
+        collectCsvFilesFromVirtualNode,
+        countCsvFilesFromVirtualNode,
         analyzeFlysightTrack,
         analyzeFlysightCsv,
         filterPointsByMaxHeight,
