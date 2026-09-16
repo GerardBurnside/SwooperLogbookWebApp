@@ -202,10 +202,22 @@
                             </div>
                         </div>
                     </div>
-                    <div id="flysightDropZone" class="flysight-drop-zone" tabindex="0" role="button" aria-label="Select or drop Flysight CSV files">
-                        <p class="flysight-drop-title">Drop CSV files here</p>
-                        <p class="flysight-drop-hint">or tap to select one or more Flysight tracks</p>
+                    <div id="flysightDropZone" class="flysight-drop-zone" tabindex="0" aria-label="Drop Flysight CSV files or folders, or tap to select files">
+                        <p class="flysight-drop-title">Drop CSV files or folders here</p>
+                        <p class="flysight-drop-hint">
+                            or tap to select files, or
+                            <button type="button" id="flysightPickFolderBtn" class="flysight-pick-folder">select folders</button>
+                        </p>
                         <input type="file" id="flysightFileInput" accept=".csv,text/csv" multiple hidden>
+                        <input type="file" id="flysightDirInput" webkitdirectory directory multiple hidden>
+                    </div>
+                    <div id="flysightFolderPickBar" class="flysight-folder-pick-bar" hidden>
+                        <p id="flysightFolderPickStatus" class="flysight-folder-pick-status">No folders selected yet.</p>
+                        <div class="flysight-folder-pick-actions">
+                            <button type="button" id="flysightFolderPickAdd" class="flysight-folder-pick-add">Add another folder</button>
+                            <button type="button" id="flysightFolderPickDone" class="flysight-folder-pick-done">Load</button>
+                            <button type="button" id="flysightFolderPickCancel" class="flysight-folder-pick-cancel">Cancel</button>
+                        </div>
                     </div>
                     <div id="flysightResults" class="flysight-results">
                         <p class="no-items flysight-empty">No files analyzed yet.</p>
@@ -644,17 +656,17 @@
                 </div>
                 <div class="form-group">
                     <label for="flysightCursorBDiveAngle">Cursor B dive-angle threshold</label>
-                    <small class="flysight-settings-help">Cursor B marks the end of the recovery arc. Starting from cursor A and moving toward landing, one candidate for B is the first sample whose dive angle (from horizontal) falls below this value. Default: 5°.</small>
+                    <small class="flysight-settings-help">Cursor B marks the end of the recovery arc. Starting from cursor A toward landing, one condition is the first sample whose dive angle (from horizontal) falls below this value. Set to 0 to ignore dive angle. When both this and the near-ground sample count are non-zero, B is placed only once both conditions have been met (the later of the two). Default: 5.5°.</small>
                     <div class="flysight-settings-unit-row">
-                        <input type="number" id="flysightCursorBDiveAngle" value="5" min="0" max="90" step="0.5" inputmode="decimal">
+                        <input type="number" id="flysightCursorBDiveAngle" value="5.5" min="0" max="90" step="0.5" inputmode="decimal">
                         <span>°</span>
                     </div>
                 </div>
                 <div class="form-group">
                     <label for="flysightCursorBAltTicks">Cursor B near-ground samples</label>
-                    <small class="flysight-settings-help">The other candidate for cursor B is the first sample where height AGL has stayed below 2 m for this many consecutive GPS samples. Cursor B is placed at the later of the dive-angle and near-ground conditions. Default: 2 samples.</small>
+                    <small class="flysight-settings-help">Starting from cursor A toward landing in normal time order, the other condition is the x-th consecutive GPS sample whose height AGL is below 2.49 m — not the first sample that drops below 2.49 m. Set to 0 to ignore near-ground. When both this and the dive-angle threshold are non-zero, B is the later of the two. Default: 2 samples.</small>
                     <div class="flysight-settings-unit-row">
-                        <input type="number" id="flysightCursorBAltTicks" value="2" min="1" max="100" step="1" inputmode="numeric">
+                        <input type="number" id="flysightCursorBAltTicks" value="2" min="0" max="100" step="1" inputmode="numeric">
                         <span>samples</span>
                     </div>
                 </div>

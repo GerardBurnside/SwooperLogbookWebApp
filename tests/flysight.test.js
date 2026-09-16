@@ -333,29 +333,30 @@ test('buildSwoopCursorSeries ends at first 2s of still position, then 25s before
     }
     const { samples, error } = F.buildSwoopCursorSeries(points, 1, 25);
     assert.equal(error, undefined);
-    const endTime = Date.parse(samples[0].time);
+    const endTime = Date.parse(samples[samples.length - 1].time);
     const stillStart = Date.parse(points[400].time);
     assert.ok(Math.abs(endTime - stillStart) < 1000);
-    assert.ok(samples[samples.length - 1].tRev > 24);
-    assert.ok(samples[samples.length - 1].tRev <= 25.05);
+    assert.ok(samples[0].tRev > 24);
+    assert.ok(samples[0].tRev <= 25.05);
     const lastTrackTime = Date.parse(points[points.length - 1].time);
     assert.ok(endTime < lastTrackTime - 5000);
 });
 
-test('buildSwoopCursorSeries reverses last 25s so index 0 is landing', () => {
+test('buildSwoopCursorSeries keeps last 25s in chronological order, ending at landing', () => {
     const csv = fs.readFileSync(path.join(__dirname, '..', '12-21-30.CSV'), 'utf8');
     const { points, error } = F.parseFlysightCsv(csv);
     assert.equal(error, undefined);
     const { samples } = F.buildSwoopCursorSeries(points, 5, 25);
     assert.ok(samples.length > 50);
-    assert.ok(samples[0].tRev < samples[samples.length - 1].tRev);
-    assert.ok(samples[0].tRev < 0.2);
-    assert.ok(samples[0].velD < 1);
-    assert.ok(Number.isFinite(samples[0].hMSL));
+    const last = samples[samples.length - 1];
+    assert.ok(samples[0].tRev > last.tRev);
+    assert.ok(last.tRev < 0.2);
+    assert.ok(last.velD < 1);
+    assert.ok(Number.isFinite(last.hMSL));
     const lastTrackTime = Date.parse(points[points.length - 1].time);
-    const landingTime = Date.parse(samples[0].time);
+    const landingTime = Date.parse(last.time);
     assert.ok(landingTime < lastTrackTime - 1500);
-    assert.ok(samples[samples.length - 1].tRev <= 25.05);
+    assert.ok(samples[0].tRev <= 25.05);
 });
 
 test('buildSwoopCursorSeries is not clipped by the analysis max-height ceiling', () => {
@@ -368,8 +369,8 @@ test('buildSwoopCursorSeries is not clipped by the analysis max-height ceiling',
     const clippedSpan = (cutoff - Date.parse(firstBelow500.time)) / 1000;
     assert.ok(clippedSpan < 24, `height-filtered lookback should be under 25s (${clippedSpan})`);
     const { samples } = F.buildSwoopCursorSeries(points, 5);
-    assert.ok(samples[samples.length - 1].tRev > 24);
-    assert.ok(samples[samples.length - 1].tRev <= 25.05);
+    assert.ok(samples[0].tRev > 24);
+    assert.ok(samples[0].tRev <= 25.05);
 });
 
 test('defaultSwoopCursorIndices: A is first strong flattening after peak velD', () => {
@@ -377,20 +378,22 @@ test('defaultSwoopCursorIndices: A is first strong flattening after peak velD', 
     const { points } = F.parseFlysightCsv(csv);
     const { samples } = F.buildSwoopCursorSeries(points, 5);
     const { idxA, idxB, peakVelD } = F.defaultSwoopCursorIndices(samples);
-    assert.ok(idxB < idxA);
+    assert.ok(idxB > idxA);
     const ground = samples.reduce((min, s) => (Number.isFinite(s.hMSL) && s.hMSL < min ? s.hMSL : min), Infinity);
     assert.ok(
         samples[idxB].diveAngleDeg < F.CURSOR_B_DIVE_ANGLE_DEG
         || samples[idxB].hMSL - ground < F.CURSOR_B_AGL_M
     );
     const peakIdx = F.lastSignificantVelDPeakIdx(samples);
-    assert.ok(idxA <= peakIdx);
-    if (idxA < peakIdx) {
+    assert.ok(idxA >= peakIdx);
+    if (idxA > peakIdx) {
         assert.ok(samples[idxA].flatteningDegS <= -F.CURSOR_A_FLATTENING_DEG_S);
-        if (idxA >= 2) assert.ok(samples[idxA - 1].flatteningDegS <= -F.CURSOR_A_FLATTENING_DEG_S);
-        for (let i = peakIdx - 1; i > idxA; i--) {
+        if (idxA + 1 < samples.length) {
+            assert.ok(samples[idxA + 1].flatteningDegS <= -F.CURSOR_A_FLATTENING_DEG_S);
+        }
+        for (let i = peakIdx + 1; i < idxA; i++) {
             const strong = samples[i].flatteningDegS <= -F.CURSOR_A_FLATTENING_DEG_S
-                && (i < 2 || samples[i - 1].flatteningDegS <= -F.CURSOR_A_FLATTENING_DEG_S);
+                && (i + 1 >= samples.length || samples[i + 1].flatteningDegS <= -F.CURSOR_A_FLATTENING_DEG_S);
             assert.equal(strong, false);
         }
     }
@@ -406,19 +409,19 @@ test('maxVelDIdx is the first sample with the highest velD', () => {
 
 test('lastSignificantVelDPeakIdx prefers a later near-max peak over an earlier taller one', () => {
     const samples = [
-        { velD: 1, flatteningDegS: 0, hMSL: 100, diveAngleDeg: 1 },
-        { velD: 8, flatteningDegS: -22, hMSL: 101, diveAngleDeg: 8 },
-        { velD: 20, flatteningDegS: -22, hMSL: 110, diveAngleDeg: 20 },
-        { velD: 41, flatteningDegS: -5, hMSL: 140, diveAngleDeg: 70 },
-        { velD: 35, flatteningDegS: 8, hMSL: 160, diveAngleDeg: 60 },
-        { velD: 40, flatteningDegS: -18, hMSL: 180, diveAngleDeg: 75 },
-        { velD: 42, flatteningDegS: -16, hMSL: 200, diveAngleDeg: 78 },
+        { velD: 38, flatteningDegS: 5, hMSL: 240, diveAngleDeg: 70 },
         { velD: 44, flatteningDegS: 2, hMSL: 220, diveAngleDeg: 80 },
-        { velD: 38, flatteningDegS: 5, hMSL: 240, diveAngleDeg: 70 }
+        { velD: 42, flatteningDegS: -16, hMSL: 200, diveAngleDeg: 78 },
+        { velD: 40, flatteningDegS: -18, hMSL: 180, diveAngleDeg: 75 },
+        { velD: 35, flatteningDegS: 8, hMSL: 160, diveAngleDeg: 60 },
+        { velD: 41, flatteningDegS: -5, hMSL: 140, diveAngleDeg: 70 },
+        { velD: 20, flatteningDegS: -22, hMSL: 110, diveAngleDeg: 20 },
+        { velD: 8, flatteningDegS: -22, hMSL: 101, diveAngleDeg: 8 },
+        { velD: 1, flatteningDegS: 0, hMSL: 100, diveAngleDeg: 1 }
     ];
-    assert.equal(F.lastSignificantVelDPeakIdx(samples), 3);
+    assert.equal(F.lastSignificantVelDPeakIdx(samples), 5);
     const { idxA } = F.defaultSwoopCursorIndices(samples);
-    assert.equal(idxA, 2);
+    assert.equal(idxA, 6);
 });
 
 test('defaultSwoopCursorIndices A uses the later velD peak on 10-33-00', () => {
@@ -434,7 +437,7 @@ test('defaultSwoopCursorIndices A uses the later velD peak on 10-33-00', () => {
     }
     assert.ok(samples[peakIdx].tRev < samples[globalIdx].tRev - 1.5);
     assert.ok(samples[peakIdx].velD >= samples[globalIdx].velD * F.CURSOR_A_PEAK_FRACTION);
-    assert.ok(idxA <= peakIdx);
+    assert.ok(idxA >= peakIdx);
     const aglA = samples[idxA].hMSL - ground;
     assert.ok(aglA > 50 && aglA < 90, `A AGL ${aglA}`);
     assert.ok(samples[idxA].tRev > 9.5 && samples[idxA].tRev < 11);
@@ -466,99 +469,249 @@ test('timeAloftSec is seconds from B to the stationary cutoff', () => {
 
 test('defaultSwoopCursorIndices places B after A when AGL stays below 2m', () => {
     const samples = [
-        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 90 },
-        { velD: 0.8, flatteningDegS: -5, hMSL: 100.4, diveAngleDeg: 90 },
-        { velD: 12, flatteningDegS: -22, hMSL: 101.5, diveAngleDeg: 90 },
-        { velD: 20, flatteningDegS: -18, hMSL: 110, diveAngleDeg: 90 },
+        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 90 },
         { velD: 24, flatteningDegS: -4, hMSL: 130, diveAngleDeg: 90 },
-        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 90 }
+        { velD: 20, flatteningDegS: -18, hMSL: 110, diveAngleDeg: 90 },
+        { velD: 12, flatteningDegS: -22, hMSL: 101.5, diveAngleDeg: 90 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 100.4, diveAngleDeg: 90 },
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 90 }
     ];
     const { idxA, idxB } = F.defaultSwoopCursorIndices(samples, 5, 1);
-    assert.equal(idxA, 3);
-    assert.equal(idxB, 2);
-    assert.ok(idxB < idxA);
+    assert.equal(idxA, 2);
+    assert.equal(idxB, 3);
+    assert.ok(idxB > idxA);
 });
 
 test('defaultSwoopCursorIndices B altitude-tick threshold is configurable', () => {
     const samples = [
-        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 90 },
-        { velD: 0.8, flatteningDegS: -5, hMSL: 100.4, diveAngleDeg: 90 },
-        { velD: 12, flatteningDegS: -22, hMSL: 101.5, diveAngleDeg: 90 },
-        { velD: 20, flatteningDegS: -18, hMSL: 110, diveAngleDeg: 90 },
+        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 90 },
         { velD: 24, flatteningDegS: -4, hMSL: 130, diveAngleDeg: 90 },
-        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 90 }
+        { velD: 20, flatteningDegS: -18, hMSL: 110, diveAngleDeg: 90 },
+        { velD: 12, flatteningDegS: -22, hMSL: 101.5, diveAngleDeg: 90 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 100.4, diveAngleDeg: 90 },
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 90 }
     ];
-    assert.equal(F.defaultSwoopCursorIndices(samples, 5, 1).idxB, 2);
-    assert.equal(F.defaultSwoopCursorIndices(samples, 5, 2).idxB, 1);
-    assert.equal(F.defaultSwoopCursorIndices(samples, 5, 3).idxB, 0);
+    // First sample below 2.49 m AGL (from A toward landing) is index 3.
+    // x=1 is that first sample; x=2 and x=3 are later samples, not index 3.
+    assert.equal(F.defaultSwoopCursorIndices(samples, 5, 1).idxB, 3);
+    assert.equal(F.defaultSwoopCursorIndices(samples, 5, 2).idxB, 4);
+    assert.equal(F.defaultSwoopCursorIndices(samples, 5, 3).idxB, 5);
+});
+
+test('defaultSwoopCursorIndices B treats AGL below 2.49 m as near-ground', () => {
+    // Flare altitudes from 08-47-08.CSV. 2.494 m is not below 2.49 m;
+    // 2.280 m is the first near-ground sample, so ticks=2 places B at 2.142 m.
+    const samples = [
+        { velD: 25, flatteningDegS: 1, hMSL: 160, diveAngleDeg: 90 },
+        { velD: 20, flatteningDegS: -18, hMSL: 140, diveAngleDeg: 90 },
+        { velD: 12, flatteningDegS: -22, hMSL: 130, diveAngleDeg: 90 },
+        { velD: 2.42, flatteningDegS: 0, hMSL: 120.638, diveAngleDeg: 90 },
+        { velD: 1.69, flatteningDegS: 0, hMSL: 120.424, diveAngleDeg: 90 },
+        { velD: 1.06, flatteningDegS: 0, hMSL: 120.286, diveAngleDeg: 90 },
+        { velD: 0.59, flatteningDegS: 0, hMSL: 120.204, diveAngleDeg: 90 },
+        { velD: 0.45, flatteningDegS: 0, hMSL: 120.182, diveAngleDeg: 90 },
+        { velD: 0.34, flatteningDegS: 0, hMSL: 120.150, diveAngleDeg: 90 },
+        { velD: 0.20, flatteningDegS: 0, hMSL: 120.126, diveAngleDeg: 90 },
+        { velD: 0.12, flatteningDegS: 0, hMSL: 120.120, diveAngleDeg: 90 },
+        { velD: 0.2, flatteningDegS: 0, hMSL: 118.144, diveAngleDeg: 90 }
+    ];
+    const { idxA, idxB } = F.defaultSwoopCursorIndices(samples, 5, 2);
+    assert.equal(idxA, 1);
+    assert.equal(idxB, 5);
+    const ground = 118.144;
+    assert.ok(samples[idxB].hMSL - ground < F.CURSOR_B_AGL_M);
+    assert.ok(samples[idxB - 1].hMSL - ground < F.CURSOR_B_AGL_M);
+    assert.ok(samples[idxB - 2].hMSL - ground >= F.CURSOR_B_AGL_M);
 });
 
 test('defaultSwoopCursorIndices B ignores brief AGL dips shorter than x ticks', () => {
     const samples = [
-        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 90 },
-        { velD: 0.3, flatteningDegS: 0, hMSL: 100.2, diveAngleDeg: 90 },
-        { velD: 0.4, flatteningDegS: 0, hMSL: 100.5, diveAngleDeg: 90 },
-        { velD: 0.5, flatteningDegS: 0, hMSL: 103.0, diveAngleDeg: 90 },
-        { velD: 0.8, flatteningDegS: -5, hMSL: 101.2, diveAngleDeg: 90 },
-        { velD: 12, flatteningDegS: -22, hMSL: 108, diveAngleDeg: 90 },
+        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 90 },
         { velD: 20, flatteningDegS: -18, hMSL: 120, diveAngleDeg: 90 },
-        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 90 }
+        { velD: 12, flatteningDegS: -22, hMSL: 108, diveAngleDeg: 90 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 101.2, diveAngleDeg: 90 },
+        { velD: 0.5, flatteningDegS: 0, hMSL: 103.0, diveAngleDeg: 90 },
+        { velD: 0.4, flatteningDegS: 0, hMSL: 100.5, diveAngleDeg: 90 },
+        { velD: 0.3, flatteningDegS: 0, hMSL: 100.2, diveAngleDeg: 90 },
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 90 }
     ];
     const { idxA, idxB } = F.defaultSwoopCursorIndices(samples, 5, 2);
-    assert.equal(idxA, 6);
-    assert.equal(idxB, 1);
+    assert.equal(idxA, 1);
+    assert.equal(idxB, 6);
 });
 
-test('defaultSwoopCursorIndices places B after A when dive angle drops below 5°', () => {
+test('defaultSwoopCursorIndices places B after A when dive angle drops below 5.5°', () => {
     const samples = [
-        { velD: 0.2, flatteningDegS: 0, hMSL: 100, diveAngleDeg: 0.5 },
-        { velD: 0.8, flatteningDegS: -5, hMSL: 150, diveAngleDeg: 4 },
-        { velD: 12, flatteningDegS: -22, hMSL: 160, diveAngleDeg: 15 },
-        { velD: 20, flatteningDegS: -18, hMSL: 170, diveAngleDeg: 40 },
+        { velD: 25, flatteningDegS: 1, hMSL: 190, diveAngleDeg: 60 },
         { velD: 24, flatteningDegS: -4, hMSL: 180, diveAngleDeg: 55 },
-        { velD: 25, flatteningDegS: 1, hMSL: 190, diveAngleDeg: 60 }
+        { velD: 20, flatteningDegS: -18, hMSL: 170, diveAngleDeg: 40 },
+        { velD: 12, flatteningDegS: -22, hMSL: 160, diveAngleDeg: 15 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 150, diveAngleDeg: 4 },
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100, diveAngleDeg: 0.5 }
     ];
-    const { idxA, idxB } = F.defaultSwoopCursorIndices(samples, 5, 20);
-    assert.equal(idxA, 3);
-    assert.equal(idxB, 1);
+    const { idxA, idxB } = F.defaultSwoopCursorIndices(samples, F.CURSOR_B_DIVE_ANGLE_DEG, 20);
+    assert.equal(idxA, 2);
+    assert.equal(idxB, 4);
 });
 
 test('defaultSwoopCursorIndices B dive-angle threshold is configurable', () => {
     const samples = [
-        { velD: 0.2, flatteningDegS: 0, hMSL: 100, diveAngleDeg: 0.5 },
-        { velD: 0.8, flatteningDegS: -5, hMSL: 150, diveAngleDeg: 4 },
-        { velD: 12, flatteningDegS: -22, hMSL: 160, diveAngleDeg: 15 },
-        { velD: 20, flatteningDegS: -18, hMSL: 170, diveAngleDeg: 40 },
+        { velD: 25, flatteningDegS: 1, hMSL: 190, diveAngleDeg: 60 },
         { velD: 24, flatteningDegS: -4, hMSL: 180, diveAngleDeg: 55 },
-        { velD: 25, flatteningDegS: 1, hMSL: 190, diveAngleDeg: 60 }
+        { velD: 20, flatteningDegS: -18, hMSL: 170, diveAngleDeg: 40 },
+        { velD: 12, flatteningDegS: -22, hMSL: 160, diveAngleDeg: 15 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 150, diveAngleDeg: 4 },
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100, diveAngleDeg: 0.5 }
     ];
-    assert.equal(F.defaultSwoopCursorIndices(samples, 5, 20).idxB, 1);
-    assert.equal(F.defaultSwoopCursorIndices(samples, 16, 20).idxB, 2);
-    assert.equal(F.defaultSwoopCursorIndices(samples, 1, 20).idxB, 0);
+    assert.equal(F.defaultSwoopCursorIndices(samples, 5.5, 20).idxB, 4);
+    assert.equal(F.defaultSwoopCursorIndices(samples, 16, 20).idxB, 3);
+    assert.equal(F.defaultSwoopCursorIndices(samples, 1, 20).idxB, 5);
 });
 
-test('defaultSwoopCursorIndices B is the later of dive-angle and below-2m', () => {
+test('defaultSwoopCursorIndices B is the later of dive-angle and below-2.49 m', () => {
     const angleLater = [
-        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 1 },
-        { velD: 0.4, flatteningDegS: 0, hMSL: 100.4, diveAngleDeg: 4 },
-        { velD: 0.8, flatteningDegS: -5, hMSL: 101.0, diveAngleDeg: 8 },
-        { velD: 12, flatteningDegS: -22, hMSL: 101.5, diveAngleDeg: 20 },
+        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 60 },
         { velD: 20, flatteningDegS: -18, hMSL: 110, diveAngleDeg: 40 },
-        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 60 }
+        { velD: 12, flatteningDegS: -22, hMSL: 101.5, diveAngleDeg: 20 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 101.0, diveAngleDeg: 8 },
+        { velD: 0.4, flatteningDegS: 0, hMSL: 100.4, diveAngleDeg: 4 },
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 1 }
     ];
     const angleLaterCursors = F.defaultSwoopCursorIndices(angleLater, 5, 2);
-    assert.equal(angleLaterCursors.idxA, 4);
-    assert.equal(angleLaterCursors.idxB, 1);
+    assert.equal(angleLaterCursors.idxA, 1);
+    // 2nd below-2.49 m is idx 3; dive angle <5.5° is idx 4; both satisfied at 4.
+    assert.equal(angleLaterCursors.idxB, 4);
 
     const altLater = [
-        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 1 },
-        { velD: 0.4, flatteningDegS: 0, hMSL: 100.4, diveAngleDeg: 2 },
-        { velD: 0.8, flatteningDegS: -5, hMSL: 101.0, diveAngleDeg: 3 },
-        { velD: 12, flatteningDegS: -22, hMSL: 110, diveAngleDeg: 20 },
+        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 60 },
         { velD: 20, flatteningDegS: -18, hMSL: 120, diveAngleDeg: 40 },
-        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 60 }
+        { velD: 12, flatteningDegS: -22, hMSL: 110, diveAngleDeg: 20 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 101.0, diveAngleDeg: 3 },
+        { velD: 0.4, flatteningDegS: 0, hMSL: 100.4, diveAngleDeg: 2 },
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 1 }
     ];
     const altLaterCursors = F.defaultSwoopCursorIndices(altLater, 5, 2);
-    assert.equal(altLaterCursors.idxA, 4);
-    assert.equal(altLaterCursors.idxB, 1);
+    assert.equal(altLaterCursors.idxA, 1);
+    assert.equal(altLaterCursors.idxB, 4);
+});
+
+test('defaultSwoopCursorIndices B ignores a condition when its value is 0', () => {
+    const samples = [
+        { velD: 25, flatteningDegS: 1, hMSL: 140, diveAngleDeg: 60 },
+        { velD: 20, flatteningDegS: -18, hMSL: 120, diveAngleDeg: 40 },
+        { velD: 12, flatteningDegS: -22, hMSL: 110, diveAngleDeg: 20 },
+        { velD: 0.8, flatteningDegS: -5, hMSL: 101.0, diveAngleDeg: 3 },
+        { velD: 0.4, flatteningDegS: 0, hMSL: 100.4, diveAngleDeg: 2 },
+        { velD: 0.2, flatteningDegS: 0, hMSL: 100.0, diveAngleDeg: 1 }
+    ];
+    assert.equal(F.defaultSwoopCursorIndices(samples, 5, 2).idxB, 4);
+    assert.equal(F.defaultSwoopCursorIndices(samples, 5, 0).idxB, 3);
+    assert.equal(F.defaultSwoopCursorIndices(samples, 0, 2).idxB, 4);
+});
+
+test('isCsvFile matches .csv names and text/csv types', () => {
+    assert.equal(F.isCsvFile({ name: '08-47-08.CSV' }), true);
+    assert.equal(F.isCsvFile({ name: 'track.csv', type: '' }), true);
+    assert.equal(F.isCsvFile({ name: 'CONFIG.TXT' }), false);
+    assert.equal(F.isCsvFile({ name: 'notes', type: 'text/csv' }), true);
+    assert.equal(F.isCsvFile(null), false);
+});
+
+test('collectCsvFilesFromFileList keeps only CSV files', () => {
+    const files = F.collectCsvFilesFromFileList([
+        { name: 'a.CSV' },
+        { name: 'CONFIG.TXT' },
+        { name: 'b.csv' },
+        { name: 'readme.md', type: 'text/csv' }
+    ]);
+    assert.equal(files.map(f => f.name).join(','), 'a.CSV,b.csv,readme.md');
+    assert.equal(F.collectCsvFilesFromFileList(null).length, 0);
+});
+
+function mockFileEntry(name, type = '') {
+    return {
+        isFile: true,
+        isDirectory: false,
+        name,
+        file(ok) {
+            ok({ name, type });
+        }
+    };
+}
+
+function mockDirEntry(name, children, chunkSize = 2) {
+    return {
+        isFile: false,
+        isDirectory: true,
+        name,
+        createReader() {
+            let offset = 0;
+            return {
+                readEntries(ok) {
+                    const batch = children.slice(offset, offset + chunkSize);
+                    offset += chunkSize;
+                    ok(batch);
+                }
+            };
+        }
+    };
+}
+
+test('collectCsvFilesFromEntries walks nested folders and skips non-csv', async () => {
+    const nested = mockDirEntry('24-03-09', [
+        mockFileEntry('16-53-00.CSV'),
+        mockFileEntry('CONFIG.TXT'),
+        mockFileEntry('17-22-11.csv')
+    ]);
+    const root = mockDirEntry('TRACK', [
+        nested,
+        mockFileEntry('loose.CSV'),
+        mockFileEntry('notes.txt')
+    ]);
+    const files = await F.collectCsvFilesFromEntries([root, mockFileEntry('extra.csv')]);
+    assert.equal(
+        files.map(f => f.name).join(','),
+        '16-53-00.CSV,17-22-11.csv,loose.CSV,extra.csv'
+    );
+});
+
+test('collectCsvFilesFromEntries paginates directory reads', async () => {
+    const children = [
+        mockFileEntry('a.csv'),
+        mockFileEntry('b.csv'),
+        mockFileEntry('c.csv'),
+        mockFileEntry('d.txt'),
+        mockFileEntry('e.csv')
+    ];
+    const dir = mockDirEntry('day', children, 2);
+    const files = await F.collectCsvFilesFromEntries([dir]);
+    assert.equal(files.map(f => f.name).join(','), 'a.csv,b.csv,c.csv,e.csv');
+});
+
+test('collectCsvFilesFromEntries processes dropped folders in increasing name order', async () => {
+    const later = mockDirEntry('24-03-10', [mockFileEntry('later.csv')]);
+    const earlier = mockDirEntry('24-03-08', [mockFileEntry('earlier.csv')]);
+    const mid = mockDirEntry('24-03-09', [mockFileEntry('mid.csv')]);
+    const files = await F.collectCsvFilesFromEntries([later, earlier, mid]);
+    assert.equal(files.map(f => f.name).join(','), 'earlier.csv,mid.csv,later.csv');
+});
+
+test('collectCsvFilesFromEntries sorts nested folders by name', async () => {
+    const root = mockDirEntry('TRACK', [
+        mockDirEntry('24-03-10', [mockFileEntry('c.csv')]),
+        mockDirEntry('24-03-08', [mockFileEntry('a.csv')]),
+        mockFileEntry('loose.csv'),
+        mockDirEntry('24-03-09', [mockFileEntry('b.csv')])
+    ]);
+    const files = await F.collectCsvFilesFromEntries([root]);
+    assert.equal(files.map(f => f.name).join(','), 'a.csv,b.csv,c.csv,loose.csv');
+});
+
+test('collectCsvFilesFromFileList orders files by dropped folder name', () => {
+    const files = F.collectCsvFilesFromFileList([
+        { name: 'z.csv', webkitRelativePath: '24-03-10/z.csv' },
+        { name: 'a.csv', webkitRelativePath: '24-03-08/a.csv' },
+        { name: 'm.csv', webkitRelativePath: '24-03-09/m.csv' }
+    ]);
+    assert.equal(files.map(f => f.name).join(','), 'a.csv,m.csv,z.csv');
 });

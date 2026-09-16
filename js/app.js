@@ -104,6 +104,7 @@ class SkydivingLogbook {
         this._monthLocationPieGroups = new Map();
         this._dayLocationPieGroups = new Map();
         this.flysightFiles = [];
+        this._flysightPendingFolderFiles = [];
         this._flysightGraph = null;
         this._flysightGraphRo = null;
         this._flysightScrollY = 0;
@@ -122,7 +123,7 @@ class SkydivingLogbook {
             : 'vertical';
         const defaultCursorBAngle = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_DIVE_ANGLE_DEG))
             ? Flysight.CURSOR_B_DIVE_ANGLE_DEG
-            : 5;
+            : 5.5;
         const savedCursorBAngle = parseFloat(localStorage.getItem('flysight-cursor-b-dive-angle'));
         this.flysightCursorBDiveAngleDeg = Number.isFinite(savedCursorBAngle)
             ? Math.min(90, Math.max(0, savedCursorBAngle))
@@ -132,7 +133,7 @@ class SkydivingLogbook {
             : 2;
         const savedCursorBTicks = parseInt(localStorage.getItem('flysight-cursor-b-alt-ticks'), 10);
         this.flysightCursorBAltTicks = Number.isFinite(savedCursorBTicks)
-            ? Math.min(100, Math.max(1, savedCursorBTicks))
+            ? Math.min(100, Math.max(0, savedCursorBTicks))
             : defaultCursorBTicks;
         
         this.init();
@@ -5213,7 +5214,7 @@ class SkydivingLogbook {
     _parseFlysightCursorBDiveAngle(value) {
         const fallback = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_DIVE_ANGLE_DEG))
             ? Flysight.CURSOR_B_DIVE_ANGLE_DEG
-            : 5;
+            : 5.5;
         const n = parseFloat(value);
         if (!Number.isFinite(n)) return fallback;
         return Math.min(90, Math.max(0, n));
@@ -5225,7 +5226,7 @@ class SkydivingLogbook {
             : 2;
         const n = parseInt(value, 10);
         if (!Number.isFinite(n)) return fallback;
-        return Math.min(100, Math.max(1, n));
+        return Math.min(100, Math.max(0, n));
     }
 
     _syncFlysightSettingsForm() {
@@ -5261,7 +5262,7 @@ class SkydivingLogbook {
         const defaultAvg = 3;
         const defaultAngle = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_DIVE_ANGLE_DEG))
             ? Flysight.CURSOR_B_DIVE_ANGLE_DEG
-            : 5;
+            : 5.5;
         const defaultTicks = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.CURSOR_B_ALT_TICKS))
             ? Flysight.CURSOR_B_ALT_TICKS
             : 2;
@@ -5349,6 +5350,8 @@ class SkydivingLogbook {
     _bindFlysightEvents() {
         const dropZone = document.getElementById('flysightDropZone');
         const fileInput = document.getElementById('flysightFileInput');
+        const dirInput = document.getElementById('flysightDirInput');
+        const pickFolderBtn = document.getElementById('flysightPickFolderBtn');
         const avgSlider = document.getElementById('flysightAvgPoints');
         const maxHeightSlider = document.getElementById('flysightMaxHeight');
         const speedVerticalBtn = document.getElementById('flysightSpeedVertical');
@@ -5363,12 +5366,16 @@ class SkydivingLogbook {
         this._syncFlysightSettingsForm();
         this._bindFlysightSettingsInputs();
 
+        const isFolderPickerTarget = (target) => (
+            target === dirInput || !!(target?.closest?.('#flysightPickFolderBtn'))
+        );
         const openPicker = () => fileInput.click();
         dropZone.addEventListener('click', (e) => {
-            if (e.target === fileInput) return;
+            if (e.target === fileInput || isFolderPickerTarget(e.target)) return;
             openPicker();
         });
         dropZone.addEventListener('keydown', (e) => {
+            if (e.target === fileInput || isFolderPickerTarget(e.target)) return;
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 openPicker();
@@ -5380,6 +5387,29 @@ class SkydivingLogbook {
                 this._addFlysightFiles(fileInput.files);
                 fileInput.value = '';
             }
+        });
+        pickFolderBtn?.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this._openFlysightFolderPicker();
+        });
+        dirInput?.addEventListener('change', () => {
+            if (dirInput.files?.length) {
+                this._queueFlysightFolderFiles(dirInput.files);
+                dirInput.value = '';
+            }
+        });
+        document.getElementById('flysightFolderPickAdd')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this._openFlysightFolderPicker();
+        });
+        document.getElementById('flysightFolderPickDone')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this._commitFlysightFolderPicks();
+        });
+        document.getElementById('flysightFolderPickCancel')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this._cancelFlysightFolderPicks();
         });
 
         ['dragenter', 'dragover'].forEach(evt => {
@@ -5397,8 +5427,7 @@ class SkydivingLogbook {
             });
         });
         dropZone.addEventListener('drop', (e) => {
-            const files = e.dataTransfer?.files;
-            if (files?.length) this._addFlysightFiles(files);
+            this._addFlysightFilesFromDrop(e.dataTransfer);
         });
 
         avgSlider.addEventListener('input', () => {
@@ -5484,10 +5513,94 @@ class SkydivingLogbook {
         }
     }
 
-    async _addFlysightFiles(fileList) {
-        const files = [...fileList].filter(f => /\.csv$/i.test(f.name) || f.type === 'text/csv');
+    _openFlysightFolderPicker() {
+        document.getElementById('flysightDirInput')?.click();
+    }
+
+    _uniqueFlysightFolderCount(files) {
+        const names = new Set();
+        for (const file of files || []) {
+            const rel = String(file.webkitRelativePath || '').replace(/\\/g, '/');
+            const slash = rel.indexOf('/');
+            const folder = slash < 0 ? '' : rel.slice(0, slash);
+            names.add(folder || file.name || '');
+        }
+        names.delete('');
+        return names.size || (files?.length ? 1 : 0);
+    }
+
+    _updateFlysightFolderPickBar() {
+        const bar = document.getElementById('flysightFolderPickBar');
+        const status = document.getElementById('flysightFolderPickStatus');
+        if (!bar) return;
+        const count = this._uniqueFlysightFolderCount(this._flysightPendingFolderFiles);
+        if (!count) {
+            bar.hidden = true;
+            return;
+        }
+        bar.hidden = false;
+        if (status) {
+            status.textContent = count === 1
+                ? '1 folder selected'
+                : `${count} folders selected`;
+        }
+    }
+
+    _queueFlysightFolderFiles(fileList) {
+        const files = typeof Flysight !== 'undefined'
+            ? Flysight.collectCsvFilesFromFileList(fileList)
+            : [...(fileList || [])].filter(f => /\.csv$/i.test(f.name) || f.type === 'text/csv');
         if (!files.length) {
-            this.showMessage('Please select CSV files.', 'error');
+            this.showMessage('No CSV files found in that folder.', 'error');
+            this._updateFlysightFolderPickBar();
+            return;
+        }
+        this._flysightPendingFolderFiles.push(...files);
+        this._updateFlysightFolderPickBar();
+    }
+
+    _commitFlysightFolderPicks() {
+        const files = this._flysightPendingFolderFiles;
+        this._flysightPendingFolderFiles = [];
+        this._updateFlysightFolderPickBar();
+        if (files.length) this._addFlysightFiles(files);
+    }
+
+    _cancelFlysightFolderPicks() {
+        this._flysightPendingFolderFiles = [];
+        this._updateFlysightFolderPickBar();
+    }
+
+    async _collectFlysightFilesFromDataTransfer(dataTransfer) {
+        if (!dataTransfer) return [];
+        const items = dataTransfer.items;
+        const entries = [];
+        if (items?.length && typeof items[0].webkitGetAsEntry === 'function') {
+            for (let i = 0; i < items.length; i++) {
+                const entry = items[i].webkitGetAsEntry?.();
+                if (entry) entries.push(entry);
+            }
+        }
+        if (entries.length && typeof Flysight !== 'undefined') {
+            return Flysight.collectCsvFilesFromEntries(entries);
+        }
+        if (typeof Flysight !== 'undefined') {
+            return Flysight.collectCsvFilesFromFileList(dataTransfer.files);
+        }
+        return [...(dataTransfer.files || [])].filter(f => /\.csv$/i.test(f.name) || f.type === 'text/csv');
+    }
+
+    async _addFlysightFilesFromDrop(dataTransfer) {
+        const files = await this._collectFlysightFilesFromDataTransfer(dataTransfer);
+        await this._addFlysightFiles(files);
+    }
+
+    async _addFlysightFiles(fileList) {
+        const files = typeof Flysight !== 'undefined'
+            ? Flysight.collectCsvFilesFromFileList(fileList)
+            : [...(fileList || [])].filter(f => /\.csv$/i.test(f.name) || f.type === 'text/csv');
+        if (!files.length) {
+            this.showMessage('Please select CSV files or a folder that contains them.', 'error');
             return;
         }
 
@@ -5902,7 +6015,11 @@ class SkydivingLogbook {
     }
 
     _flysightGraphFullExtents(samples) {
-        const tMax = Math.max(0.001, samples[samples.length - 1]?.tRev || 25);
+        let tMax = 0.001;
+        for (let i = 0; i < samples.length; i++) {
+            const t = samples[i]?.tRev;
+            if (Number.isFinite(t) && t > tMax) tMax = t;
+        }
         const values = samples.map(s => this._flysightGraphYValue(s)).filter(Number.isFinite);
         const floorMax = this._flysightGraphMode() === 'verticalSpeed' ? 40 : 15;
         const yMin = values.length ? Math.min(0, ...values) : 0;
@@ -6155,7 +6272,7 @@ class SkydivingLogbook {
         const bAngleThresh = Number.isFinite(this.flysightCursorBDiveAngleDeg)
             ? this.flysightCursorBDiveAngleDeg
             : Flysight.CURSOR_B_DIVE_ANGLE_DEG;
-        const showBThresh = !speedMode && bAngleThresh >= sc.viewYMin && bAngleThresh <= sc.viewYMax;
+        const showBThresh = !speedMode && bAngleThresh > 0 && bAngleThresh >= sc.viewYMin && bAngleThresh <= sc.viewYMax;
         const fs = layout.compact ? 10 : 11;
         const pointFs = layout.compact ? 17 : 19;
         const handleR = layout.compact ? 8 : 10;
@@ -6329,8 +6446,8 @@ class SkydivingLogbook {
         }
         if (g.drag) {
             const idx = this._flysightGraphIndexFromClientX(e.clientX);
-            if (g.drag === 'a') g.idxA = Math.min(g.samples.length - 1, Math.max(idx, g.idxB + 1));
-            else g.idxB = Math.max(0, Math.min(idx, g.idxA - 1));
+            if (g.drag === 'a') g.idxA = Math.max(0, Math.min(idx, g.idxB - 1));
+            else g.idxB = Math.min(g.samples.length - 1, Math.max(idx, g.idxA + 1));
             this._drawFlysightGraph();
             return;
         }

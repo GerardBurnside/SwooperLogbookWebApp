@@ -170,10 +170,10 @@
     const STATIONARY_SPEED_MS = 1;
     const CURSOR_B_VELD_MS = 1;
     /** Dive angle from horizontal (deg) that marks cursor B after A. */
-    const CURSOR_B_DIVE_ANGLE_DEG = 5;
-    /** AGL (m) that cursor B must stay below after A. */
-    const CURSOR_B_AGL_M = 2;
-    /** Consecutive samples below CURSOR_B_AGL_M that mark cursor B after A. */
+    const CURSOR_B_DIVE_ANGLE_DEG = 5.5;
+    /** AGL (m) that cursor B must stay below after A. Matches whole-metre "2 m" rounding. */
+    const CURSOR_B_AGL_M = 2.49;
+    /** Place near-ground cursor B at this 1-based sample of a below-CURSOR_B_AGL_M run after A. 0 disables the near-ground candidate. */
     const CURSOR_B_ALT_TICKS = 2;
     /** Real-time dive-angle flattening (deg/s) that marks the start of the recovery arc. */
     const CURSOR_A_FLATTENING_DEG_S = 15;
@@ -334,10 +334,11 @@
 
     /**
      * Last `windowSec` before the first 2 s of roughly-still position (landing),
-     * reversed so index 0 is that stationary point. Points after the still period
-     * are dropped. Not limited by the analysis max-height slider. `velD` is
-     * smoothed; `flatteningDegS` is signed dγ/dt from raw velocities
-     * (negative = dive angle decreasing in real time).
+     * in chronological order (index 0 is earliest; the last sample is landing).
+     * Points after the still period are dropped. Not limited by the analysis
+     * max-height slider. `tRev` is seconds before landing. `velD` is smoothed;
+     * `flatteningDegS` is signed dγ/dt from raw velocities (negative = dive
+     * angle decreasing in real time).
      *
      * @param {{ time: string, hMSL: number, velD: number, velN?: number, velE?: number, lat?: number, lon?: number }[]} points
      * @param {number} [avgPoints]
@@ -377,17 +378,16 @@
             return { samples: [], error: 'Not enough points in the swoop window.' };
         }
 
-        const reversed = [...windowed].reverse();
-        const velSmooth = movingAverage(reversed.map(p => p.velD), avgPoints);
-        const samples = reversed.map((p, i) => {
+        const velSmooth = movingAverage(windowed.map(p => p.velD), avgPoints);
+        const samples = windowed.map((p, i) => {
             const t = Date.parse(p.time);
             const tRev = Number.isFinite(t) ? (tEnd - t) / 1000 : 0;
-            const prev = reversed[i - 1];
+            const next = windowed[i + 1];
             let flatteningDegS = 0;
-            if (prev) {
-                const tPrev = Date.parse(prev.time);
-                const dt = (Number.isFinite(tPrev) && Number.isFinite(t)) ? Math.abs(tPrev - t) / 1000 : 0;
-                flatteningDegS = pathAngleFlatteningDegS(p, prev, dt);
+            if (next) {
+                const tNext = Date.parse(next.time);
+                const dt = (Number.isFinite(tNext) && Number.isFinite(t)) ? Math.abs(tNext - t) / 1000 : 0;
+                flatteningDegS = pathAngleFlatteningDegS(p, next, dt);
             }
             return {
                 tRev,
@@ -437,13 +437,18 @@
      * @returns {number} index, or -1 if none
      */
     function cursorBFromDiveAngle(samples, idxA, angleThresh) {
-        for (let i = idxA - 1; i >= 0; i--) {
+        for (let i = idxA + 1; i < samples.length; i++) {
             if (diveAngleDeg(samples[i]) < angleThresh) return i;
         }
         return -1;
     }
 
     /**
+     * Near-ground cursor B: the `ticks`-th consecutive sample below 2.49 m AGL
+     * after A toward landing in chronological order, not the first sample that
+     * drops below 2.49 m. A run shorter than `ticks` (brief dip) is ignored.
+     * `ticks` < 1 disables this candidate.
+     *
      * @param {{ hMSL?: number }[]} samples
      * @param {number} idxA
      * @param {number} ticks
@@ -451,8 +456,9 @@
      * @returns {number} index, or -1 if none
      */
     function cursorBFromAltTicks(samples, idxA, ticks, ground) {
+        if (!(ticks >= 1)) return -1;
         let belowRun = 0;
-        for (let i = idxA - 1; i >= 0; i--) {
+        for (let i = idxA + 1; i < samples.length; i++) {
             const agl = aglMeters(samples[i], ground);
             if (Number.isFinite(agl) && agl < CURSOR_B_AGL_M) {
                 belowRun++;
@@ -481,8 +487,8 @@
 
     /**
      * Last (closest-to-landing) local velD maximum that is still within
-     * CURSOR_A_PEAK_FRACTION of the window max. Reverse-time: index 0 is
-     * landing, so the first such peak walking from 0 is last in real time.
+     * CURSOR_A_PEAK_FRACTION of the window max. Chronological series: walking
+     * from landing backward, the first such peak is last in real time.
      *
      * @param {{ velD: number }[]} samples
      * @returns {number}
@@ -493,7 +499,7 @@
         const globalMax = samples[globalIdx]?.velD;
         if (!Number.isFinite(globalMax) || samples.length < 3) return globalIdx;
         const minPeak = globalMax * CURSOR_A_PEAK_FRACTION;
-        for (let i = 1; i < samples.length - 1; i++) {
+        for (let i = samples.length - 2; i >= 1; i--) {
             const v = samples[i].velD;
             if (v >= samples[i - 1].velD && v >= samples[i + 1].velD && v >= minPeak) {
                 return i;
@@ -503,16 +509,17 @@
     }
 
     /**
-     * Default flare-window cursors on a reverse-time series (index 0 = landing).
+     * Default flare-window cursors on a chronological series (last = landing).
      * A: after the last near-max velD peak, the first sample where dive angle
      *    is flattening strongly (and the next sample toward landing confirms it).
      *    A later peak that is still within CURSOR_A_PEAK_FRACTION of the window
      *    max wins over an earlier, slightly taller one.
-     * B: walking from A toward landing, the later of:
+     * B: walking from A toward landing in real time. When both the dive-angle
+     *    threshold and `altTicks` are non-zero, B is the later of:
      *    - the first sample whose dive angle is below `diveAngleDegThresh`
-     *      (default 5° from horizontal), and
-     *    - the first sample at which altitude AGL has stayed below 2 m for at
-     *      least `altTicks` consecutive samples (default 2).
+     *      (default 5.5° from horizontal), and
+     *    - the `altTicks`-th consecutive sample below 2.49 m AGL.
+     *    Setting either value to 0 disables that condition so B uses only the other.
      *
      * @param {{ velD: number, flatteningDegS?: number, diveAngleDeg?: number, hMSL?: number, velN?: number, velE?: number }[]} samples
      * @param {number} [diveAngleDegThresh]
@@ -533,7 +540,7 @@
             ? diveAngleDegThresh
             : CURSOR_B_DIVE_ANGLE_DEG;
         const ticks = Number.isFinite(altTicks)
-            ? Math.max(1, Math.floor(altTicks))
+            ? Math.max(0, Math.floor(altTicks))
             : CURSOR_B_ALT_TICKS;
         const ground = minHmsl(samples);
 
@@ -547,24 +554,28 @@
         };
 
         let idxA = peakIdx;
-        for (let i = peakIdx - 1; i >= 1; i--) {
+        for (let i = peakIdx + 1; i <= last - 1; i++) {
             if (flatteningAt(i) > flattenThresh) continue;
-            const later = i >= 2 ? flatteningAt(i - 1) : flatteningAt(i);
+            const later = i + 1 <= last ? flatteningAt(i + 1) : flatteningAt(i);
             if (later > flattenThresh) continue;
             idxA = i;
             break;
         }
-        if (idxA < 1) idxA = Math.min(1, last);
-        if (idxA > last) idxA = last;
+        if (idxA >= last) idxA = Math.max(0, last - 1);
+        if (idxA < 0) idxA = 0;
 
-        const idxBAngle = cursorBFromDiveAngle(samples, idxA, angleThresh);
-        const idxBAlt = cursorBFromAltTicks(samples, idxA, ticks, ground);
+        const idxBAngle = angleThresh > 0
+            ? cursorBFromDiveAngle(samples, idxA, angleThresh)
+            : -1;
+        const idxBAlt = ticks > 0
+            ? cursorBFromAltTicks(samples, idxA, ticks, ground)
+            : -1;
         let idxB;
-        if (idxBAngle >= 0 && idxBAlt >= 0) idxB = Math.min(idxBAngle, idxBAlt);
+        if (idxBAngle >= 0 && idxBAlt >= 0) idxB = Math.max(idxBAngle, idxBAlt);
         else if (idxBAngle >= 0) idxB = idxBAngle;
         else if (idxBAlt >= 0) idxB = idxBAlt;
-        else idxB = Math.max(0, idxA - 1);
-        if (idxB >= idxA) idxB = Math.max(0, idxA - 1);
+        else idxB = Math.min(last, idxA + 1);
+        if (idxB <= idxA) idxB = Math.min(last, idxA + 1);
         return { idxA, idxB, peakVelD };
     }
 
@@ -869,9 +880,147 @@
         return { ...result, points: parsed.points };
     }
 
+    /**
+     * @param {{ name?: string, type?: string } | null | undefined} file
+     * @returns {boolean}
+     */
+    function isCsvFile(file) {
+        if (!file) return false;
+        if (/\.csv$/i.test(String(file.name || ''))) return true;
+        return file.type === 'text/csv';
+    }
+
+    /**
+     * @param {string} a
+     * @param {string} b
+     * @returns {number}
+     */
+    function compareNames(a, b) {
+        return String(a || '').localeCompare(String(b || ''), undefined, {
+            numeric: true,
+            sensitivity: 'base'
+        });
+    }
+
+    /**
+     * Top-level folder from a dropped/selected relative path (`folder/file.csv`).
+     * @param {{ webkitRelativePath?: string }} file
+     * @returns {string}
+     */
+    function droppedFolderName(file) {
+        const rel = String(file?.webkitRelativePath || '').replace(/\\/g, '/');
+        if (!rel) return '';
+        const i = rel.indexOf('/');
+        return i < 0 ? '' : rel.slice(0, i);
+    }
+
+    /**
+     * Directories first, in increasing name order; files keep their relative order.
+     * @param {ArrayLike<{ name?: string, isFile?: boolean, isDirectory?: boolean }> | null | undefined} entries
+     * @returns {object[]}
+     */
+    function sortEntriesForCollection(entries) {
+        const list = Array.from(entries || []).filter(Boolean);
+        const dirs = list.filter(e => e.isDirectory);
+        const files = list.filter(e => !e.isDirectory);
+        dirs.sort((a, b) => compareNames(a.name, b.name));
+        return [...dirs, ...files];
+    }
+
+    /**
+     * @param {ArrayLike<{ name?: string, type?: string, webkitRelativePath?: string }> | null | undefined} fileList
+     * @returns {{ name?: string, type?: string, webkitRelativePath?: string }[]}
+     */
+    function collectCsvFilesFromFileList(fileList) {
+        if (!fileList || typeof fileList.length !== 'number') return [];
+        return Array.from(fileList).filter(isCsvFile).sort((a, b) => {
+            const folderCmp = compareNames(droppedFolderName(a), droppedFolderName(b));
+            if (folderCmp) return folderCmp;
+            const relCmp = compareNames(
+                String(a.webkitRelativePath || ''),
+                String(b.webkitRelativePath || '')
+            );
+            if (relCmp) return relCmp;
+            return compareNames(a.name, b.name);
+        });
+    }
+
+    /**
+     * @param {{ file: Function }} entry
+     * @returns {Promise<File>}
+     */
+    function fileFromEntry(entry) {
+        return new Promise((resolve, reject) => {
+            entry.file(resolve, reject);
+        });
+    }
+
+    /**
+     * `readEntries` may return a partial batch; keep calling until it is empty.
+     * @param {{ createReader?: Function }} dirEntry
+     * @returns {Promise<object[]>}
+     */
+    function readAllDirectoryEntries(dirEntry) {
+        if (typeof dirEntry.createReader !== 'function') return Promise.resolve([]);
+        const reader = dirEntry.createReader();
+        const all = [];
+        const readBatch = () => new Promise((resolve, reject) => {
+            reader.readEntries(resolve, reject);
+        }).then((batch) => {
+            if (!batch || !batch.length) return all;
+            all.push(...batch);
+            return readBatch();
+        });
+        return readBatch();
+    }
+
+    /**
+     * @param {{ isFile?: boolean, isDirectory?: boolean, file?: Function, createReader?: Function } | null | undefined} entry
+     * @param {File[]} out
+     * @returns {Promise<void>}
+     */
+    async function collectCsvFilesFromEntry(entry, out) {
+        if (!entry) return;
+        try {
+            if (entry.isFile) {
+                const file = await fileFromEntry(entry);
+                if (isCsvFile(file)) out.push(file);
+                return;
+            }
+            if (entry.isDirectory) {
+                const children = sortEntriesForCollection(await readAllDirectoryEntries(entry));
+                for (const child of children) {
+                    await collectCsvFilesFromEntry(child, out);
+                }
+            }
+        } catch (err) {
+            console.error('[Flysight] Failed to read entry:', entry.name, err);
+        }
+    }
+
+    /**
+     * Recursively collect CSV File objects from FileSystemEntry values
+     * (`webkitGetAsEntry` / dropped folders).
+     *
+     * @param {ArrayLike<object> | null | undefined} entries
+     * @returns {Promise<File[]>}
+     */
+    async function collectCsvFilesFromEntries(entries) {
+        const files = [];
+        if (!entries || typeof entries.length !== 'number') return files;
+        const ordered = sortEntriesForCollection(entries);
+        for (let i = 0; i < ordered.length; i++) {
+            await collectCsvFilesFromEntry(ordered[i], files);
+        }
+        return files;
+    }
+
     const Flysight = {
         parseFlysightCsv,
         formatTrackStartTitle,
+        isCsvFile,
+        collectCsvFilesFromFileList,
+        collectCsvFilesFromEntries,
         analyzeFlysightTrack,
         analyzeFlysightCsv,
         filterPointsByMaxHeight,
