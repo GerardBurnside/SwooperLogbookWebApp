@@ -5394,8 +5394,9 @@ class SkydivingLogbook {
         });
         dirInput?.addEventListener('change', () => {
             if (dirInput.files?.length) {
-                this._addFlysightFolderFiles(dirInput.files);
+                const files = dirInput.files;
                 dirInput.value = '';
+                this._addFlysightFolderFiles(files);
             }
         });
 
@@ -5500,6 +5501,22 @@ class SkydivingLogbook {
         }
     }
 
+    _flysightEmptyResultsHtml(message = 'No files analyzed yet.') {
+        return `<p class="no-items flysight-empty">${message}</p>`;
+    }
+
+    _setFlysightEmptyResults(message) {
+        if (this.flysightFiles.length) return;
+        const container = document.getElementById('flysightResults');
+        if (container) container.innerHTML = this._flysightEmptyResultsHtml(message);
+    }
+
+    _waitForFlysightUiPaint() {
+        return new Promise(resolve => {
+            requestAnimationFrame(() => requestAnimationFrame(resolve));
+        });
+    }
+
     async _openFlysightFolderPicker() {
         if (typeof window.showDirectoryPicker === 'function') {
             try {
@@ -5507,10 +5524,12 @@ class SkydivingLogbook {
                     id: 'flysight-csv',
                     mode: 'read'
                 });
+                this._setFlysightEmptyResults('Analysing files');
+                await this._waitForFlysightUiPaint();
                 const files = typeof Flysight !== 'undefined'
                     ? await Flysight.collectCsvFilesFromDirectoryHandle(dirHandle)
                     : [];
-                this._addFlysightFolderFiles(files);
+                await this._addFlysightFolderFiles(files);
                 return;
             } catch (err) {
                 if (err && (err.name === 'AbortError' || err.name === 'NotAllowedError')) return;
@@ -5526,15 +5545,18 @@ class SkydivingLogbook {
         document.getElementById('flysightDirInput')?.click();
     }
 
-    _addFlysightFolderFiles(fileList) {
+    async _addFlysightFolderFiles(fileList) {
+        this._setFlysightEmptyResults('Analysing files');
+        await this._waitForFlysightUiPaint();
         const files = typeof Flysight !== 'undefined'
             ? Flysight.collectCsvFilesFromFileList(fileList)
             : [...(fileList || [])].filter(f => /\.csv$/i.test(f.name) || f.type === 'text/csv');
         if (!files.length) {
+            this._setFlysightEmptyResults('No files analyzed yet.');
             this.showMessage('No CSV files found in that folder.', 'error');
             return;
         }
-        this._addFlysightFiles(files);
+        await this._addFlysightFiles(files);
     }
 
     async _collectFlysightFilesFromDataTransfer(dataTransfer) {
@@ -5606,7 +5628,7 @@ class SkydivingLogbook {
         this._updateFlysightSpeedModeButtons();
 
         if (!this.flysightFiles.length) {
-            container.innerHTML = '<p class="no-items flysight-empty">No files analyzed yet.</p>';
+            container.innerHTML = this._flysightEmptyResultsHtml();
             return;
         }
 
