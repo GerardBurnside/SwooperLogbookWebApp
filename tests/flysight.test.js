@@ -30,17 +30,35 @@ const SAMPLE_CSV = `time,lat,lon,hMSL,velN,velE,velD,hAcc,vAcc,sAcc,heading,cAcc
 2026-07-25T06:58:01.50Z,47.9037183,2.1747956,1421.357,-7.62,-18.09,10.50,4.054,4.634,0.22,247.15819,0.85530,3,9
 2026-07-25T06:58:01.60Z,47.9037112,2.1747715,1420.272,-7.29,-18.25,10.50,3.904,4.470,0.22,248.22259,0.85316,3,9`;
 
-test('formatTrackStartTitle is DATE/HOUR in the local timezone', () => {
-    const iso = '2026-03-09T15:53:12.10Z';
+const TITLE_MONTHS = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+function isoOnMarch9(year) {
+    return `${year}-03-09T15:53:12.10Z`;
+}
+
+function expectedTrackStartTitle(iso, { includeYear = false } = {}) {
     const d = new Date(iso);
-    const months = [
-        'January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December'
-    ];
     const hh = String(d.getHours()).padStart(2, '0');
     const mm = String(d.getMinutes()).padStart(2, '0');
-    assert.equal(F.formatTrackStartTitle(iso), `${months[d.getMonth()]} ${d.getDate()} - ${hh}:${mm}`);
+    const datePart = includeYear
+        ? `${TITLE_MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
+        : `${TITLE_MONTHS[d.getMonth()]} ${d.getDate()}`;
+    return `${datePart} - ${hh}:${mm}`;
+}
+
+test('formatTrackStartTitle is DATE/HOUR in the local timezone', () => {
+    const iso = isoOnMarch9(new Date().getFullYear());
+    assert.equal(F.formatTrackStartTitle(iso), expectedTrackStartTitle(iso));
     assert.match(F.formatTrackStartTitle(iso), /^[A-Z][a-z]+ \d{1,2} - \d{2}:\d{2}$/);
+});
+
+test('formatTrackStartTitle includes the year when it is not the current year', () => {
+    const iso = isoOnMarch9(new Date().getFullYear() - 1);
+    assert.equal(F.formatTrackStartTitle(iso), expectedTrackStartTitle(iso, { includeYear: true }));
+    assert.match(F.formatTrackStartTitle(iso), /^[A-Z][a-z]+ \d{1,2}, \d{4} - \d{2}:\d{2}$/);
 });
 
 test('formatTrackStartTitle uses the first parsed CSV timestamp', () => {

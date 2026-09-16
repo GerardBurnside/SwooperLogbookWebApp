@@ -113,6 +113,7 @@
 
     /**
      * First track timestamp in the device timezone as "March 9 - 16:53".
+     * When the track year is not the current year, includes it: "March 9, 2025 - 16:53".
      * Flysight `time` values are UTC (ISO-8601 with Z); Date local getters apply the phone offset.
      *
      * @param {string} [timeStr]
@@ -124,7 +125,11 @@
         const d = new Date(ms);
         const hh = String(d.getHours()).padStart(2, '0');
         const mm = String(d.getMinutes()).padStart(2, '0');
-        return `${MONTH_NAMES[d.getMonth()]} ${d.getDate()} - ${hh}:${mm}`;
+        let datePart = `${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
+        if (d.getFullYear() !== new Date().getFullYear()) {
+            datePart += `, ${d.getFullYear()}`;
+        }
+        return `${datePart} - ${hh}:${mm}`;
     }
 
     /** Typical Flysight log interval (10 Hz) when no track is loaded. */
