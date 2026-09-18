@@ -214,10 +214,12 @@
                             </div>
                         </div>
                     </div>
-                    <div id="flysightDropZone" class="flysight-drop-zone" tabindex="0" aria-label="Drop Flysight CSV files or folders, or tap to browse">
-                        <p class="flysight-drop-title">Drop CSV files or folders here, or tap to browse.</p>
-                        <input type="file" id="flysightDirInput" webkitdirectory directory multiple hidden>
+                    <div id="flysightDropZone" class="flysight-drop-zone" tabindex="0" aria-label="Drop Flysight CSV files or folders, or tap to select files">
+                        <p class="flysight-drop-title">Drop CSV files or folders here, or tap to select files.</p>
+                        <input type="file" id="flysightFileInput" accept=".csv,text/csv" multiple hidden>
+                        <input type="file" id="flysightDirInput" accept=".csv,text/csv" webkitdirectory directory multiple hidden>
                     </div>
+                    <button type="button" id="flysightImportDirsBtn" class="flysight-import-dirs-btn">Import whole Directories</button>
                     <div id="flysightResults" class="flysight-results">
                         <p class="no-items flysight-empty">No files analyzed yet.</p>
                     </div>

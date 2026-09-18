@@ -5373,13 +5373,15 @@ class SkydivingLogbook {
 
     _bindFlysightEvents() {
         const dropZone = document.getElementById('flysightDropZone');
+        const fileInput = document.getElementById('flysightFileInput');
         const dirInput = document.getElementById('flysightDirInput');
+        const importDirsBtn = document.getElementById('flysightImportDirsBtn');
         const avgSlider = document.getElementById('flysightAvgPoints');
         const maxHeightSlider = document.getElementById('flysightMaxHeight');
         const speedVerticalBtn = document.getElementById('flysightSpeedVertical');
         const speedTotalBtn = document.getElementById('flysightSpeedTotal');
         const speedBothBtn = document.getElementById('flysightSpeedBoth');
-        if (!dropZone || !dirInput || !avgSlider || !maxHeightSlider || !speedVerticalBtn || !speedTotalBtn || !speedBothBtn) return;
+        if (!dropZone || !fileInput || !dirInput || !avgSlider || !maxHeightSlider || !speedVerticalBtn || !speedTotalBtn || !speedBothBtn) return;
 
         avgSlider.value = String(this.flysightAvgPoints);
         this._syncFlysightMaxHeightSlider();
@@ -5388,19 +5390,29 @@ class SkydivingLogbook {
         this._syncFlysightSettingsForm();
         this._bindFlysightSettingsInputs();
 
-        const openPicker = () => this._openFlysightFolderPicker();
+        const openFilePicker = () => fileInput.click();
         dropZone.addEventListener('click', (e) => {
-            if (e.target === dirInput) return;
-            openPicker();
+            if (e.target === fileInput || e.target === dirInput) return;
+            openFilePicker();
         });
         dropZone.addEventListener('keydown', (e) => {
-            if (e.target === dirInput) return;
+            if (e.target === fileInput || e.target === dirInput) return;
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
-                openPicker();
+                openFilePicker();
             }
         });
 
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files?.length) {
+                this._addFlysightFiles(fileInput.files);
+                fileInput.value = '';
+            }
+        });
+        importDirsBtn?.addEventListener('click', (e) => {
+            e.preventDefault();
+            this._openFlysightFolderPicker();
+        });
         dirInput.addEventListener('change', () => {
             if (!dirInput.files?.length) return;
             const files = Array.from(dirInput.files);
