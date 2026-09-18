@@ -5413,6 +5413,17 @@ class SkydivingLogbook {
             e.preventDefault();
             this._openFlysightFolderPicker();
         });
+        if (importDirsBtn) {
+            const syncImportDirsBtnSize = () => {
+                importDirsBtn.style.minHeight = `${dropZone.offsetHeight}px`;
+            };
+            syncImportDirsBtnSize();
+            if (typeof ResizeObserver === 'function') {
+                new ResizeObserver(syncImportDirsBtnSize).observe(dropZone);
+            } else {
+                window.addEventListener('resize', syncImportDirsBtnSize);
+            }
+        }
         dirInput.addEventListener('change', () => {
             if (!dirInput.files?.length) return;
             const files = Array.from(dirInput.files);
