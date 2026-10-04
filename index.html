@@ -143,7 +143,11 @@
                     </div>
                     <div id="jumpsPastMonthsRow" class="jumps-past-months-row" hidden>
                         <span>Number of jumps in the past</span>
-                        <input type="number" id="statsPastMonthsWindow" class="jumps-past-months-input" min="1" max="240" value="3" inputmode="numeric" aria-label="Months for rolling jump count">
+                        <span class="jumps-past-months-widget">
+                            <button type="button" class="jumps-past-months-step" id="statsPastMonthsDown" aria-label="Fewer months">−</button>
+                            <input type="number" id="statsPastMonthsWindow" class="jumps-past-months-input" min="1" max="240" value="3" inputmode="numeric" aria-label="Months for rolling jump count">
+                            <button type="button" class="jumps-past-months-step" id="statsPastMonthsUp" aria-label="More months">+</button>
+                        </span>
                         <span>months: </span><strong id="jumpsPastMonthsCount">0</strong>
                     </div>
                     <button type="button" id="searchJumpsBtn" class="btn-secondary search-jumps-btn">🔍 Search Notes</button>

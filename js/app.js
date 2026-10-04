@@ -737,11 +737,21 @@ class SkydivingLogbook {
             statsPastMonthsInput.addEventListener('change', () => {
                 let n = parseInt(statsPastMonthsInput.value, 10);
                 if (!Number.isFinite(n) || n < 1) n = this.settings.statsPastMonthsWindow ?? 3;
-                n = Math.min(240, Math.max(1, n));
-                statsPastMonthsInput.value = String(n);
-                this.settings.statsPastMonthsWindow = n;
-                localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
-                this._updateJumpsPastMonthsSummary();
+                this._commitStatsPastMonthsWindow(n);
+            });
+        }
+        const statsPastMonthsDown = document.getElementById('statsPastMonthsDown');
+        const statsPastMonthsUp = document.getElementById('statsPastMonthsUp');
+        if (statsPastMonthsDown) {
+            statsPastMonthsDown.addEventListener('click', () => {
+                const cur = this._parsedStatsPastMonthsWindow();
+                if (cur > 1) this._commitStatsPastMonthsWindow(cur - 1);
+            });
+        }
+        if (statsPastMonthsUp) {
+            statsPastMonthsUp.addEventListener('click', () => {
+                const cur = this._parsedStatsPastMonthsWindow();
+                if (cur < 240) this._commitStatsPastMonthsWindow(cur + 1);
             });
         }
 
@@ -1009,6 +1019,23 @@ class SkydivingLogbook {
         return new Date(t.getFullYear(), t.getMonth(), t.getDate());
     }
 
+    _parsedStatsPastMonthsWindow() {
+        const input = document.getElementById('statsPastMonthsWindow');
+        let n = parseInt(input?.value, 10);
+        if (!Number.isFinite(n) || n < 1) n = this.settings.statsPastMonthsWindow ?? 3;
+        return Math.min(240, Math.max(1, n));
+    }
+
+    _commitStatsPastMonthsWindow(n) {
+        const input = document.getElementById('statsPastMonthsWindow');
+        if (!input) return;
+        n = Math.min(240, Math.max(1, Math.round(n)));
+        input.value = String(n);
+        this.settings.statsPastMonthsWindow = n;
+        localStorage.setItem('skydiving-settings', JSON.stringify(this.settings));
+        this._updateJumpsPastMonthsSummary();
+    }
+
     _updateJumpsPastMonthsSummary() {
         const row = document.getElementById('jumpsPastMonthsRow');
         const countEl = document.getElementById('jumpsPastMonthsCount');
@@ -1019,9 +1046,7 @@ class SkydivingLogbook {
             return;
         }
         row.hidden = false;
-        let n = parseInt(input.value, 10);
-        if (!Number.isFinite(n) || n < 1) n = this.settings.statsPastMonthsWindow ?? 3;
-        n = Math.min(240, Math.max(1, n));
+        const n = this._parsedStatsPastMonthsWindow();
         const cutoff = new Date();
         cutoff.setHours(0, 0, 0, 0);
         cutoff.setMonth(cutoff.getMonth() - n);

@@ -732,6 +732,38 @@ textarea {
     gap: 0.35rem;
 }
 
+.jumps-past-months-widget {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+}
+
+.jumps-past-months-step {
+    width: 1.35rem;
+    height: 1.35rem;
+    border: none;
+    background: #2196F3;
+    color: white;
+    border-radius: 50%;
+    font-size: 0.85rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    flex-shrink: 0;
+    transition: background-color 0.2s;
+}
+
+.jumps-past-months-step:hover {
+    background: #1976D2;
+}
+
+.jumps-past-months-step:active {
+    background: #1565C0;
+}
+
 .jumps-past-months-input {
     width: 3.25rem;
     padding: 0.15rem 0.35rem;
@@ -740,6 +772,14 @@ textarea {
     border: 1px solid #ced4da;
     border-radius: 4px;
     text-align: center;
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+.jumps-past-months-input::-webkit-outer-spin-button,
+.jumps-past-months-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
 }
 
 /* Year statistics modal */
