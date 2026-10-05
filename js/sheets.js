@@ -2,6 +2,8 @@
 // Requires js/auth.js (AuthManager) to be loaded first.
 
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
+const TODO_DEFAULT_CATEGORY_ID = 'todos';
+const TODO_DEFAULT_CATEGORY_NAME = 'TODOs';
 
 class SheetsAPI {
     constructor() {
@@ -223,13 +225,37 @@ class SheetsAPI {
                         startRow: 0, startColumn: 0,
                         rowData: [{
                             values: [
-                                'ID', 'Text', 'Done', 'Created At', 'Done At', 'Updated At'
+                                'ID', 'Text', 'Done', 'Created At', 'Done At', 'Updated At',
+                                'Category ID', 'Category Name'
                             ].map(v => ({ userEnteredValue: { stringValue: v } }))
                         }]
                     }]
                 },
                 {
                     properties: { title: 'deletedTodos', index: 4 },
+                    data: [{
+                        startRow: 0, startColumn: 0,
+                        rowData: [{
+                            values: [
+                                { userEnteredValue: { stringValue: 'ID' } },
+                                { userEnteredValue: { stringValue: 'Date deleted' } }
+                            ]
+                        }]
+                    }]
+                },
+                {
+                    properties: { title: 'todoCategories', index: 5 },
+                    data: [{
+                        startRow: 0, startColumn: 0,
+                        rowData: [{
+                            values: [
+                                'ID', 'Name', 'Created At', 'Updated At'
+                            ].map(v => ({ userEnteredValue: { stringValue: v } }))
+                        }]
+                    }]
+                },
+                {
+                    properties: { title: 'deletedTodoCategories', index: 6 },
                     data: [{
                         startRow: 0, startColumn: 0,
                         rowData: [{
@@ -435,7 +461,11 @@ class SheetsAPI {
         const consider = (todo, localWinsTie) => {
             const id = SheetsAPI._todoId(todo);
             if (!id || deletedSet.has(id)) return;
-            const incoming = { ...todo, id };
+            const incoming = {
+                ...todo,
+                id,
+                categoryId: String(todo.categoryId || TODO_DEFAULT_CATEGORY_ID).trim() || TODO_DEFAULT_CATEGORY_ID
+            };
             const existing = byId.get(id);
             if (!existing) {
                 byId.set(id, incoming);
@@ -495,9 +525,132 @@ class SheetsAPI {
             if (!tb) return false;
             if (String(ta.text || '') !== String(tb.text || '')) return false;
             if (Boolean(ta.done) !== Boolean(tb.done)) return false;
+            if (String(ta.categoryId || TODO_DEFAULT_CATEGORY_ID) !== String(tb.categoryId || TODO_DEFAULT_CATEGORY_ID)) return false;
             if (SheetsAPI.todoUpdatedAt(ta) !== SheetsAPI.todoUpdatedAt(tb)) return false;
         }
         return true;
+    }
+
+    static _todoCategoryId(cat) {
+        return cat && String(cat.id || '').trim();
+    }
+
+    static defaultTodoCategory() {
+        return {
+            id: TODO_DEFAULT_CATEGORY_ID,
+            name: TODO_DEFAULT_CATEGORY_NAME,
+            createdAt: 0,
+            updatedAt: 0
+        };
+    }
+
+    static todoCategoryUpdatedAt(cat) {
+        const n = Number(cat?.updatedAt);
+        if (Number.isFinite(n) && n > 0) return n;
+        const created = Number(cat?.createdAt);
+        return Number.isFinite(created) && created > 0 ? created : 0;
+    }
+
+    static mergeTodoCategories(localCategories, sheetCategories, deletedCategoryIds) {
+        const deletedSet = deletedCategoryIds instanceof Set
+            ? deletedCategoryIds
+            : new Set(deletedCategoryIds || []);
+        deletedSet.delete(TODO_DEFAULT_CATEGORY_ID);
+        const localList = Array.isArray(localCategories) ? localCategories : [];
+        const sheetList = Array.isArray(sheetCategories) ? sheetCategories : [];
+        const byId = new Map();
+
+        const consider = (cat, localWinsTie) => {
+            const id = SheetsAPI._todoCategoryId(cat);
+            if (!id || deletedSet.has(id)) return;
+            const incoming = {
+                id,
+                name: String(cat.name || '').trim() || (id === TODO_DEFAULT_CATEGORY_ID ? TODO_DEFAULT_CATEGORY_NAME : 'List'),
+                createdAt: Number(cat.createdAt) || 0,
+                updatedAt: Number(cat.updatedAt) || 0
+            };
+            const existing = byId.get(id);
+            if (!existing) {
+                byId.set(id, incoming);
+                return;
+            }
+            const existingTs = SheetsAPI.todoCategoryUpdatedAt(existing);
+            const incomingTs = SheetsAPI.todoCategoryUpdatedAt(incoming);
+            if (incomingTs > existingTs || (incomingTs === existingTs && localWinsTie)) {
+                byId.set(id, incoming);
+            }
+        };
+
+        for (const c of sheetList) consider(c, false);
+        for (const c of localList) consider(c, true);
+        if (!byId.has(TODO_DEFAULT_CATEGORY_ID)) {
+            byId.set(TODO_DEFAULT_CATEGORY_ID, SheetsAPI.defaultTodoCategory());
+        }
+
+        const seen = new Set();
+        const merged = [];
+        const appendFrom = (list) => {
+            for (const c of list) {
+                const id = SheetsAPI._todoCategoryId(c);
+                if (!id || seen.has(id) || !byId.has(id)) continue;
+                merged.push(byId.get(id));
+                seen.add(id);
+            }
+        };
+        merged.push(byId.get(TODO_DEFAULT_CATEGORY_ID));
+        seen.add(TODO_DEFAULT_CATEGORY_ID);
+        appendFrom(localList);
+        appendFrom(sheetList);
+        return merged;
+    }
+
+    static mergeDeletedTodoCategories(localDeleted, sheetDeleted) {
+        return SheetsAPI.mergeDeletedTodos(localDeleted, sheetDeleted)
+            .filter(d => d.id && d.id !== TODO_DEFAULT_CATEGORY_ID);
+    }
+
+    static todoCategoriesEqual(a, b) {
+        const mapA = new Map((a || []).filter(c => SheetsAPI._todoCategoryId(c)).map(c => [SheetsAPI._todoCategoryId(c), c]));
+        const mapB = new Map((b || []).filter(c => SheetsAPI._todoCategoryId(c)).map(c => [SheetsAPI._todoCategoryId(c), c]));
+        if (mapA.size !== mapB.size) return false;
+        for (const [id, ca] of mapA) {
+            const cb = mapB.get(id);
+            if (!cb) return false;
+            if (String(ca.name || '') !== String(cb.name || '')) return false;
+            if (SheetsAPI.todoCategoryUpdatedAt(ca) !== SheetsAPI.todoCategoryUpdatedAt(cb)) return false;
+        }
+        return true;
+    }
+
+    static ensureCategoriesFromTodos(categories, todos) {
+        const merged = SheetsAPI.mergeTodoCategories(categories, [], []);
+        const byId = new Map(merged.map(c => [c.id, c]));
+        for (const t of todos || []) {
+            const id = String(t.categoryId || TODO_DEFAULT_CATEGORY_ID).trim() || TODO_DEFAULT_CATEGORY_ID;
+            if (!id || byId.has(id)) continue;
+            byId.set(id, {
+                id,
+                name: String(t.categoryName || '').trim() || 'List',
+                createdAt: 0,
+                updatedAt: 0
+            });
+            merged.push(byId.get(id));
+        }
+        return merged;
+    }
+
+    static reassignTodosFromDeletedCategories(todos, deletedCategoryIds) {
+        const deletedSet = deletedCategoryIds instanceof Set
+            ? deletedCategoryIds
+            : new Set(deletedCategoryIds || []);
+        deletedSet.delete(TODO_DEFAULT_CATEGORY_ID);
+        return (todos || []).map(t => {
+            const categoryId = String(t.categoryId || TODO_DEFAULT_CATEGORY_ID).trim() || TODO_DEFAULT_CATEGORY_ID;
+            const next = deletedSet.has(categoryId) ? TODO_DEFAULT_CATEGORY_ID : categoryId;
+            const copy = { ...t, categoryId: next };
+            delete copy.categoryName;
+            return copy;
+        });
     }
 
     _parseTodoTimestamp(value) {
@@ -540,14 +693,34 @@ class SheetsAPI {
         if (!titles.has('deletedTodos')) {
             requests.push({ addSheet: { properties: { title: 'deletedTodos' } } });
         }
+        if (!titles.has('todoCategories')) {
+            requests.push({ addSheet: { properties: { title: 'todoCategories' } } });
+        }
+        if (!titles.has('deletedTodoCategories')) {
+            requests.push({ addSheet: { properties: { title: 'deletedTodoCategories' } } });
+        }
         if (requests.length) {
             await this._apiCall('POST', ':batchUpdate', { requests });
         }
+        const todoHeader = ['ID', 'Text', 'Done', 'Created At', 'Done At', 'Updated At', 'Category ID', 'Category Name'];
         if (!titles.has('Todos')) {
-            await this._apiCall('PUT', '/values/Todos!A1:F1?valueInputOption=RAW', {
-                values: [['ID', 'Text', 'Done', 'Created At', 'Done At', 'Updated At']]
+            await this._apiCall('PUT', '/values/Todos!A1:H1?valueInputOption=RAW', {
+                values: [todoHeader]
             });
             console.log('[Sheets] Added Todos sheet');
+        } else {
+            try {
+                const headerResult = await this._apiCall('GET', '/values/Todos!A1:H1?majorDimension=ROWS');
+                const existingHeader = ((headerResult.values || [])[0] || []).map(v => String(v || '').trim().toLowerCase());
+                if (!existingHeader.includes('category id')) {
+                    await this._apiCall('PUT', '/values/Todos!A1:H1?valueInputOption=RAW', {
+                        values: [todoHeader]
+                    });
+                    console.log('[Sheets] Added category columns to Todos sheet');
+                }
+            } catch (err) {
+                console.warn('[Sheets] Could not upgrade Todos header:', err);
+            }
         }
         if (!titles.has('deletedTodos')) {
             await this._apiCall('PUT', '/values/deletedTodos!A1:B1?valueInputOption=RAW', {
@@ -555,12 +728,24 @@ class SheetsAPI {
             });
             console.log('[Sheets] Added deletedTodos sheet');
         }
+        if (!titles.has('todoCategories')) {
+            await this._apiCall('PUT', '/values/todoCategories!A1:D1?valueInputOption=RAW', {
+                values: [['ID', 'Name', 'Created At', 'Updated At']]
+            });
+            console.log('[Sheets] Added todoCategories sheet');
+        }
+        if (!titles.has('deletedTodoCategories')) {
+            await this._apiCall('PUT', '/values/deletedTodoCategories!A1:B1?valueInputOption=RAW', {
+                values: [['ID', 'Date deleted']]
+            });
+            console.log('[Sheets] Added deletedTodoCategories sheet');
+        }
         this._todoSheetsReady = true;
     }
 
     async getAllTodos() {
         try {
-            const result = await this._apiCall('GET', '/values/Todos!A2:F?majorDimension=ROWS');
+            const result = await this._apiCall('GET', '/values/Todos!A2:H?majorDimension=ROWS');
             const rows = result.values || [];
             const todos = [];
             for (const row of rows) {
@@ -570,13 +755,17 @@ class SheetsAPI {
                 const done = this._parseTodoDone(row[2]);
                 const doneAt = done ? (this._parseTodoTimestamp(row[4]) || createdAt) : null;
                 const updatedAt = this._parseTodoTimestamp(row[5]) || doneAt || createdAt;
+                const categoryId = (row[6] && String(row[6]).trim()) || TODO_DEFAULT_CATEGORY_ID;
+                const categoryName = row[7] != null ? String(row[7]).trim() : '';
                 todos.push({
                     id,
                     text: row[1] != null ? String(row[1]) : '',
                     done,
                     createdAt,
                     doneAt,
-                    updatedAt
+                    updatedAt,
+                    categoryId,
+                    categoryName
                 });
             }
             return todos;
@@ -632,24 +821,114 @@ class SheetsAPI {
         console.log('[Sheets] Appended', todoIds.length, 'deletion(s) to deletedTodos');
     }
 
-    async uploadAllTodos(todos) {
+    async getAllTodoCategories() {
+        try {
+            const result = await this._apiCall('GET', '/values/todoCategories!A2:D?majorDimension=ROWS');
+            const rows = result.values || [];
+            const categories = [];
+            for (const row of rows) {
+                const id = (row[0] && String(row[0]).trim()) || '';
+                if (!id) continue;
+                categories.push({
+                    id,
+                    name: row[1] != null ? String(row[1]) : '',
+                    createdAt: this._parseTodoTimestamp(row[2]) || 0,
+                    updatedAt: this._parseTodoTimestamp(row[3]) || 0
+                });
+            }
+            return categories;
+        } catch (e) {
+            if (e.message && e.message.includes('404')) return [];
+            const meta = await this._apiCall('GET', '?fields=sheets(properties(title))');
+            const hasSheet = (meta.sheets || []).some(s => (s.properties && s.properties.title) === 'todoCategories');
+            if (!hasSheet) return [];
+            throw e;
+        }
+    }
+
+    async getDeletedTodoCategories() {
+        try {
+            const result = await this._apiCall('GET', '/values/deletedTodoCategories!A2:B?majorDimension=ROWS');
+            const rows = result.values || [];
+            const records = [];
+            const seen = new Set();
+            for (const row of rows) {
+                const id = (row[0] && String(row[0]).trim()) || '';
+                if (!id || id === TODO_DEFAULT_CATEGORY_ID || seen.has(id)) continue;
+                seen.add(id);
+                records.push({
+                    id,
+                    deletedAt: (row[1] && String(row[1]).trim()) || new Date().toISOString()
+                });
+            }
+            return records;
+        } catch (e) {
+            if (e.message && e.message.includes('404')) return [];
+            const meta = await this._apiCall('GET', '?fields=sheets(properties(title))');
+            const hasSheet = (meta.sheets || []).some(s => (s.properties && s.properties.title) === 'deletedTodoCategories');
+            if (!hasSheet) return [];
+            throw e;
+        }
+    }
+
+    async appendDeletedTodoCategories(categoryIds, records) {
+        if (!categoryIds || categoryIds.length === 0) return;
+        await this._ensureTodosSheets();
+        const byId = new Map((records || []).map(r => [r.id, r]));
+        const now = new Date().toISOString();
+        const rows = [...categoryIds].map(id => [
+            id,
+            (byId.get(id) && byId.get(id).deletedAt) || now
+        ]);
+        const result = await this._apiCall('GET', '/values/deletedTodoCategories?majorDimension=ROWS');
+        const existing = (result.values || []).length;
+        const startRow = existing + 1;
+        const endRow = existing + rows.length;
+        const range = `deletedTodoCategories!A${startRow}:B${endRow}`;
+        await this._apiCall('PUT', `/values/${encodeURIComponent(range)}?valueInputOption=RAW`, { values: rows });
+        console.log('[Sheets] Appended', categoryIds.length, 'deletion(s) to deletedTodoCategories');
+    }
+
+    async uploadAllTodoCategories(categories) {
         if (!this.initialized) throw new Error('API not initialized');
         await this._ensureTodosSheets();
-        const header = ['ID', 'Text', 'Done', 'Created At', 'Done At', 'Updated At'];
+        const header = ['ID', 'Name', 'Created At', 'Updated At'];
+        const dataRows = (categories || []).map(cat => [
+            cat.id || '',
+            cat.name || '',
+            this._formatTodoTimestamp(cat.createdAt),
+            this._formatTodoTimestamp(cat.updatedAt)
+        ]);
+        await this._apiCall('POST', '/values/todoCategories!A1:D:clear', {});
+        await this._apiCall('PUT', '/values/todoCategories!A1:D?valueInputOption=RAW', {
+            values: [header, ...dataRows]
+        });
+        console.log(`[Sheets] Uploaded ${dataRows.length} todo categor${dataRows.length === 1 ? 'y' : 'ies'}`);
+    }
+
+    async uploadAllTodos(todos, categories) {
+        if (!this.initialized) throw new Error('API not initialized');
+        await this._ensureTodosSheets();
+        const nameById = new Map((categories || []).map(c => [c.id, c.name]));
+        const header = ['ID', 'Text', 'Done', 'Created At', 'Done At', 'Updated At', 'Category ID', 'Category Name'];
         const dataRows = (todos || []).map(todo => {
             const id = SheetsAPI._todoId(todo) || SheetsAPI.generateJumpId();
             if (!todo.id) todo.id = id;
+            const categoryId = String(todo.categoryId || TODO_DEFAULT_CATEGORY_ID).trim() || TODO_DEFAULT_CATEGORY_ID;
+            const categoryName = nameById.get(categoryId) || todo.categoryName || (categoryId === TODO_DEFAULT_CATEGORY_ID ? TODO_DEFAULT_CATEGORY_NAME : '');
             return [
                 id,
                 todo.text || '',
                 todo.done ? 'TRUE' : 'FALSE',
                 this._formatTodoTimestamp(todo.createdAt),
                 todo.done ? this._formatTodoTimestamp(todo.doneAt) : '',
-                this._formatTodoTimestamp(todo.updatedAt || SheetsAPI.todoUpdatedAt(todo))
+                this._formatTodoTimestamp(todo.updatedAt || SheetsAPI.todoUpdatedAt(todo)),
+                categoryId,
+                categoryName
             ];
         });
-        await this._apiCall('POST', '/values/Todos!A1:F:clear', {});
-        await this._apiCall('PUT', '/values/Todos!A1:F?valueInputOption=RAW', {
+        await this._apiCall('POST', '/values/Todos!A1:H:clear', {});
+        await this._apiCall('PUT', '/values/Todos!A1:H?valueInputOption=RAW', {
             values: [header, ...dataRows]
         });
         console.log(`[Sheets] Uploaded ${dataRows.length} todo(s)`);
@@ -660,11 +939,15 @@ class SheetsAPI {
         if (logbook) {
             return {
                 todos: Array.isArray(logbook.todos) ? [...logbook.todos] : [],
-                deleted: Array.isArray(logbook.deletedTodos) ? [...logbook.deletedTodos] : []
+                deleted: Array.isArray(logbook.deletedTodos) ? [...logbook.deletedTodos] : [],
+                categories: Array.isArray(logbook.todoCategories) ? [...logbook.todoCategories] : [],
+                deletedCategories: Array.isArray(logbook.deletedTodoCategories) ? [...logbook.deletedTodoCategories] : []
             };
         }
         let todos = [];
         let deleted = [];
+        let categories = [];
+        let deletedCategories = [];
         try {
             const parsed = JSON.parse(localStorage.getItem('skydiving-todos') || '[]');
             if (Array.isArray(parsed)) todos = parsed;
@@ -673,19 +956,29 @@ class SheetsAPI {
             const parsed = JSON.parse(localStorage.getItem('skydiving-deleted-todos') || '[]');
             if (Array.isArray(parsed)) deleted = parsed;
         } catch (_) { /* ignore */ }
-        return { todos, deleted };
+        try {
+            const parsed = JSON.parse(localStorage.getItem('skydiving-todo-categories') || '[]');
+            if (Array.isArray(parsed)) categories = parsed;
+        } catch (_) { /* ignore */ }
+        try {
+            const parsed = JSON.parse(localStorage.getItem('skydiving-deleted-todo-categories') || '[]');
+            if (Array.isArray(parsed)) deletedCategories = parsed;
+        } catch (_) { /* ignore */ }
+        return { todos, deleted, categories, deletedCategories };
     }
 
-    _applyTodosLocally(mergedTodos, mergedDeleted) {
+    _applyTodosLocally(mergedTodos, mergedDeleted, mergedCategories, mergedDeletedCategories) {
         try {
             localStorage.setItem('skydiving-todos', JSON.stringify(mergedTodos || []));
             localStorage.setItem('skydiving-deleted-todos', JSON.stringify(mergedDeleted || []));
+            localStorage.setItem('skydiving-todo-categories', JSON.stringify(mergedCategories || []));
+            localStorage.setItem('skydiving-deleted-todo-categories', JSON.stringify(mergedDeletedCategories || []));
         } catch (err) {
             console.error('[Sync] Failed to save todos locally:', err);
         }
         const logbook = window.logbook;
         if (logbook && typeof logbook.applyTodosFromSync === 'function') {
-            logbook.applyTodosFromSync(mergedTodos, mergedDeleted);
+            logbook.applyTodosFromSync(mergedTodos, mergedDeleted, mergedCategories, mergedDeletedCategories);
         }
     }
 
@@ -701,27 +994,59 @@ class SheetsAPI {
         const local = this._readLocalTodos();
         const sheetTodos = await this.getAllTodos();
         const sheetDeleted = await this.getDeletedTodos();
+        const sheetCategories = await this.getAllTodoCategories();
+        const sheetDeletedCategories = await this.getDeletedTodoCategories();
+
+        const mergedDeletedCategories = SheetsAPI.mergeDeletedTodoCategories(
+            local.deletedCategories,
+            sheetDeletedCategories
+        );
+        const deletedCategoryIds = new Set(mergedDeletedCategories.map(d => d.id));
+        let mergedCategories = SheetsAPI.mergeTodoCategories(
+            local.categories,
+            sheetCategories,
+            deletedCategoryIds
+        );
+
         const mergedDeleted = SheetsAPI.mergeDeletedTodos(local.deleted, sheetDeleted);
         const deletedIds = new Set(mergedDeleted.map(d => d.id));
-        const mergedTodos = SheetsAPI.mergeTodos(local.todos, sheetTodos, deletedIds);
+        let mergedTodos = SheetsAPI.mergeTodos(local.todos, sheetTodos, deletedIds);
+        mergedTodos = SheetsAPI.reassignTodosFromDeletedCategories(mergedTodos, deletedCategoryIds);
+        mergedCategories = SheetsAPI.ensureCategoriesFromTodos(mergedCategories, mergedTodos);
 
-        this._applyTodosLocally(mergedTodos, mergedDeleted);
+        this._applyTodosLocally(mergedTodos, mergedDeleted, mergedCategories, mergedDeletedCategories);
 
         const sheetDeletedIds = new Set(sheetDeleted.map(d => d.id));
         const newDeletionIds = mergedDeleted.map(d => d.id).filter(id => !sheetDeletedIds.has(id));
-        const survivingSheetTodos = sheetTodos.filter(t => t.id && !deletedIds.has(t.id));
+        const survivingSheetTodos = SheetsAPI.reassignTodosFromDeletedCategories(
+            sheetTodos.filter(t => t.id && !deletedIds.has(t.id)),
+            deletedCategoryIds
+        );
         const todosChanged = !SheetsAPI.todosEqual(mergedTodos, survivingSheetTodos);
 
+        const sheetDeletedCategoryIds = new Set(sheetDeletedCategories.map(d => d.id));
+        const newCategoryDeletionIds = mergedDeletedCategories
+            .map(d => d.id)
+            .filter(id => !sheetDeletedCategoryIds.has(id));
+        const survivingSheetCategories = (sheetCategories || []).filter(c => c.id && !deletedCategoryIds.has(c.id));
+        const categoriesChanged = !SheetsAPI.todoCategoriesEqual(mergedCategories, survivingSheetCategories);
+
         if (todosChanged) {
-            await this.uploadAllTodos(mergedTodos);
+            await this.uploadAllTodos(mergedTodos, mergedCategories);
+        }
+        if (categoriesChanged) {
+            await this.uploadAllTodoCategories(mergedCategories);
         }
         if (newDeletionIds.length) {
             await this.appendDeletedTodos(newDeletionIds, mergedDeleted);
         }
+        if (newCategoryDeletionIds.length) {
+            await this.appendDeletedTodoCategories(newCategoryDeletionIds, mergedDeletedCategories);
+        }
 
-        const changed = todosChanged || newDeletionIds.length > 0;
+        const changed = todosChanged || categoriesChanged || newDeletionIds.length > 0 || newCategoryDeletionIds.length > 0;
         if (changed) {
-            console.log('[Sync] Todos merged:', mergedTodos.length, 'item(s),', mergedDeleted.length, 'deleted');
+            console.log('[Sync] Todos merged:', mergedTodos.length, 'item(s),', mergedCategories.length, 'list(s)');
         }
         return { changed };
     }

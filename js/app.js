@@ -14,6 +14,9 @@ const MAIN_NAV_VIEWS = [
     { id: 'todos', label: 'TODO' }
 ];
 
+const TODO_DEFAULT_CATEGORY_ID = 'todos';
+const TODO_DEFAULT_CATEGORY_NAME = 'TODOs';
+
 /**
  * Optional `?landing=flysight` (or jumps, equipment, stats, todos) overrides the start tab.
  * @param {string} [search] `location.search`, including a leading `?`
@@ -93,11 +96,27 @@ class SkydivingLogbook {
         } catch (_) {
             this.deletedTodos = [];
         }
+        try {
+            this.todoCategories = this.loadTodoCategories();
+        } catch (_) {
+            this.todoCategories = [this._defaultTodoCategory()];
+        }
+        try {
+            this.deletedTodoCategories = this.loadDeletedTodoCategories();
+        } catch (_) {
+            this.deletedTodoCategories = [];
+        }
+        this.activeTodoCategoryId = this.loadActiveTodoCategoryId();
         this._applyingTodoSync = false;
         this._todoLongPressTimer = null;
         this._todoLongPressId = null;
         this._todoSuppressClick = false;
+        this._todoCategoryLongPressTimer = null;
+        this._todoCategoryLongPressId = null;
+        this._todoCategorySuppressClick = false;
         this._editingTodoId = null;
+        this._editingTodoCategoryId = null;
+        this._todoCategoryModalMode = 'add';
 
         this.currentView = 'jumps'; // 'jumps', 'equipment', 'stats', 'flysight', 'todos'
         this.equipmentSubView = 'canopies'; // 'canopies', 'harnesses', 'locations'
@@ -678,6 +697,10 @@ class SkydivingLogbook {
             const todoItemModal = document.getElementById('todoItemModal');
             if (e.target === todoItemModal) {
                 this.closeTodoItemModal();
+            }
+            const todoCategoryModal = document.getElementById('todoCategoryModal');
+            if (e.target === todoCategoryModal) {
+                this.closeTodoCategoryModal();
             }
             const flysightGraphModal = document.getElementById('flysightGraphModal');
             if (e.target === flysightGraphModal) {
@@ -2997,19 +3020,135 @@ class SkydivingLogbook {
         }
     }
 
+    _defaultTodoCategory() {
+        return { id: TODO_DEFAULT_CATEGORY_ID, name: TODO_DEFAULT_CATEGORY_NAME, createdAt: 0, updatedAt: 0 };
+    }
+
+    _newTodoCategoryId() {
+        return 'todocat-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    }
+
+    _normalizeTodoCategory(c) {
+        const id = String(c?.id || '').trim() || this._newTodoCategoryId();
+        const name = String(c?.name || '').trim() || (id === TODO_DEFAULT_CATEGORY_ID ? TODO_DEFAULT_CATEGORY_NAME : 'List');
+        return {
+            id,
+            name: id === TODO_DEFAULT_CATEGORY_ID ? (name || TODO_DEFAULT_CATEGORY_NAME) : name,
+            createdAt: Number(c?.createdAt) || 0,
+            updatedAt: Number(c?.updatedAt) || 0
+        };
+    }
+
+    _ensureDefaultTodoCategory(list) {
+        const categories = Array.isArray(list) ? list.map(c => this._normalizeTodoCategory(c)) : [];
+        const byId = new Map();
+        for (const c of categories) {
+            if (!c.id || byId.has(c.id)) continue;
+            byId.set(c.id, c);
+        }
+        if (!byId.has(TODO_DEFAULT_CATEGORY_ID)) {
+            byId.set(TODO_DEFAULT_CATEGORY_ID, this._defaultTodoCategory());
+        }
+        const ordered = [byId.get(TODO_DEFAULT_CATEGORY_ID)];
+        for (const c of categories) {
+            if (c.id === TODO_DEFAULT_CATEGORY_ID || !byId.has(c.id)) continue;
+            ordered.push(byId.get(c.id));
+            byId.delete(c.id);
+        }
+        return ordered;
+    }
+
+    loadTodoCategories() {
+        try {
+            const parsed = JSON.parse(localStorage.getItem('skydiving-todo-categories') || '[]');
+            return this._ensureDefaultTodoCategory(Array.isArray(parsed) ? parsed : []);
+        } catch (_) {
+            return [this._defaultTodoCategory()];
+        }
+    }
+
+    loadDeletedTodoCategories() {
+        try {
+            const parsed = JSON.parse(localStorage.getItem('skydiving-deleted-todo-categories') || '[]');
+            if (!Array.isArray(parsed)) return [];
+            const byId = new Map();
+            for (const d of parsed) {
+                const id = d && String(d.id || '').trim();
+                if (!id || id === TODO_DEFAULT_CATEGORY_ID || byId.has(id)) continue;
+                byId.set(id, {
+                    id,
+                    deletedAt: d.deletedAt || new Date().toISOString()
+                });
+            }
+            return Array.from(byId.values());
+        } catch (_) {
+            return [];
+        }
+    }
+
+    loadActiveTodoCategoryId() {
+        try {
+            const id = String(localStorage.getItem('skydiving-todo-active-category') || '').trim();
+            if (id && (this.todoCategories || []).some(c => c.id === id)) return id;
+        } catch (_) { /* ignore */ }
+        return TODO_DEFAULT_CATEGORY_ID;
+    }
+
+    saveTodoCategories() {
+        this.todoCategories = this._ensureDefaultTodoCategory(this.todoCategories);
+        try {
+            localStorage.setItem('skydiving-todo-categories', JSON.stringify(this.todoCategories));
+        } catch (err) {
+            console.error('[TODOs] Failed to save lists:', err);
+        }
+        if (this._applyingTodoSync) return;
+        localStorage.setItem('skydiving-data-modified', new Date().toISOString());
+        if (navigator.onLine && window.SheetsAPI?.initialized) {
+            window.SheetsAPI.pushAllWithGuard();
+        }
+    }
+
+    saveDeletedTodoCategories() {
+        try {
+            localStorage.setItem('skydiving-deleted-todo-categories', JSON.stringify(this.deletedTodoCategories || []));
+        } catch (err) {
+            console.error('[TODOs] Failed to save deleted lists:', err);
+        }
+    }
+
+    recordTodoCategoryDeletions(ids) {
+        const now = new Date().toISOString();
+        const have = new Set((this.deletedTodoCategories || []).map(d => d.id));
+        if (!Array.isArray(this.deletedTodoCategories)) this.deletedTodoCategories = [];
+        for (const rawId of ids || []) {
+            const id = String(rawId || '').trim();
+            if (!id || id === TODO_DEFAULT_CATEGORY_ID || have.has(id)) continue;
+            this.deletedTodoCategories.push({ id, deletedAt: now });
+            have.add(id);
+        }
+        this.saveDeletedTodoCategories();
+    }
+
     _normalizeTodo(t) {
         const createdAt = Number(t.createdAt) || Date.now();
         const done = Boolean(t.done);
         const doneAt = done ? (Number(t.doneAt) || createdAt) : null;
         const updatedAt = Number(t.updatedAt) || (doneAt || createdAt);
+        const categoryId = String(t.categoryId || TODO_DEFAULT_CATEGORY_ID).trim() || TODO_DEFAULT_CATEGORY_ID;
         return {
             id: String(t.id || this._newTodoId()),
             text: t.text,
             done,
             createdAt,
             doneAt,
-            updatedAt
+            updatedAt,
+            categoryId
         };
+    }
+
+    _todosInActiveCategory() {
+        const catId = this.activeTodoCategoryId || TODO_DEFAULT_CATEGORY_ID;
+        return this.todos.filter(t => (t.categoryId || TODO_DEFAULT_CATEGORY_ID) === catId);
     }
 
     loadDeletedTodos() {
@@ -3065,13 +3204,24 @@ class SkydivingLogbook {
         }
     }
 
-    applyTodosFromSync(todos, deletedRecords) {
+    applyTodosFromSync(todos, deletedRecords, categories, deletedCategories) {
         this._applyingTodoSync = true;
         try {
             this.todos = Array.isArray(todos) ? todos.map(t => this._normalizeTodo(t)) : [];
             this.deletedTodos = Array.isArray(deletedRecords) ? deletedRecords : [];
+            this.todoCategories = this._ensureDefaultTodoCategory(Array.isArray(categories) ? categories : this.todoCategories);
+            this.deletedTodoCategories = Array.isArray(deletedCategories) ? deletedCategories : (this.deletedTodoCategories || []);
+            const validCat = new Set(this.todoCategories.map(c => c.id));
+            if (!validCat.has(this.activeTodoCategoryId)) {
+                this.activeTodoCategoryId = TODO_DEFAULT_CATEGORY_ID;
+            }
             this.saveTodos();
             this.saveDeletedTodos();
+            this.saveTodoCategories();
+            this.saveDeletedTodoCategories();
+            try {
+                localStorage.setItem('skydiving-todo-active-category', this.activeTodoCategoryId);
+            } catch (_) { /* ignore */ }
             if (this.currentView === 'todos') this.renderTodosList();
         } finally {
             this._applyingTodoSync = false;
@@ -3117,6 +3267,21 @@ class SkydivingLogbook {
         document.getElementById('todoItemModalClose')?.addEventListener('click', () => {
             this.closeTodoItemModal();
         });
+
+        document.getElementById('todoCategoryForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.saveTodoCategoryFromModal();
+        });
+
+        document.getElementById('todoCategoryDeleteBtn')?.addEventListener('click', () => {
+            this.deleteTodoCategoryFromModal();
+        });
+
+        document.getElementById('todoCategoryModalClose')?.addEventListener('click', () => {
+            this.closeTodoCategoryModal();
+        });
+
+        this._bindTodoCategoryBarEvents();
 
         const list = document.getElementById('todosList');
         if (!list) return;
@@ -3216,6 +3381,256 @@ class SkydivingLogbook {
         this._todoLongPressId = null;
     }
 
+    _bindTodoCategoryBarEvents() {
+        const bar = document.getElementById('todoCategoryBar');
+        if (!bar) return;
+
+        bar.addEventListener('click', (e) => {
+            if (this._todoCategorySuppressClick) {
+                e.preventDefault();
+                e.stopPropagation();
+                this._todoCategorySuppressClick = false;
+                return;
+            }
+            const el = this._todoEventEl(e);
+            if (!el) return;
+            const addBtn = el.closest('#addTodoCategoryBtn');
+            if (addBtn) {
+                this.openTodoCategoryModal('add');
+                return;
+            }
+            const chip = el.closest('.todo-category-chip');
+            if (chip && chip.dataset.categoryId) {
+                this.setActiveTodoCategory(chip.dataset.categoryId);
+            }
+        });
+
+        const startLongPress = (x, y, id) => {
+            this._cancelTodoCategoryLongPress();
+            this._todoCategoryLongPressId = id;
+            this._todoCategoryPointerStartX = x;
+            this._todoCategoryPointerStartY = y;
+            this._todoCategoryLongPressTimer = setTimeout(() => {
+                this._todoCategoryLongPressTimer = null;
+                this._todoCategorySuppressClick = true;
+                if (typeof navigator.vibrate === 'function') {
+                    try { navigator.vibrate(12); } catch (_) { /* iOS */ }
+                }
+                this.openTodoCategoryModal('edit', id);
+            }, 500);
+        };
+
+        const moveLongPress = (x, y) => {
+            if (!this._todoCategoryLongPressTimer) return;
+            if (Math.hypot(x - this._todoCategoryPointerStartX, y - this._todoCategoryPointerStartY) > 10) {
+                this._cancelTodoCategoryLongPress();
+            }
+        };
+
+        const categoryIdFromEvent = (e) => {
+            const el = this._todoEventEl(e);
+            if (!el) return null;
+            if (el.closest('#addTodoCategoryBtn')) return null;
+            const chip = el.closest('.todo-category-chip');
+            return chip ? chip.dataset.categoryId : null;
+        };
+
+        if (window.PointerEvent) {
+            bar.addEventListener('pointerdown', (e) => {
+                if (e.pointerType === 'mouse' && e.button !== 0) return;
+                const id = categoryIdFromEvent(e);
+                if (!id) return;
+                startLongPress(e.clientX, e.clientY, id);
+            });
+            bar.addEventListener('pointermove', (e) => moveLongPress(e.clientX, e.clientY));
+            bar.addEventListener('pointerup', () => this._cancelTodoCategoryLongPress());
+            bar.addEventListener('pointercancel', () => this._cancelTodoCategoryLongPress());
+        } else {
+            bar.addEventListener('touchstart', (e) => {
+                const t = e.changedTouches[0];
+                if (!t) return;
+                const id = categoryIdFromEvent(e);
+                if (!id) return;
+                startLongPress(t.clientX, t.clientY, id);
+            }, { passive: true });
+            bar.addEventListener('touchmove', (e) => {
+                const t = e.changedTouches[0];
+                if (t) moveLongPress(t.clientX, t.clientY);
+            }, { passive: true });
+            bar.addEventListener('touchend', () => this._cancelTodoCategoryLongPress(), { passive: true });
+            bar.addEventListener('touchcancel', () => this._cancelTodoCategoryLongPress(), { passive: true });
+        }
+
+        bar.addEventListener('contextmenu', (e) => {
+            const el = this._todoEventEl(e);
+            if (!el) return;
+            const chip = el.closest('.todo-category-chip');
+            if (!chip) return;
+            e.preventDefault();
+            this._cancelTodoCategoryLongPress();
+            this.openTodoCategoryModal('edit', chip.dataset.categoryId);
+        });
+    }
+
+    _cancelTodoCategoryLongPress() {
+        if (this._todoCategoryLongPressTimer) {
+            clearTimeout(this._todoCategoryLongPressTimer);
+            this._todoCategoryLongPressTimer = null;
+        }
+        this._todoCategoryLongPressId = null;
+    }
+
+    setActiveTodoCategory(id) {
+        const next = String(id || '').trim() || TODO_DEFAULT_CATEGORY_ID;
+        if (!(this.todoCategories || []).some(c => c.id === next)) return;
+        this.activeTodoCategoryId = next;
+        try {
+            localStorage.setItem('skydiving-todo-active-category', next);
+        } catch (_) { /* ignore */ }
+        this.renderTodosList();
+    }
+
+    renderTodoCategoryBar() {
+        const bar = document.getElementById('todoCategoryBar');
+        if (!bar) return;
+        this.todoCategories = this._ensureDefaultTodoCategory(this.todoCategories);
+        if (!this.activeTodoCategoryId || !(this.todoCategories || []).some(c => c.id === this.activeTodoCategoryId)) {
+            this.activeTodoCategoryId = TODO_DEFAULT_CATEGORY_ID;
+        }
+        const chips = this.todoCategories.map(cat => {
+            const active = cat.id === this.activeTodoCategoryId ? ' active' : '';
+            const id = this.escapeHtml(cat.id);
+            const name = this.escapeHtml(cat.name);
+            return `<button type="button" class="todo-category-chip${active}" role="tab" aria-selected="${cat.id === this.activeTodoCategoryId ? 'true' : 'false'}" data-category-id="${id}" title="${name}">${name}</button>`;
+        }).join('');
+        bar.innerHTML = `${chips}<button type="button" id="addTodoCategoryBtn" class="todo-category-add-chip" title="New list" aria-label="New list">+</button>`;
+        const activeChip = bar.querySelector('.todo-category-chip.active');
+        if (activeChip && typeof activeChip.scrollIntoView === 'function') {
+            try { activeChip.scrollIntoView({ inline: 'nearest', block: 'nearest' }); } catch (_) { /* older WebView */ }
+        }
+    }
+
+    openTodoCategoryModal(mode, categoryId) {
+        const modal = document.getElementById('todoCategoryModal');
+        const input = document.getElementById('todoCategoryNameInput');
+        const title = document.getElementById('todoCategoryModalTitle');
+        const deleteBtn = document.getElementById('todoCategoryDeleteBtn');
+        const hint = modal?.querySelector('.todo-category-modal-hint');
+        if (!modal || !input) return;
+        this._todoCategoryModalMode = mode === 'edit' ? 'edit' : 'add';
+        this._editingTodoCategoryId = null;
+        if (this._todoCategoryModalMode === 'edit') {
+            const cat = (this.todoCategories || []).find(c => c.id === categoryId);
+            if (!cat) return;
+            this._editingTodoCategoryId = cat.id;
+            title.textContent = cat.id === TODO_DEFAULT_CATEGORY_ID ? 'Rename list' : 'Edit list';
+            input.value = cat.name;
+            if (deleteBtn) deleteBtn.hidden = cat.id === TODO_DEFAULT_CATEGORY_ID;
+            if (hint) hint.hidden = true;
+        } else {
+            title.textContent = 'New list';
+            input.value = '';
+            if (deleteBtn) deleteBtn.hidden = true;
+            if (hint) hint.hidden = false;
+        }
+        modal.style.display = 'block';
+        setTimeout(() => {
+            input.focus();
+            try {
+                input.setSelectionRange(input.value.length, input.value.length);
+            } catch (_) { /* some mobile WebViews */ }
+        }, 300);
+    }
+
+    closeTodoCategoryModal() {
+        const modal = document.getElementById('todoCategoryModal');
+        if (modal) modal.style.display = 'none';
+        this._editingTodoCategoryId = null;
+        this._todoCategoryModalMode = 'add';
+    }
+
+    _todoCategoryNameTaken(name, exceptId) {
+        const needle = String(name || '').trim().toLowerCase();
+        return (this.todoCategories || []).some(c => c.id !== exceptId && String(c.name || '').trim().toLowerCase() === needle);
+    }
+
+    saveTodoCategoryFromModal() {
+        const input = document.getElementById('todoCategoryNameInput');
+        if (!input) return;
+        const name = input.value.trim();
+        if (!name) return;
+        if (this._todoCategoryModalMode === 'edit' && this._editingTodoCategoryId) {
+            if (this._todoCategoryNameTaken(name, this._editingTodoCategoryId)) {
+                this.showMessage('A list with that name already exists', 'error');
+                return;
+            }
+            const cat = (this.todoCategories || []).find(c => c.id === this._editingTodoCategoryId);
+            if (!cat) return;
+            cat.name = name;
+            cat.updatedAt = Date.now();
+            this.saveTodoCategories();
+            this.closeTodoCategoryModal();
+            this.renderTodosList();
+            return;
+        }
+        if (this._todoCategoryNameTaken(name)) {
+            this.showMessage('A list with that name already exists', 'error');
+            return;
+        }
+        const now = Date.now();
+        const cat = {
+            id: this._newTodoCategoryId(),
+            name,
+            createdAt: now,
+            updatedAt: now
+        };
+        this.todoCategories = this._ensureDefaultTodoCategory(this.todoCategories);
+        this.todoCategories.push(cat);
+        this.saveTodoCategories();
+        this.closeTodoCategoryModal();
+        this.setActiveTodoCategory(cat.id);
+    }
+
+    deleteTodoCategoryFromModal() {
+        const id = this._editingTodoCategoryId;
+        if (!id || id === TODO_DEFAULT_CATEGORY_ID) return;
+        const cat = (this.todoCategories || []).find(c => c.id === id);
+        if (!cat) return;
+        const itemCount = this.todos.filter(t => (t.categoryId || TODO_DEFAULT_CATEGORY_ID) === id).length;
+        const msg = itemCount
+            ? `Delete “${cat.name}”? ${itemCount} item${itemCount === 1 ? '' : 's'} will move to ${TODO_DEFAULT_CATEGORY_NAME}.`
+            : `Delete “${cat.name}”?`;
+        if (typeof confirm === 'function' && !confirm(msg)) return;
+        this.deleteTodoCategory(id);
+        this.closeTodoCategoryModal();
+        this.renderTodosList();
+    }
+
+    deleteTodoCategory(id) {
+        const catId = String(id || '').trim();
+        if (!catId || catId === TODO_DEFAULT_CATEGORY_ID) return;
+        this.recordTodoCategoryDeletions([catId]);
+        this.todoCategories = this._ensureDefaultTodoCategory(
+            (this.todoCategories || []).filter(c => c.id !== catId)
+        );
+        let moved = false;
+        for (const t of this.todos) {
+            if ((t.categoryId || TODO_DEFAULT_CATEGORY_ID) === catId) {
+                t.categoryId = TODO_DEFAULT_CATEGORY_ID;
+                t.updatedAt = Date.now();
+                moved = true;
+            }
+        }
+        if (this.activeTodoCategoryId === catId) {
+            this.activeTodoCategoryId = TODO_DEFAULT_CATEGORY_ID;
+            try {
+                localStorage.setItem('skydiving-todo-active-category', TODO_DEFAULT_CATEGORY_ID);
+            } catch (_) { /* ignore */ }
+        }
+        this.saveTodoCategories();
+        if (moved) this.saveTodos();
+    }
+
     showTodoAddForm() {
         const form = document.getElementById('todoAddForm');
         const input = document.getElementById('todoAddInput');
@@ -3240,7 +3655,8 @@ class SkydivingLogbook {
             done: false,
             createdAt: now,
             doneAt: null,
-            updatedAt: now
+            updatedAt: now,
+            categoryId: this.activeTodoCategoryId || TODO_DEFAULT_CATEGORY_ID
         });
         this.saveTodos();
         input.value = '';
@@ -3249,11 +3665,13 @@ class SkydivingLogbook {
     }
 
     renderTodosList() {
+        this.renderTodoCategoryBar();
         const list = document.getElementById('todosList');
         if (!list) return;
 
-        const active = this.todos.filter(t => !t.done);
-        const done = this.todos.filter(t => t.done);
+        const inCategory = this._todosInActiveCategory();
+        const active = inCategory.filter(t => !t.done);
+        const done = inCategory.filter(t => t.done);
 
         if (active.length === 0 && done.length === 0) {
             list.innerHTML = '<p class="todo-empty">No items yet. Tap + to add one.</p>';
@@ -3311,9 +3729,14 @@ class SkydivingLogbook {
     }
 
     clearDoneTodos() {
-        if (!this.todos.some(t => t.done)) return;
-        this.recordTodoDeletions(this.todos.filter(t => t.done).map(t => t.id));
-        this.todos = this.todos.filter(t => !t.done);
+        const catId = this.activeTodoCategoryId || TODO_DEFAULT_CATEGORY_ID;
+        const doneIds = this.todos
+            .filter(t => t.done && (t.categoryId || TODO_DEFAULT_CATEGORY_ID) === catId)
+            .map(t => t.id);
+        if (doneIds.length === 0) return;
+        this.recordTodoDeletions(doneIds);
+        const remove = new Set(doneIds);
+        this.todos = this.todos.filter(t => !remove.has(t.id));
         this.saveTodos();
         this.renderTodosList();
     }
@@ -3325,6 +3748,7 @@ class SkydivingLogbook {
         if (!item || !modal || !input) return;
         this._editingTodoId = id;
         input.value = item.text;
+        this._fillTodoEditCategorySelect(item.categoryId || TODO_DEFAULT_CATEGORY_ID);
         modal.style.display = 'block';
         setTimeout(() => {
             input.focus();
@@ -3332,6 +3756,23 @@ class SkydivingLogbook {
                 input.setSelectionRange(input.value.length, input.value.length);
             } catch (_) { /* some mobile WebViews */ }
         }, 300);
+    }
+
+    _fillTodoEditCategorySelect(selectedId) {
+        const group = document.getElementById('todoEditCategoryGroup');
+        const select = document.getElementById('todoEditCategory');
+        if (!group || !select) return;
+        const categories = this._ensureDefaultTodoCategory(this.todoCategories);
+        if (categories.length <= 1) {
+            group.hidden = true;
+            select.innerHTML = '';
+            return;
+        }
+        group.hidden = false;
+        select.innerHTML = categories.map(c => {
+            const sel = c.id === selectedId ? ' selected' : '';
+            return `<option value="${this.escapeHtml(c.id)}"${sel}>${this.escapeHtml(c.name)}</option>`;
+        }).join('');
     }
 
     closeTodoItemModal() {
@@ -3349,6 +3790,13 @@ class SkydivingLogbook {
         const item = this.todos.find(t => t.id === id);
         if (!item) return;
         item.text = text;
+        const categorySelect = document.getElementById('todoEditCategory');
+        if (categorySelect && !document.getElementById('todoEditCategoryGroup')?.hidden) {
+            const nextCat = String(categorySelect.value || '').trim();
+            if (nextCat && (this.todoCategories || []).some(c => c.id === nextCat)) {
+                item.categoryId = nextCat;
+            }
+        }
         item.updatedAt = Date.now();
         this.saveTodos();
         this.closeTodoItemModal();

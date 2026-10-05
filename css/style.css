@@ -3268,11 +3268,86 @@ body.flysight-graph-open {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 0.75rem;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+    min-width: 0;
 }
 
-.todos-header h2 {
-    margin: 0;
+.todo-category-bar {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    padding: 0.1rem 0;
+}
+
+.todo-category-bar::-webkit-scrollbar {
+    display: none;
+}
+
+.todo-category-chip {
+    flex-shrink: 0;
+    border: 1px solid #bbdefb;
+    background: #fff;
+    color: #1565C0;
+    border-radius: 999px;
+    padding: 0.2rem 0.65rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    line-height: 1.2;
+    min-height: 32px;
+    max-width: 9.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.todo-category-chip.active {
+    background: #2196F3;
+    color: #fff;
+    border-color: #2196F3;
+}
+
+.todo-category-add-chip {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    border-radius: 50%;
+    border: 1px dashed #90caf9;
+    background: #fff;
+    color: #1565C0;
+    font-size: 1.15rem;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.todo-category-add-chip:hover,
+.todo-category-add-chip:active {
+    background: #e3f2fd;
+}
+
+.todo-category-modal-hint {
+    color: #888;
+    font-size: 0.8rem;
+    margin: 0 0 0.75rem;
 }
 
 .todo-add-btn {
@@ -3446,7 +3521,8 @@ body.flysight-graph-open {
     gap: 0.5rem;
 }
 
-.todo-item-modal-content input[type="text"] {
+.todo-item-modal-content input[type="text"],
+.todo-item-modal-content select {
     font-size: 16px;
 }
 

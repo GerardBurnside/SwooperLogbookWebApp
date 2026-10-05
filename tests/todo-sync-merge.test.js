@@ -124,6 +124,49 @@ test('mergeDeletedTodos unions local and sheet tombstones', () => {
     assert.equal(a.deletedAt, '2026-01-01T00:00:00.000Z');
 });
 
+test('todosEqual treats category changes as a difference', () => {
+    const a = [todo({ id: 'x', categoryId: 'todos' })];
+    const b = [todo({ id: 'x', categoryId: 'groceries' })];
+    assert.equal(SheetsAPI.todosEqual(a, a), true);
+    assert.equal(SheetsAPI.todosEqual(a, b), false);
+});
+
+test('merge last-write-wins includes category moves', () => {
+    const local = [todo({ id: 'same', text: 'Milk', updatedAt: 8000, categoryId: 'groceries' })];
+    const sheet = [todo({ id: 'same', text: 'Milk', updatedAt: 2000, categoryId: 'todos' })];
+    const merged = SheetsAPI.mergeTodos(local, sheet, []);
+    assert.equal(merged[0].categoryId, 'groceries');
+});
+
+test('old todos without a category land in the default TODOs list', () => {
+    const local = [todo({ id: 'legacy' })];
+    delete local[0].categoryId;
+    const merged = SheetsAPI.mergeTodos(local, [], []);
+    assert.equal(merged[0].categoryId, 'todos');
+});
+
+test('mergeTodoCategories keeps the default list and unions custom lists', () => {
+    const merged = SheetsAPI.mergeTodoCategories(
+        [{ id: 'todos', name: 'TODOs', createdAt: 0, updatedAt: 0 }],
+        [{ id: 'groc', name: 'Groceries', createdAt: 1, updatedAt: 1 }],
+        []
+    );
+    assert.equal(merged[0].id, 'todos');
+    assert.equal(merged.some(c => c.id === 'groc'), true);
+});
+
+test('deleted todo categories win and items are reassigned to TODOs', () => {
+    const todos = [todo({ id: 'milk', categoryId: 'groc', categoryName: 'Groceries' })];
+    const reassigned = SheetsAPI.reassignTodosFromDeletedCategories(todos, ['groc']);
+    assert.equal(reassigned[0].categoryId, 'todos');
+    const mergedCats = SheetsAPI.mergeTodoCategories(
+        [{ id: 'groc', name: 'Groceries', updatedAt: 5 }],
+        [{ id: 'groc', name: 'Groceries', updatedAt: 5 }],
+        ['groc']
+    );
+    assert.equal(mergedCats.some(c => c.id === 'groc'), false);
+});
+
 test('logbook records deleted todo ids for later merge', () => {
     const appJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
     const localStorage = createLocalStorageStub();
@@ -171,4 +214,100 @@ test('logbook records deleted todo ids for later merge', () => {
     logbook.clearDoneTodos();
     assert.equal(logbook.todos.length, 0);
     assert.equal(logbook.deletedTodos.some(d => d.id === 'done-item'), true);
+});
+
+test('deleting a custom list moves its items into TODOs', () => {
+    const appJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+    const localStorage = createLocalStorageStub();
+    const sandbox = {
+        console,
+        setTimeout,
+        clearTimeout,
+        localStorage,
+        navigator: { onLine: false },
+        confirm: () => true,
+        document: {
+            addEventListener() {},
+            createElement: () => ({ style: {}, click() {} }),
+            body: { appendChild() {}, removeChild() {} },
+            querySelector() { return null; },
+            querySelectorAll() { return []; },
+            getElementById() {
+                return {
+                    addEventListener() {},
+                    style: {},
+                    classList: { add() {}, remove() {} },
+                    value: '',
+                    textContent: '',
+                    hidden: false
+                };
+            }
+        }
+    };
+    sandbox.window = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(`${appJs}\nthis.__SkydivingLogbook = SkydivingLogbook;`, sandbox);
+
+    const logbook = Object.create(sandbox.__SkydivingLogbook.prototype);
+    logbook._applyingTodoSync = false;
+    logbook.todos = [todo({ id: 'milk', categoryId: 'groc' }), todo({ id: 'pack', categoryId: 'todos' })];
+    logbook.todoCategories = [
+        { id: 'todos', name: 'TODOs', createdAt: 0, updatedAt: 0 },
+        { id: 'groc', name: 'Groceries', createdAt: 1, updatedAt: 1 }
+    ];
+    logbook.deletedTodoCategories = [];
+    logbook.activeTodoCategoryId = 'groc';
+    logbook.deletedTodos = [];
+
+    logbook.deleteTodoCategory('groc');
+    assert.equal(logbook.todoCategories.some(c => c.id === 'groc'), false);
+    assert.equal(logbook.todos.find(t => t.id === 'milk').categoryId, 'todos');
+    assert.equal(logbook.todos.find(t => t.id === 'pack').categoryId, 'todos');
+    assert.equal(logbook.activeTodoCategoryId, 'todos');
+    assert.equal(logbook.deletedTodoCategories.some(d => d.id === 'groc'), true);
+});
+
+test('clearing done items only removes them from the active list', () => {
+    const appJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+    const localStorage = createLocalStorageStub();
+    const sandbox = {
+        console,
+        setTimeout,
+        clearTimeout,
+        localStorage,
+        navigator: { onLine: false },
+        document: {
+            addEventListener() {},
+            createElement: () => ({ style: {}, click() {} }),
+            body: { appendChild() {}, removeChild() {} },
+            querySelector() { return null; },
+            querySelectorAll() { return []; },
+            getElementById() {
+                return {
+                    addEventListener() {},
+                    style: {},
+                    classList: { add() {}, remove() {} },
+                    value: '',
+                    textContent: ''
+                };
+            }
+        }
+    };
+    sandbox.window = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(`${appJs}\nthis.__SkydivingLogbook = SkydivingLogbook;`, sandbox);
+
+    const logbook = Object.create(sandbox.__SkydivingLogbook.prototype);
+    logbook._applyingTodoSync = false;
+    logbook.renderTodosList = () => {};
+    logbook.activeTodoCategoryId = 'groc';
+    logbook.deletedTodos = [];
+    logbook.todos = [
+        todo({ id: 'milk', categoryId: 'groc', done: true, doneAt: 2000, updatedAt: 2000 }),
+        todo({ id: 'pack', categoryId: 'todos', done: true, doneAt: 2000, updatedAt: 2000 })
+    ];
+
+    logbook.clearDoneTodos();
+    assert.equal(logbook.todos.some(t => t.id === 'milk'), false);
+    assert.equal(logbook.todos.some(t => t.id === 'pack'), true);
 });
