@@ -236,7 +236,7 @@
             <div id="todosView" class="view" style="display: none;">
                 <section class="todos-section">
                     <div class="todos-header">
-                        <div id="todoCategoryBar" class="todo-category-bar" role="tablist" aria-label="TODO lists"></div>
+                        <div id="todoCategoryBar" class="todo-category-bar" role="tablist" aria-label="TODO labels"></div>
                         <button type="button" id="addTodoBtn" class="todo-add-btn" title="Add item" aria-label="Add item">+</button>
                     </div>
                     <form id="todoAddForm" class="todo-add-form" hidden>
@@ -746,7 +746,7 @@
                         <input type="text" id="todoEditInput" maxlength="200" required autocomplete="off" enterkeyhint="done">
                     </div>
                     <div class="form-group" id="todoEditCategoryGroup" hidden>
-                        <label for="todoEditCategory">List</label>
+                        <label for="todoEditCategory">Label</label>
                         <select id="todoEditCategory"></select>
                     </div>
                     <div class="todo-edit-actions">
@@ -761,15 +761,15 @@
         <div id="todoCategoryModal" class="modal">
             <div class="modal-content todo-item-modal-content">
                 <span id="todoCategoryModalClose" class="close" title="Close">&times;</span>
-                <h2 id="todoCategoryModalTitle">New list</h2>
+                <h2 id="todoCategoryModalTitle">New label</h2>
                 <form id="todoCategoryForm">
                     <div class="form-group">
                         <input type="text" id="todoCategoryNameInput" maxlength="40" required placeholder="e.g. Groceries" autocomplete="off" enterkeyhint="done" autocapitalize="sentences">
                     </div>
-                    <p class="todo-category-modal-hint">Long-press a list name to rename or delete it.</p>
+                    <p class="todo-category-modal-hint">Long-press a label to rename or delete it.</p>
                     <div class="todo-edit-actions">
                         <button type="submit" class="btn-primary">Save</button>
-                        <button type="button" id="todoCategoryDeleteBtn" class="btn-danger" hidden>Delete list</button>
+                        <button type="button" id="todoCategoryDeleteBtn" class="btn-danger" hidden>Delete label</button>
                     </div>
                 </form>
             </div>

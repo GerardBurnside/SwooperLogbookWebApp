@@ -124,41 +124,40 @@ test('mergeDeletedTodos unions local and sheet tombstones', () => {
     assert.equal(a.deletedAt, '2026-01-01T00:00:00.000Z');
 });
 
-test('todosEqual treats category changes as a difference', () => {
-    const a = [todo({ id: 'x', categoryId: 'todos' })];
+test('todosEqual treats label changes as a difference', () => {
+    const a = [todo({ id: 'x' })];
     const b = [todo({ id: 'x', categoryId: 'groceries' })];
     assert.equal(SheetsAPI.todosEqual(a, a), true);
     assert.equal(SheetsAPI.todosEqual(a, b), false);
 });
 
-test('merge last-write-wins includes category moves', () => {
+test('merge last-write-wins includes label moves', () => {
     const local = [todo({ id: 'same', text: 'Milk', updatedAt: 8000, categoryId: 'groceries' })];
     const sheet = [todo({ id: 'same', text: 'Milk', updatedAt: 2000, categoryId: 'todos' })];
     const merged = SheetsAPI.mergeTodos(local, sheet, []);
     assert.equal(merged[0].categoryId, 'groceries');
 });
 
-test('old todos without a category land in the default TODOs list', () => {
-    const local = [todo({ id: 'legacy' })];
-    delete local[0].categoryId;
+test('legacy todos bucket is treated as no label', () => {
+    const local = [todo({ id: 'legacy', categoryId: 'todos' })];
     const merged = SheetsAPI.mergeTodos(local, [], []);
-    assert.equal(merged[0].categoryId, 'todos');
+    assert.equal(merged[0].categoryId, undefined);
 });
 
-test('mergeTodoCategories keeps the default list and unions custom lists', () => {
+test('mergeTodoCategories unions custom labels and skips reserved ids', () => {
     const merged = SheetsAPI.mergeTodoCategories(
         [{ id: 'todos', name: 'TODOs', createdAt: 0, updatedAt: 0 }],
         [{ id: 'groc', name: 'Groceries', createdAt: 1, updatedAt: 1 }],
         []
     );
-    assert.equal(merged[0].id, 'todos');
+    assert.equal(merged.some(c => c.id === 'todos'), false);
     assert.equal(merged.some(c => c.id === 'groc'), true);
 });
 
-test('deleted todo categories win and items are reassigned to TODOs', () => {
+test('deleted labels are removed and items lose the label', () => {
     const todos = [todo({ id: 'milk', categoryId: 'groc', categoryName: 'Groceries' })];
     const reassigned = SheetsAPI.reassignTodosFromDeletedCategories(todos, ['groc']);
-    assert.equal(reassigned[0].categoryId, 'todos');
+    assert.equal(reassigned[0].categoryId, undefined);
     const mergedCats = SheetsAPI.mergeTodoCategories(
         [{ id: 'groc', name: 'Groceries', updatedAt: 5 }],
         [{ id: 'groc', name: 'Groceries', updatedAt: 5 }],
@@ -216,7 +215,7 @@ test('logbook records deleted todo ids for later merge', () => {
     assert.equal(logbook.deletedTodos.some(d => d.id === 'done-item'), true);
 });
 
-test('deleting a custom list moves its items into TODOs', () => {
+test('deleting a label removes it from items', () => {
     const appJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
     const localStorage = createLocalStorageStub();
     const sandbox = {
@@ -250,9 +249,8 @@ test('deleting a custom list moves its items into TODOs', () => {
 
     const logbook = Object.create(sandbox.__SkydivingLogbook.prototype);
     logbook._applyingTodoSync = false;
-    logbook.todos = [todo({ id: 'milk', categoryId: 'groc' }), todo({ id: 'pack', categoryId: 'todos' })];
+    logbook.todos = [todo({ id: 'milk', categoryId: 'groc' }), todo({ id: 'pack' })];
     logbook.todoCategories = [
-        { id: 'todos', name: 'TODOs', createdAt: 0, updatedAt: 0 },
         { id: 'groc', name: 'Groceries', createdAt: 1, updatedAt: 1 }
     ];
     logbook.deletedTodoCategories = [];
@@ -261,13 +259,13 @@ test('deleting a custom list moves its items into TODOs', () => {
 
     logbook.deleteTodoCategory('groc');
     assert.equal(logbook.todoCategories.some(c => c.id === 'groc'), false);
-    assert.equal(logbook.todos.find(t => t.id === 'milk').categoryId, 'todos');
-    assert.equal(logbook.todos.find(t => t.id === 'pack').categoryId, 'todos');
-    assert.equal(logbook.activeTodoCategoryId, 'todos');
+    assert.equal(logbook.todos.find(t => t.id === 'milk').categoryId, undefined);
+    assert.equal(logbook.todos.find(t => t.id === 'pack').categoryId, undefined);
+    assert.equal(logbook.activeTodoCategoryId, 'all');
     assert.equal(logbook.deletedTodoCategories.some(d => d.id === 'groc'), true);
 });
 
-test('clearing done items only removes them from the active list', () => {
+test('clearing done items only removes them from the active label filter', () => {
     const appJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
     const localStorage = createLocalStorageStub();
     const sandbox = {
@@ -304,7 +302,7 @@ test('clearing done items only removes them from the active list', () => {
     logbook.deletedTodos = [];
     logbook.todos = [
         todo({ id: 'milk', categoryId: 'groc', done: true, doneAt: 2000, updatedAt: 2000 }),
-        todo({ id: 'pack', categoryId: 'todos', done: true, doneAt: 2000, updatedAt: 2000 })
+        todo({ id: 'pack', done: true, doneAt: 2000, updatedAt: 2000 })
     ];
 
     logbook.clearDoneTodos();

@@ -14,8 +14,10 @@ const MAIN_NAV_VIEWS = [
     { id: 'todos', label: 'TODO' }
 ];
 
-const TODO_DEFAULT_CATEGORY_ID = 'todos';
-const TODO_DEFAULT_CATEGORY_NAME = 'TODOs';
+/** Virtual filter tab — not stored on items. */
+const TODO_ALL_FILTER_ID = 'all';
+/** Legacy bucket from an earlier version; treated as no label. */
+const TODO_LEGACY_LABEL_ID = 'todos';
 
 /**
  * Optional `?landing=flysight` (or jumps, equipment, stats, todos) overrides the start tab.
@@ -99,7 +101,7 @@ class SkydivingLogbook {
         try {
             this.todoCategories = this.loadTodoCategories();
         } catch (_) {
-            this.todoCategories = [this._defaultTodoCategory()];
+            this.todoCategories = [];
         }
         try {
             this.deletedTodoCategories = this.loadDeletedTodoCategories();
@@ -3020,8 +3022,24 @@ class SkydivingLogbook {
         }
     }
 
-    _defaultTodoCategory() {
-        return { id: TODO_DEFAULT_CATEGORY_ID, name: TODO_DEFAULT_CATEGORY_NAME, createdAt: 0, updatedAt: 0 };
+    _isAllTodoFilter(id) {
+        const s = String(id || '').trim();
+        return !s || s === TODO_ALL_FILTER_ID || s === TODO_LEGACY_LABEL_ID;
+    }
+
+    _todoLabelIdFromRaw(raw) {
+        const id = String(raw || '').trim();
+        if (!id || id === TODO_ALL_FILTER_ID || id === TODO_LEGACY_LABEL_ID) return '';
+        return id;
+    }
+
+    _todoLabelId(todo) {
+        return this._todoLabelIdFromRaw(todo?.categoryId);
+    }
+
+    _todoLabelName(labelId) {
+        const cat = (this.todoCategories || []).find(c => c.id === labelId);
+        return cat ? cat.name : 'Label';
     }
 
     _newTodoCategoryId() {
@@ -3030,40 +3048,34 @@ class SkydivingLogbook {
 
     _normalizeTodoCategory(c) {
         const id = String(c?.id || '').trim() || this._newTodoCategoryId();
-        const name = String(c?.name || '').trim() || (id === TODO_DEFAULT_CATEGORY_ID ? TODO_DEFAULT_CATEGORY_NAME : 'List');
+        if (id === TODO_ALL_FILTER_ID || id === TODO_LEGACY_LABEL_ID) {
+            return null;
+        }
+        const name = String(c?.name || '').trim() || 'Label';
         return {
             id,
-            name: id === TODO_DEFAULT_CATEGORY_ID ? (name || TODO_DEFAULT_CATEGORY_NAME) : name,
+            name,
             createdAt: Number(c?.createdAt) || 0,
             updatedAt: Number(c?.updatedAt) || 0
         };
     }
 
-    _ensureDefaultTodoCategory(list) {
-        const categories = Array.isArray(list) ? list.map(c => this._normalizeTodoCategory(c)) : [];
+    _normalizeTodoLabels(list) {
+        const categories = Array.isArray(list) ? list.map(c => this._normalizeTodoCategory(c)).filter(Boolean) : [];
         const byId = new Map();
         for (const c of categories) {
             if (!c.id || byId.has(c.id)) continue;
             byId.set(c.id, c);
         }
-        if (!byId.has(TODO_DEFAULT_CATEGORY_ID)) {
-            byId.set(TODO_DEFAULT_CATEGORY_ID, this._defaultTodoCategory());
-        }
-        const ordered = [byId.get(TODO_DEFAULT_CATEGORY_ID)];
-        for (const c of categories) {
-            if (c.id === TODO_DEFAULT_CATEGORY_ID || !byId.has(c.id)) continue;
-            ordered.push(byId.get(c.id));
-            byId.delete(c.id);
-        }
-        return ordered;
+        return Array.from(byId.values());
     }
 
     loadTodoCategories() {
         try {
             const parsed = JSON.parse(localStorage.getItem('skydiving-todo-categories') || '[]');
-            return this._ensureDefaultTodoCategory(Array.isArray(parsed) ? parsed : []);
+            return this._normalizeTodoLabels(Array.isArray(parsed) ? parsed : []);
         } catch (_) {
-            return [this._defaultTodoCategory()];
+            return [];
         }
     }
 
@@ -3074,7 +3086,7 @@ class SkydivingLogbook {
             const byId = new Map();
             for (const d of parsed) {
                 const id = d && String(d.id || '').trim();
-                if (!id || id === TODO_DEFAULT_CATEGORY_ID || byId.has(id)) continue;
+                if (!id || id === TODO_ALL_FILTER_ID || id === TODO_LEGACY_LABEL_ID || byId.has(id)) continue;
                 byId.set(id, {
                     id,
                     deletedAt: d.deletedAt || new Date().toISOString()
@@ -3089,13 +3101,14 @@ class SkydivingLogbook {
     loadActiveTodoCategoryId() {
         try {
             const id = String(localStorage.getItem('skydiving-todo-active-category') || '').trim();
+            if (this._isAllTodoFilter(id)) return TODO_ALL_FILTER_ID;
             if (id && (this.todoCategories || []).some(c => c.id === id)) return id;
         } catch (_) { /* ignore */ }
-        return TODO_DEFAULT_CATEGORY_ID;
+        return TODO_ALL_FILTER_ID;
     }
 
     saveTodoCategories() {
-        this.todoCategories = this._ensureDefaultTodoCategory(this.todoCategories);
+        this.todoCategories = this._normalizeTodoLabels(this.todoCategories);
         try {
             localStorage.setItem('skydiving-todo-categories', JSON.stringify(this.todoCategories));
         } catch (err) {
@@ -3122,7 +3135,7 @@ class SkydivingLogbook {
         if (!Array.isArray(this.deletedTodoCategories)) this.deletedTodoCategories = [];
         for (const rawId of ids || []) {
             const id = String(rawId || '').trim();
-            if (!id || id === TODO_DEFAULT_CATEGORY_ID || have.has(id)) continue;
+            if (!id || id === TODO_ALL_FILTER_ID || id === TODO_LEGACY_LABEL_ID || have.has(id)) continue;
             this.deletedTodoCategories.push({ id, deletedAt: now });
             have.add(id);
         }
@@ -3134,21 +3147,23 @@ class SkydivingLogbook {
         const done = Boolean(t.done);
         const doneAt = done ? (Number(t.doneAt) || createdAt) : null;
         const updatedAt = Number(t.updatedAt) || (doneAt || createdAt);
-        const categoryId = String(t.categoryId || TODO_DEFAULT_CATEGORY_ID).trim() || TODO_DEFAULT_CATEGORY_ID;
-        return {
+        const labelId = this._todoLabelIdFromRaw(t.categoryId);
+        const out = {
             id: String(t.id || this._newTodoId()),
             text: t.text,
             done,
             createdAt,
             doneAt,
-            updatedAt,
-            categoryId
+            updatedAt
         };
+        if (labelId) out.categoryId = labelId;
+        return out;
     }
 
     _todosInActiveCategory() {
-        const catId = this.activeTodoCategoryId || TODO_DEFAULT_CATEGORY_ID;
-        return this.todos.filter(t => (t.categoryId || TODO_DEFAULT_CATEGORY_ID) === catId);
+        if (this._isAllTodoFilter(this.activeTodoCategoryId)) return this.todos;
+        const labelId = this.activeTodoCategoryId;
+        return this.todos.filter(t => this._todoLabelId(t) === labelId);
     }
 
     loadDeletedTodos() {
@@ -3209,11 +3224,11 @@ class SkydivingLogbook {
         try {
             this.todos = Array.isArray(todos) ? todos.map(t => this._normalizeTodo(t)) : [];
             this.deletedTodos = Array.isArray(deletedRecords) ? deletedRecords : [];
-            this.todoCategories = this._ensureDefaultTodoCategory(Array.isArray(categories) ? categories : this.todoCategories);
+            this.todoCategories = this._normalizeTodoLabels(Array.isArray(categories) ? categories : this.todoCategories);
             this.deletedTodoCategories = Array.isArray(deletedCategories) ? deletedCategories : (this.deletedTodoCategories || []);
             const validCat = new Set(this.todoCategories.map(c => c.id));
-            if (!validCat.has(this.activeTodoCategoryId)) {
-                this.activeTodoCategoryId = TODO_DEFAULT_CATEGORY_ID;
+            if (!this._isAllTodoFilter(this.activeTodoCategoryId) && !validCat.has(this.activeTodoCategoryId)) {
+                this.activeTodoCategoryId = TODO_ALL_FILTER_ID;
             }
             this.saveTodos();
             this.saveDeletedTodos();
@@ -3432,7 +3447,10 @@ class SkydivingLogbook {
             if (!el) return null;
             if (el.closest('#addTodoCategoryBtn')) return null;
             const chip = el.closest('.todo-category-chip');
-            return chip ? chip.dataset.categoryId : null;
+            if (!chip) return null;
+            const id = chip.dataset.categoryId;
+            if (!id || id === TODO_ALL_FILTER_ID) return null;
+            return id;
         };
 
         if (window.PointerEvent) {
@@ -3465,7 +3483,7 @@ class SkydivingLogbook {
             const el = this._todoEventEl(e);
             if (!el) return;
             const chip = el.closest('.todo-category-chip');
-            if (!chip) return;
+            if (!chip || chip.dataset.categoryId === TODO_ALL_FILTER_ID) return;
             e.preventDefault();
             this._cancelTodoCategoryLongPress();
             this.openTodoCategoryModal('edit', chip.dataset.categoryId);
@@ -3481,11 +3499,16 @@ class SkydivingLogbook {
     }
 
     setActiveTodoCategory(id) {
-        const next = String(id || '').trim() || TODO_DEFAULT_CATEGORY_ID;
-        if (!(this.todoCategories || []).some(c => c.id === next)) return;
-        this.activeTodoCategoryId = next;
+        const next = String(id || '').trim() || TODO_ALL_FILTER_ID;
+        if (this._isAllTodoFilter(next)) {
+            this.activeTodoCategoryId = TODO_ALL_FILTER_ID;
+        } else if ((this.todoCategories || []).some(c => c.id === next)) {
+            this.activeTodoCategoryId = next;
+        } else {
+            return;
+        }
         try {
-            localStorage.setItem('skydiving-todo-active-category', next);
+            localStorage.setItem('skydiving-todo-active-category', this.activeTodoCategoryId);
         } catch (_) { /* ignore */ }
         this.renderTodosList();
     }
@@ -3493,17 +3516,20 @@ class SkydivingLogbook {
     renderTodoCategoryBar() {
         const bar = document.getElementById('todoCategoryBar');
         if (!bar) return;
-        this.todoCategories = this._ensureDefaultTodoCategory(this.todoCategories);
-        if (!this.activeTodoCategoryId || !(this.todoCategories || []).some(c => c.id === this.activeTodoCategoryId)) {
-            this.activeTodoCategoryId = TODO_DEFAULT_CATEGORY_ID;
+        this.todoCategories = this._normalizeTodoLabels(this.todoCategories);
+        if (!this._isAllTodoFilter(this.activeTodoCategoryId)
+            && !(this.todoCategories || []).some(c => c.id === this.activeTodoCategoryId)) {
+            this.activeTodoCategoryId = TODO_ALL_FILTER_ID;
         }
-        const chips = this.todoCategories.map(cat => {
+        const allActive = this._isAllTodoFilter(this.activeTodoCategoryId);
+        const allChip = `<button type="button" class="todo-category-chip${allActive ? ' active' : ''}" role="tab" aria-selected="${allActive ? 'true' : 'false'}" data-category-id="${TODO_ALL_FILTER_ID}" title="All">All</button>`;
+        const chips = (this.todoCategories || []).map(cat => {
             const active = cat.id === this.activeTodoCategoryId ? ' active' : '';
             const id = this.escapeHtml(cat.id);
             const name = this.escapeHtml(cat.name);
             return `<button type="button" class="todo-category-chip${active}" role="tab" aria-selected="${cat.id === this.activeTodoCategoryId ? 'true' : 'false'}" data-category-id="${id}" title="${name}">${name}</button>`;
         }).join('');
-        bar.innerHTML = `${chips}<button type="button" id="addTodoCategoryBtn" class="todo-category-add-chip" title="New list" aria-label="New list">+</button>`;
+        bar.innerHTML = `${allChip}${chips}<button type="button" id="addTodoCategoryBtn" class="todo-category-add-chip" title="New label" aria-label="New label">+</button>`;
         const activeChip = bar.querySelector('.todo-category-chip.active');
         if (activeChip && typeof activeChip.scrollIntoView === 'function') {
             try { activeChip.scrollIntoView({ inline: 'nearest', block: 'nearest' }); } catch (_) { /* older WebView */ }
@@ -3523,12 +3549,12 @@ class SkydivingLogbook {
             const cat = (this.todoCategories || []).find(c => c.id === categoryId);
             if (!cat) return;
             this._editingTodoCategoryId = cat.id;
-            title.textContent = cat.id === TODO_DEFAULT_CATEGORY_ID ? 'Rename list' : 'Edit list';
+            title.textContent = 'Edit label';
             input.value = cat.name;
-            if (deleteBtn) deleteBtn.hidden = cat.id === TODO_DEFAULT_CATEGORY_ID;
+            if (deleteBtn) deleteBtn.hidden = false;
             if (hint) hint.hidden = true;
         } else {
-            title.textContent = 'New list';
+            title.textContent = 'New label';
             input.value = '';
             if (deleteBtn) deleteBtn.hidden = true;
             if (hint) hint.hidden = false;
@@ -3561,7 +3587,7 @@ class SkydivingLogbook {
         if (!name) return;
         if (this._todoCategoryModalMode === 'edit' && this._editingTodoCategoryId) {
             if (this._todoCategoryNameTaken(name, this._editingTodoCategoryId)) {
-                this.showMessage('A list with that name already exists', 'error');
+                this.showMessage('A label with that name already exists', 'error');
                 return;
             }
             const cat = (this.todoCategories || []).find(c => c.id === this._editingTodoCategoryId);
@@ -3574,7 +3600,7 @@ class SkydivingLogbook {
             return;
         }
         if (this._todoCategoryNameTaken(name)) {
-            this.showMessage('A list with that name already exists', 'error');
+            this.showMessage('A label with that name already exists', 'error');
             return;
         }
         const now = Date.now();
@@ -3584,7 +3610,7 @@ class SkydivingLogbook {
             createdAt: now,
             updatedAt: now
         };
-        this.todoCategories = this._ensureDefaultTodoCategory(this.todoCategories);
+        this.todoCategories = this._normalizeTodoLabels(this.todoCategories);
         this.todoCategories.push(cat);
         this.saveTodoCategories();
         this.closeTodoCategoryModal();
@@ -3593,12 +3619,12 @@ class SkydivingLogbook {
 
     deleteTodoCategoryFromModal() {
         const id = this._editingTodoCategoryId;
-        if (!id || id === TODO_DEFAULT_CATEGORY_ID) return;
+        if (!id || this._isAllTodoFilter(id)) return;
         const cat = (this.todoCategories || []).find(c => c.id === id);
         if (!cat) return;
-        const itemCount = this.todos.filter(t => (t.categoryId || TODO_DEFAULT_CATEGORY_ID) === id).length;
+        const itemCount = this.todos.filter(t => this._todoLabelId(t) === id).length;
         const msg = itemCount
-            ? `Delete “${cat.name}”? ${itemCount} item${itemCount === 1 ? '' : 's'} will move to ${TODO_DEFAULT_CATEGORY_NAME}.`
+            ? `Delete “${cat.name}”? ${itemCount} item${itemCount === 1 ? '' : 's'} will lose this label.`
             : `Delete “${cat.name}”?`;
         if (typeof confirm === 'function' && !confirm(msg)) return;
         this.deleteTodoCategory(id);
@@ -3608,23 +3634,23 @@ class SkydivingLogbook {
 
     deleteTodoCategory(id) {
         const catId = String(id || '').trim();
-        if (!catId || catId === TODO_DEFAULT_CATEGORY_ID) return;
+        if (!catId || this._isAllTodoFilter(catId)) return;
         this.recordTodoCategoryDeletions([catId]);
-        this.todoCategories = this._ensureDefaultTodoCategory(
+        this.todoCategories = this._normalizeTodoLabels(
             (this.todoCategories || []).filter(c => c.id !== catId)
         );
         let moved = false;
         for (const t of this.todos) {
-            if ((t.categoryId || TODO_DEFAULT_CATEGORY_ID) === catId) {
-                t.categoryId = TODO_DEFAULT_CATEGORY_ID;
+            if (this._todoLabelId(t) === catId) {
+                delete t.categoryId;
                 t.updatedAt = Date.now();
                 moved = true;
             }
         }
         if (this.activeTodoCategoryId === catId) {
-            this.activeTodoCategoryId = TODO_DEFAULT_CATEGORY_ID;
+            this.activeTodoCategoryId = TODO_ALL_FILTER_ID;
             try {
-                localStorage.setItem('skydiving-todo-active-category', TODO_DEFAULT_CATEGORY_ID);
+                localStorage.setItem('skydiving-todo-active-category', TODO_ALL_FILTER_ID);
             } catch (_) { /* ignore */ }
         }
         this.saveTodoCategories();
@@ -3649,15 +3675,18 @@ class SkydivingLogbook {
         const text = input.value.trim();
         if (!text) return;
         const now = Date.now();
-        this.todos.push({
+        const item = {
             id: this._newTodoId(),
             text,
             done: false,
             createdAt: now,
             doneAt: null,
-            updatedAt: now,
-            categoryId: this.activeTodoCategoryId || TODO_DEFAULT_CATEGORY_ID
-        });
+            updatedAt: now
+        };
+        if (!this._isAllTodoFilter(this.activeTodoCategoryId)) {
+            item.categoryId = this.activeTodoCategoryId;
+        }
+        this.todos.push(item);
         this.saveTodos();
         input.value = '';
         this.renderTodosList();
@@ -3694,12 +3723,21 @@ class SkydivingLogbook {
 
     _todoItemHtml(item) {
         const doneClass = item.done ? ' todo-item-done' : '';
-        const label = item.done ? 'Mark as not done' : 'Mark as done';
+        const checkLabel = item.done ? 'Mark as not done' : 'Mark as done';
         const id = this.escapeHtml(item.id);
+        const labelId = this._todoLabelId(item);
+        let labelTag = '';
+        if (this._isAllTodoFilter(this.activeTodoCategoryId) && labelId) {
+            const name = this.escapeHtml(this._todoLabelName(labelId));
+            labelTag = `<span class="todo-item-label">${name}</span>`;
+        }
         return `
             <div class="todo-item${doneClass}" data-todo-id="${id}">
-                <span class="todo-item-text">${this.escapeHtml(item.text)}</span>
-                <button type="button" class="todo-check-btn" data-todo-id="${id}" title="${label}" aria-label="${label}">
+                <div class="todo-item-body">
+                    ${labelTag}
+                    <span class="todo-item-text">${this.escapeHtml(item.text)}</span>
+                </div>
+                <button type="button" class="todo-check-btn" data-todo-id="${id}" title="${checkLabel}" aria-label="${checkLabel}">
                     ${this._todoCheckIconSvg()}
                 </button>
             </div>
@@ -3729,9 +3767,8 @@ class SkydivingLogbook {
     }
 
     clearDoneTodos() {
-        const catId = this.activeTodoCategoryId || TODO_DEFAULT_CATEGORY_ID;
-        const doneIds = this.todos
-            .filter(t => t.done && (t.categoryId || TODO_DEFAULT_CATEGORY_ID) === catId)
+        const doneIds = this._todosInActiveCategory()
+            .filter(t => t.done)
             .map(t => t.id);
         if (doneIds.length === 0) return;
         this.recordTodoDeletions(doneIds);
@@ -3748,7 +3785,7 @@ class SkydivingLogbook {
         if (!item || !modal || !input) return;
         this._editingTodoId = id;
         input.value = item.text;
-        this._fillTodoEditCategorySelect(item.categoryId || TODO_DEFAULT_CATEGORY_ID);
+        this._fillTodoEditCategorySelect(this._todoLabelId(item));
         modal.style.display = 'block';
         setTimeout(() => {
             input.focus();
@@ -3762,17 +3799,20 @@ class SkydivingLogbook {
         const group = document.getElementById('todoEditCategoryGroup');
         const select = document.getElementById('todoEditCategory');
         if (!group || !select) return;
-        const categories = this._ensureDefaultTodoCategory(this.todoCategories);
-        if (categories.length <= 1) {
+        const categories = this._normalizeTodoLabels(this.todoCategories);
+        if (categories.length === 0) {
             group.hidden = true;
             select.innerHTML = '';
             return;
         }
         group.hidden = false;
-        select.innerHTML = categories.map(c => {
-            const sel = c.id === selectedId ? ' selected' : '';
+        const selected = String(selectedId || '').trim();
+        let html = `<option value=""${selected === '' ? ' selected' : ''}>None</option>`;
+        html += categories.map(c => {
+            const sel = c.id === selected ? ' selected' : '';
             return `<option value="${this.escapeHtml(c.id)}"${sel}>${this.escapeHtml(c.name)}</option>`;
         }).join('');
+        select.innerHTML = html;
     }
 
     closeTodoItemModal() {
@@ -3793,7 +3833,9 @@ class SkydivingLogbook {
         const categorySelect = document.getElementById('todoEditCategory');
         if (categorySelect && !document.getElementById('todoEditCategoryGroup')?.hidden) {
             const nextCat = String(categorySelect.value || '').trim();
-            if (nextCat && (this.todoCategories || []).some(c => c.id === nextCat)) {
+            if (!nextCat) {
+                delete item.categoryId;
+            } else if ((this.todoCategories || []).some(c => c.id === nextCat)) {
                 item.categoryId = nextCat;
             }
         }

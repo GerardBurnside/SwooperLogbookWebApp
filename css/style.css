@@ -3415,6 +3415,32 @@ body.flysight-graph-open {
     color: #888;
 }
 
+.todo-item-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem 0.5rem;
+}
+
+.todo-item-label {
+    flex-shrink: 0;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #1565C0;
+    background: #e3f2fd;
+    border-radius: 4px;
+    padding: 0.12rem 0.4rem;
+    line-height: 1.25;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .todo-item-text {
     flex: 1;
     min-width: 0;

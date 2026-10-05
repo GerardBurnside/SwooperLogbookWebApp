@@ -2,8 +2,8 @@
 // Requires js/auth.js (AuthManager) to be loaded first.
 
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
-const TODO_DEFAULT_CATEGORY_ID = 'todos';
-const TODO_DEFAULT_CATEGORY_NAME = 'TODOs';
+const TODO_ALL_FILTER_ID = 'all';
+const TODO_LEGACY_LABEL_ID = 'todos';
 
 class SheetsAPI {
     constructor() {
@@ -461,11 +461,11 @@ class SheetsAPI {
         const consider = (todo, localWinsTie) => {
             const id = SheetsAPI._todoId(todo);
             if (!id || deletedSet.has(id)) return;
-            const incoming = {
-                ...todo,
-                id,
-                categoryId: String(todo.categoryId || TODO_DEFAULT_CATEGORY_ID).trim() || TODO_DEFAULT_CATEGORY_ID
-            };
+            const labelId = SheetsAPI.normalizeTodoLabelId(todo.categoryId);
+            const incoming = { ...todo, id };
+            if (labelId) incoming.categoryId = labelId;
+            else delete incoming.categoryId;
+            delete incoming.categoryName;
             const existing = byId.get(id);
             if (!existing) {
                 byId.set(id, incoming);
@@ -525,7 +525,7 @@ class SheetsAPI {
             if (!tb) return false;
             if (String(ta.text || '') !== String(tb.text || '')) return false;
             if (Boolean(ta.done) !== Boolean(tb.done)) return false;
-            if (String(ta.categoryId || TODO_DEFAULT_CATEGORY_ID) !== String(tb.categoryId || TODO_DEFAULT_CATEGORY_ID)) return false;
+            if (SheetsAPI.normalizeTodoLabelId(ta.categoryId) !== SheetsAPI.normalizeTodoLabelId(tb.categoryId)) return false;
             if (SheetsAPI.todoUpdatedAt(ta) !== SheetsAPI.todoUpdatedAt(tb)) return false;
         }
         return true;
@@ -535,13 +535,15 @@ class SheetsAPI {
         return cat && String(cat.id || '').trim();
     }
 
-    static defaultTodoCategory() {
-        return {
-            id: TODO_DEFAULT_CATEGORY_ID,
-            name: TODO_DEFAULT_CATEGORY_NAME,
-            createdAt: 0,
-            updatedAt: 0
-        };
+    static normalizeTodoLabelId(raw) {
+        const id = String(raw || '').trim();
+        if (!id || id === TODO_ALL_FILTER_ID || id === TODO_LEGACY_LABEL_ID) return '';
+        return id;
+    }
+
+    static _isReservedTodoLabelId(id) {
+        const s = String(id || '').trim();
+        return !s || s === TODO_ALL_FILTER_ID || s === TODO_LEGACY_LABEL_ID;
     }
 
     static todoCategoryUpdatedAt(cat) {
@@ -555,17 +557,16 @@ class SheetsAPI {
         const deletedSet = deletedCategoryIds instanceof Set
             ? deletedCategoryIds
             : new Set(deletedCategoryIds || []);
-        deletedSet.delete(TODO_DEFAULT_CATEGORY_ID);
         const localList = Array.isArray(localCategories) ? localCategories : [];
         const sheetList = Array.isArray(sheetCategories) ? sheetCategories : [];
         const byId = new Map();
 
         const consider = (cat, localWinsTie) => {
             const id = SheetsAPI._todoCategoryId(cat);
-            if (!id || deletedSet.has(id)) return;
+            if (!id || SheetsAPI._isReservedTodoLabelId(id) || deletedSet.has(id)) return;
             const incoming = {
                 id,
-                name: String(cat.name || '').trim() || (id === TODO_DEFAULT_CATEGORY_ID ? TODO_DEFAULT_CATEGORY_NAME : 'List'),
+                name: String(cat.name || '').trim() || 'Label',
                 createdAt: Number(cat.createdAt) || 0,
                 updatedAt: Number(cat.updatedAt) || 0
             };
@@ -583,9 +584,6 @@ class SheetsAPI {
 
         for (const c of sheetList) consider(c, false);
         for (const c of localList) consider(c, true);
-        if (!byId.has(TODO_DEFAULT_CATEGORY_ID)) {
-            byId.set(TODO_DEFAULT_CATEGORY_ID, SheetsAPI.defaultTodoCategory());
-        }
 
         const seen = new Set();
         const merged = [];
@@ -597,8 +595,6 @@ class SheetsAPI {
                 seen.add(id);
             }
         };
-        merged.push(byId.get(TODO_DEFAULT_CATEGORY_ID));
-        seen.add(TODO_DEFAULT_CATEGORY_ID);
         appendFrom(localList);
         appendFrom(sheetList);
         return merged;
@@ -606,7 +602,7 @@ class SheetsAPI {
 
     static mergeDeletedTodoCategories(localDeleted, sheetDeleted) {
         return SheetsAPI.mergeDeletedTodos(localDeleted, sheetDeleted)
-            .filter(d => d.id && d.id !== TODO_DEFAULT_CATEGORY_ID);
+            .filter(d => d.id && !SheetsAPI._isReservedTodoLabelId(d.id));
     }
 
     static todoCategoriesEqual(a, b) {
@@ -626,7 +622,7 @@ class SheetsAPI {
         const merged = SheetsAPI.mergeTodoCategories(categories, [], []);
         const byId = new Map(merged.map(c => [c.id, c]));
         for (const t of todos || []) {
-            const id = String(t.categoryId || TODO_DEFAULT_CATEGORY_ID).trim() || TODO_DEFAULT_CATEGORY_ID;
+            const id = SheetsAPI.normalizeTodoLabelId(t.categoryId);
             if (!id || byId.has(id)) continue;
             byId.set(id, {
                 id,
@@ -643,11 +639,14 @@ class SheetsAPI {
         const deletedSet = deletedCategoryIds instanceof Set
             ? deletedCategoryIds
             : new Set(deletedCategoryIds || []);
-        deletedSet.delete(TODO_DEFAULT_CATEGORY_ID);
         return (todos || []).map(t => {
-            const categoryId = String(t.categoryId || TODO_DEFAULT_CATEGORY_ID).trim() || TODO_DEFAULT_CATEGORY_ID;
-            const next = deletedSet.has(categoryId) ? TODO_DEFAULT_CATEGORY_ID : categoryId;
-            const copy = { ...t, categoryId: next };
+            const categoryId = SheetsAPI.normalizeTodoLabelId(t.categoryId);
+            const copy = { ...t };
+            if (!categoryId || deletedSet.has(categoryId)) {
+                delete copy.categoryId;
+            } else {
+                copy.categoryId = categoryId;
+            }
             delete copy.categoryName;
             return copy;
         });
@@ -755,18 +754,21 @@ class SheetsAPI {
                 const done = this._parseTodoDone(row[2]);
                 const doneAt = done ? (this._parseTodoTimestamp(row[4]) || createdAt) : null;
                 const updatedAt = this._parseTodoTimestamp(row[5]) || doneAt || createdAt;
-                const categoryId = (row[6] && String(row[6]).trim()) || TODO_DEFAULT_CATEGORY_ID;
+                const categoryId = SheetsAPI.normalizeTodoLabelId(row[6]);
                 const categoryName = row[7] != null ? String(row[7]).trim() : '';
-                todos.push({
+                const rowTodo = {
                     id,
                     text: row[1] != null ? String(row[1]) : '',
                     done,
                     createdAt,
                     doneAt,
-                    updatedAt,
-                    categoryId,
-                    categoryName
-                });
+                    updatedAt
+                };
+                if (categoryId) {
+                    rowTodo.categoryId = categoryId;
+                    if (categoryName) rowTodo.categoryName = categoryName;
+                }
+                todos.push(rowTodo);
             }
             return todos;
         } catch (e) {
@@ -828,7 +830,7 @@ class SheetsAPI {
             const categories = [];
             for (const row of rows) {
                 const id = (row[0] && String(row[0]).trim()) || '';
-                if (!id) continue;
+                if (!id || SheetsAPI._isReservedTodoLabelId(id)) continue;
                 categories.push({
                     id,
                     name: row[1] != null ? String(row[1]) : '',
@@ -854,7 +856,7 @@ class SheetsAPI {
             const seen = new Set();
             for (const row of rows) {
                 const id = (row[0] && String(row[0]).trim()) || '';
-                if (!id || id === TODO_DEFAULT_CATEGORY_ID || seen.has(id)) continue;
+                if (!id || SheetsAPI._isReservedTodoLabelId(id) || seen.has(id)) continue;
                 seen.add(id);
                 records.push({
                     id,
@@ -914,8 +916,10 @@ class SheetsAPI {
         const dataRows = (todos || []).map(todo => {
             const id = SheetsAPI._todoId(todo) || SheetsAPI.generateJumpId();
             if (!todo.id) todo.id = id;
-            const categoryId = String(todo.categoryId || TODO_DEFAULT_CATEGORY_ID).trim() || TODO_DEFAULT_CATEGORY_ID;
-            const categoryName = nameById.get(categoryId) || todo.categoryName || (categoryId === TODO_DEFAULT_CATEGORY_ID ? TODO_DEFAULT_CATEGORY_NAME : '');
+            const categoryId = SheetsAPI.normalizeTodoLabelId(todo.categoryId);
+            const categoryName = categoryId
+                ? (nameById.get(categoryId) || todo.categoryName || '')
+                : '';
             return [
                 id,
                 todo.text || '',
