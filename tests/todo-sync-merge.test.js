@@ -43,6 +43,8 @@ function loadSheetsAPIClass() {
         }
     };
     sandbox.window = sandbox;
+    sandbox.TODO_ALL_FILTER_ID = 'all';
+    sandbox.TODO_LEGACY_LABEL_ID = 'todos';
     sandbox.window.AuthManager = {
         ready: Promise.resolve(),
         isSignedIn: () => false,
