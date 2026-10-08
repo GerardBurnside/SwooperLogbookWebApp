@@ -775,6 +775,20 @@
             </div>
         </div>
 
+        <!-- TODO label delete: keep items vs delete items -->
+        <div id="todoCategoryDeleteConfirmModal" class="modal">
+            <div class="modal-content todo-item-modal-content">
+                <span id="todoCategoryDeleteConfirmClose" class="close" title="Close">&times;</span>
+                <h2>Delete label</h2>
+                <p id="todoCategoryDeleteConfirmMessage" class="import-choice-message"></p>
+                <div class="import-choice-buttons">
+                    <button type="button" id="todoCategoryDeleteCancelBtn" class="btn-secondary">Cancel</button>
+                    <button type="button" id="todoCategoryDeleteKeepItemsBtn" class="btn-secondary">Remove label only</button>
+                    <button type="button" id="todoCategoryDeleteItemsBtn" class="btn-danger">Delete items too</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Import choice modal -->
         <div id="importChoiceModal" class="modal">
             <div class="modal-content">

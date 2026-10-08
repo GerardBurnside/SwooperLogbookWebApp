@@ -119,6 +119,7 @@ class SkydivingLogbook {
         this._editingTodoId = null;
         this._editingTodoCategoryId = null;
         this._todoCategoryModalMode = 'add';
+        this._pendingTodoCategoryDeleteId = null;
 
         this.currentView = 'jumps'; // 'jumps', 'equipment', 'stats', 'flysight', 'todos'
         this.equipmentSubView = 'canopies'; // 'canopies', 'harnesses', 'locations'
@@ -703,6 +704,10 @@ class SkydivingLogbook {
             const todoCategoryModal = document.getElementById('todoCategoryModal');
             if (e.target === todoCategoryModal) {
                 this.closeTodoCategoryModal();
+            }
+            const todoCategoryDeleteConfirmModal = document.getElementById('todoCategoryDeleteConfirmModal');
+            if (e.target === todoCategoryDeleteConfirmModal) {
+                this.closeTodoCategoryDeleteConfirmModal();
             }
             const flysightGraphModal = document.getElementById('flysightGraphModal');
             if (e.target === flysightGraphModal) {
@@ -3292,6 +3297,19 @@ class SkydivingLogbook {
             this.deleteTodoCategoryFromModal();
         });
 
+        document.getElementById('todoCategoryDeleteKeepItemsBtn')?.addEventListener('click', () => {
+            this.applyTodoCategoryDeleteChoice(false);
+        });
+        document.getElementById('todoCategoryDeleteItemsBtn')?.addEventListener('click', () => {
+            this.applyTodoCategoryDeleteChoice(true);
+        });
+        document.getElementById('todoCategoryDeleteCancelBtn')?.addEventListener('click', () => {
+            this.closeTodoCategoryDeleteConfirmModal();
+        });
+        document.getElementById('todoCategoryDeleteConfirmClose')?.addEventListener('click', () => {
+            this.closeTodoCategoryDeleteConfirmModal();
+        });
+
         document.getElementById('todoCategoryModalClose')?.addEventListener('click', () => {
             this.closeTodoCategoryModal();
         });
@@ -3623,28 +3641,65 @@ class SkydivingLogbook {
         const cat = (this.todoCategories || []).find(c => c.id === id);
         if (!cat) return;
         const itemCount = this.todos.filter(t => this._todoLabelId(t) === id).length;
-        const msg = itemCount
-            ? `Delete “${cat.name}”? ${itemCount} item${itemCount === 1 ? '' : 's'} will lose this label.`
-            : `Delete “${cat.name}”?`;
+        if (itemCount > 0) {
+            const msgEl = document.getElementById('todoCategoryDeleteConfirmMessage');
+            if (msgEl) {
+                msgEl.textContent = `Delete “${cat.name}”? ${itemCount} item${itemCount === 1 ? '' : 's'} use this label. Remove the label only, or delete those items too.`;
+            }
+            this._pendingTodoCategoryDeleteId = id;
+            this.showTodoCategoryDeleteConfirmModal();
+            return;
+        }
+        const msg = `Delete “${cat.name}”?`;
         if (typeof confirm === 'function' && !confirm(msg)) return;
         this.deleteTodoCategory(id);
         this.closeTodoCategoryModal();
         this.renderTodosList();
     }
 
-    deleteTodoCategory(id) {
+    showTodoCategoryDeleteConfirmModal() {
+        const modal = document.getElementById('todoCategoryDeleteConfirmModal');
+        if (modal) modal.style.display = 'block';
+    }
+
+    closeTodoCategoryDeleteConfirmModal() {
+        const modal = document.getElementById('todoCategoryDeleteConfirmModal');
+        if (modal) modal.style.display = 'none';
+        this._pendingTodoCategoryDeleteId = null;
+    }
+
+    applyTodoCategoryDeleteChoice(deleteItems) {
+        const id = this._pendingTodoCategoryDeleteId;
+        this.closeTodoCategoryDeleteConfirmModal();
+        if (!id) return;
+        this.deleteTodoCategory(id, { deleteItems });
+        this.closeTodoCategoryModal();
+        this.renderTodosList();
+    }
+
+    deleteTodoCategory(id, { deleteItems = false } = {}) {
         const catId = String(id || '').trim();
         if (!catId || this._isAllTodoFilter(catId)) return;
         this.recordTodoCategoryDeletions([catId]);
         this.todoCategories = this._normalizeTodoLabels(
             (this.todoCategories || []).filter(c => c.id !== catId)
         );
-        let moved = false;
-        for (const t of this.todos) {
-            if (this._todoLabelId(t) === catId) {
-                delete t.categoryId;
-                t.updatedAt = Date.now();
-                moved = true;
+        let todosChanged = false;
+        if (deleteItems) {
+            const toRemove = this.todos.filter(t => this._todoLabelId(t) === catId);
+            if (toRemove.length) {
+                this.recordTodoDeletions(toRemove.map(t => t.id));
+                const remove = new Set(toRemove.map(t => t.id));
+                this.todos = this.todos.filter(t => !remove.has(t.id));
+                todosChanged = true;
+            }
+        } else {
+            for (const t of this.todos) {
+                if (this._todoLabelId(t) === catId) {
+                    delete t.categoryId;
+                    t.updatedAt = Date.now();
+                    todosChanged = true;
+                }
             }
         }
         if (this.activeTodoCategoryId === catId) {
@@ -3654,7 +3709,7 @@ class SkydivingLogbook {
             } catch (_) { /* ignore */ }
         }
         this.saveTodoCategories();
-        if (moved) this.saveTodos();
+        if (todosChanged) this.saveTodos();
     }
 
     showTodoAddForm() {
@@ -6467,7 +6522,7 @@ class SkydivingLogbook {
             this.showMessage('No CSV files found in that folder.', 'error');
             return;
         }
-        this._setFlysightEmptyResults('Analysing files');
+        this._setFlysightEmptyResults('Analysing files...');
         await this._waitForFlysightUiPaint();
         await this._addFlysightFiles(files);
     }
@@ -6531,6 +6586,150 @@ class SkydivingLogbook {
         this.renderFlysightView();
     }
 
+    _flysightResultsSummaryHtml(analyzed) {
+        const ok = analyzed.filter(({ result }) => !result.error);
+        if (!ok.length) return '';
+
+        let verticalSum = 0;
+        let altitudeSum = 0;
+        let recoverySum = 0;
+        let recoveryCount = 0;
+        for (const { result } of ok) {
+            verticalSum += result.maxVerticalSpeedKmh;
+            altitudeSum += result.altitudeM;
+            const recoverySec = Flysight.recoveryArcSec(
+                result.points,
+                this.flysightAvgPoints,
+                this.flysightCursorBDiveAngleDeg,
+                this.flysightCursorBAltTicks
+            );
+            if (Number.isFinite(recoverySec)) {
+                recoverySum += recoverySec;
+                recoveryCount += 1;
+            }
+        }
+
+        const n = ok.length;
+        const avgVertical = (verticalSum / n).toFixed(1);
+        const avgAltitude = Math.round(altitudeSum / n);
+        const avgRecoverySec = recoveryCount ? recoverySum / recoveryCount : NaN;
+        const avgRecoveryText = Number.isFinite(avgRecoverySec)
+            ? (Flysight.formatDurationSec(avgRecoverySec) || `${avgRecoverySec.toFixed(1)}s`)
+            : '—';
+
+        const metric = ok[0].result.speedMetric;
+        const speedLabel = metric === 'total' ? 'Avg max total' : 'Avg max vertical';
+
+        return `
+            <div class="flysight-results-summary" role="status" aria-live="polite">
+                <div class="flysight-results-summary-title">Average of ${n} file${n === 1 ? '' : 's'}</div>
+                <div class="flysight-result-metrics is-single flysight-results-summary-metrics">
+                    <div>
+                        <span class="flysight-metric-label">${speedLabel}</span>
+                        <span class="flysight-metric-value">${avgVertical} km/h</span>
+                    </div>
+                    <div>
+                        <span class="flysight-metric-label">Avg altitude</span>
+                        <span class="flysight-metric-value">${avgAltitude} m</span>
+                    </div>
+                    <div>
+                        <span class="flysight-metric-label">Avg recovery arc</span>
+                        <span class="flysight-metric-value">${avgRecoveryText}</span>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    _flysightResultCardHtml(file, result) {
+        const title = Flysight.formatTrackStartTitle(result.points?.[0]?.time) || file.name;
+        if (result.error) {
+            return `
+                <div class="flysight-result-card is-error">
+                    <div class="flysight-result-name">${this.escapeHtml(title)}</div>
+                    <p class="flysight-result-error">${this.escapeHtml(result.error)}</p>
+                    <button type="button" class="flysight-result-remove" onclick="logbook.removeFlysightFile('${file.id}')">Remove</button>
+                </div>`;
+        }
+
+        const altitude = Math.round(result.altitudeM);
+        const recoverySec = Flysight.recoveryArcSec(
+            result.points,
+            this.flysightAvgPoints,
+            this.flysightCursorBDiveAngleDeg,
+            this.flysightCursorBAltTicks
+        );
+        const recoveryText = Number.isFinite(recoverySec)
+            ? (Flysight.formatDurationSec(recoverySec) || `${recoverySec.toFixed(1)}s`)
+            : '—';
+
+        let speedMetricsHtml;
+        let metaHtml = '';
+        let metricsClass = 'flysight-result-metrics';
+        let altLabel = 'Altitude';
+        let recoveryLabel = 'Recovery arc';
+
+        if (result.speedMetric === 'both') {
+            const verticalSpeed = result.maxVerticalSpeedKmh.toFixed(1);
+            const totalSpeed = result.maxTotalSpeedKmh.toFixed(1);
+            const totalAltitude = Number.isFinite(result.totalPeakAltitudeM)
+                ? `${Math.round(result.totalPeakAltitudeM)} m`
+                : '—';
+            speedMetricsHtml = `
+                    <div>
+                        <span class="flysight-metric-label">Max total</span>
+                        <span class="flysight-metric-value">${totalSpeed} km/h</span>
+                    </div>
+                    <div class="flysight-metric-emphasis">
+                        <span class="flysight-metric-label">Max vertical</span>
+                        <span class="flysight-metric-value">${verticalSpeed} km/h</span>
+                    </div>`;
+            metaHtml = `${result.pointCount} points · vertical peak at ${altitude} m · total peak at ${totalAltitude}`;
+        } else {
+            const speed = result.maxVerticalSpeedKmh.toFixed(1);
+            const speedLabel = result.speedMetric === 'total' ? 'Max total' : 'Max vertical';
+            metricsClass += ' is-single';
+            speedMetricsHtml = `
+                    <div>
+                        <span class="flysight-metric-label">${speedLabel}</span>
+                        <span class="flysight-metric-value">${speed} km/h</span>
+                    </div>`;
+        }
+
+        return `
+            <div class="flysight-result-card">
+                <div class="flysight-result-name">${this.escapeHtml(title)}</div>
+                <div class="${metricsClass}">
+                    ${speedMetricsHtml}
+                    <div>
+                        <span class="flysight-metric-label">${altLabel}</span>
+                        <span class="flysight-metric-value">${altitude} m</span>
+                    </div>
+                    <div>
+                        <span class="flysight-metric-label">${recoveryLabel}</span>
+                        <span class="flysight-metric-value">${recoveryText}</span>
+                    </div>
+                </div>
+                ${metaHtml ? `<p class="flysight-result-meta">${metaHtml}</p>` : ''}
+                <div class="flysight-result-actions">
+                    <button type="button" class="flysight-result-graph" data-flysight-id="${file.id}" data-flysight-graph="diveAngle">
+                        <svg class="flysight-result-graph-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18"/>
+                            <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M6 16c2.2-1.2 3.1-7 5.6-7s2.4 5.2 4.9 5.2 2.1-4.2 3.8-4.2"/>
+                        </svg>
+                        Dive Angle
+                    </button>
+                    <button type="button" class="flysight-result-graph" data-flysight-id="${file.id}" data-flysight-graph="verticalSpeed">
+                        <svg class="flysight-result-graph-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18"/>
+                            <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M6 16c2.2-1.2 3.1-7 5.6-7s2.4 5.2 4.9 5.2 2.1-4.2 3.8-4.2"/>
+                        </svg>
+                        Vertical Speed
+                    </button>
+                    <button type="button" class="flysight-result-remove" onclick="logbook.removeFlysightFile('${file.id}')">Remove</button>
+                </div>
+            </div>`;
+    }
+
     renderFlysightView() {
         const container = document.getElementById('flysightResults');
         const avgSlider = document.getElementById('flysightAvgPoints');
@@ -6550,103 +6749,21 @@ class SkydivingLogbook {
             return;
         }
 
-        container.innerHTML = this.flysightFiles.map(file => {
-            const result = Flysight.analyzeFlysightCsv(
+        const analyzed = this.flysightFiles.map(file => ({
+            file,
+            result: Flysight.analyzeFlysightCsv(
                 file.text,
                 this.flysightAvgPoints,
                 this.flysightMaxHeightM,
                 this.flysightSpeedMetric
-            );
-            const title = Flysight.formatTrackStartTitle(result.points?.[0]?.time) || file.name;
-            if (result.error) {
-                return `
-                    <div class="flysight-result-card is-error">
-                        <div class="flysight-result-name">${this.escapeHtml(title)}</div>
-                        <p class="flysight-result-error">${this.escapeHtml(result.error)}</p>
-                        <button type="button" class="flysight-result-remove" onclick="logbook.removeFlysightFile('${file.id}')">Remove</button>
-                    </div>`;
-            }
+            )
+        }));
 
-            const altitude = Math.round(result.altitudeM);
-            const recoverySec = Flysight.recoveryArcSec(
-                result.points,
-                this.flysightAvgPoints,
-                this.flysightCursorBDiveAngleDeg,
-                this.flysightCursorBAltTicks
-            );
-            const recoveryText = Number.isFinite(recoverySec)
-                ? (Flysight.formatDurationSec(recoverySec) || `${recoverySec.toFixed(1)}s`)
-                : '—';
-
-            let speedMetricsHtml;
-            let metaHtml = '';
-            let metricsClass = 'flysight-result-metrics';
-            let altLabel = 'Altitude';
-            let recoveryLabel = 'Recovery arc';
-
-            if (result.speedMetric === 'both') {
-                const verticalSpeed = result.maxVerticalSpeedKmh.toFixed(1);
-                const totalSpeed = result.maxTotalSpeedKmh.toFixed(1);
-                const totalAltitude = Number.isFinite(result.totalPeakAltitudeM)
-                    ? `${Math.round(result.totalPeakAltitudeM)} m`
-                    : '—';
-                speedMetricsHtml = `
-                        <div>
-                            <span class="flysight-metric-label">Max total</span>
-                            <span class="flysight-metric-value">${totalSpeed} km/h</span>
-                        </div>
-                        <div class="flysight-metric-emphasis">
-                            <span class="flysight-metric-label">Max vertical</span>
-                            <span class="flysight-metric-value">${verticalSpeed} km/h</span>
-                        </div>`;
-                metaHtml = `${result.pointCount} points · vertical peak at ${altitude} m · total peak at ${totalAltitude}`;
-            } else {
-                const speed = result.maxVerticalSpeedKmh.toFixed(1);
-                const speedLabel = result.speedMetric === 'total' ? 'Max total' : 'Max vertical';
-                metricsClass += ' is-single';
-                altLabel = 'Altitude';
-                recoveryLabel = 'Recovery arc';
-                speedMetricsHtml = `
-                        <div>
-                            <span class="flysight-metric-label">${speedLabel}</span>
-                            <span class="flysight-metric-value">${speed} km/h</span>
-                        </div>`;
-            }
-
-            return `
-                <div class="flysight-result-card">
-                    <div class="flysight-result-name">${this.escapeHtml(title)}</div>
-                    <div class="${metricsClass}">
-                        ${speedMetricsHtml}
-                        <div>
-                            <span class="flysight-metric-label">${altLabel}</span>
-                            <span class="flysight-metric-value">${altitude} m</span>
-                        </div>
-                        <div>
-                            <span class="flysight-metric-label">${recoveryLabel}</span>
-                            <span class="flysight-metric-value">${recoveryText}</span>
-                        </div>
-                    </div>
-                    ${metaHtml ? `<p class="flysight-result-meta">${metaHtml}</p>` : ''}
-                    <div class="flysight-result-actions">
-                        <button type="button" class="flysight-result-graph" data-flysight-id="${file.id}" data-flysight-graph="diveAngle">
-                            <svg class="flysight-result-graph-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18"/>
-                                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M6 16c2.2-1.2 3.1-7 5.6-7s2.4 5.2 4.9 5.2 2.1-4.2 3.8-4.2"/>
-                            </svg>
-                            Dive Angle
-                        </button>
-                        <button type="button" class="flysight-result-graph" data-flysight-id="${file.id}" data-flysight-graph="verticalSpeed">
-                            <svg class="flysight-result-graph-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 3v18h18"/>
-                                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M6 16c2.2-1.2 3.1-7 5.6-7s2.4 5.2 4.9 5.2 2.1-4.2 3.8-4.2"/>
-                            </svg>
-                            Vertical Speed
-                        </button>
-                        <button type="button" class="flysight-result-remove" onclick="logbook.removeFlysightFile('${file.id}')">Remove</button>
-                    </div>
-                </div>`;
-        }).join('');
+        const summaryHtml = this._flysightResultsSummaryHtml(analyzed);
+        const cardsHtml = analyzed
+            .map(({ file, result }) => this._flysightResultCardHtml(file, result))
+            .join('');
+        container.innerHTML = summaryHtml + cardsHtml;
     }
 
     openFlysightGraphModal(fileId, mode) {

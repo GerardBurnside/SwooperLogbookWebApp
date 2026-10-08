@@ -2929,6 +2929,26 @@ footer.legal-footer a {
     gap: 0.75rem;
 }
 
+.flysight-results-summary {
+    border: 1px solid #c5d9f0;
+    border-radius: 10px;
+    padding: 0.65rem 1rem;
+    background: #f4f8fc;
+}
+
+.flysight-results-summary-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #4a6a8a;
+    margin-bottom: 0.45rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.flysight-results-summary-metrics {
+    margin-bottom: 0;
+}
+
 .flysight-empty {
     text-align: center;
     color: #888;
