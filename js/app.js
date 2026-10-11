@@ -6618,7 +6618,7 @@ class SkydivingLogbook {
             : '—';
 
         const metric = ok[0].result.speedMetric;
-        const speedLabel = metric === 'total' ? 'Avg max total' : 'Avg max vertical';
+        const speedLabel = metric === 'total' ? 'Avg max' : 'Avg max vert.';
 
         return `
             <div class="flysight-results-summary" role="status" aria-live="polite">
