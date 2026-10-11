@@ -530,6 +530,195 @@ class SheetsAPI {
         return true;
     }
 
+    static todoSubstantiveEqual(a, b) {
+        if (!a || !b) return false;
+        if (String(a.text || '') !== String(b.text || '')) return false;
+        if (Boolean(a.done) !== Boolean(b.done)) return false;
+        if (SheetsAPI.normalizeTodoLabelId(a.categoryId) !== SheetsAPI.normalizeTodoLabelId(b.categoryId)) return false;
+        return true;
+    }
+
+    static todoCategorySubstantiveEqual(a, b) {
+        if (!a || !b) return false;
+        return String(a.name || '').trim() === String(b.name || '').trim();
+    }
+
+    static _syncedAtMs(iso) {
+        const ms = Date.parse(iso || '');
+        return Number.isFinite(ms) ? ms : 0;
+    }
+
+    /** True when both copies changed since last logbook sync (or same timestamp if never synced). */
+    static bothTodoVersionsEditedSinceSync(local, sheet, syncedAtIso) {
+        if (SheetsAPI.todoSubstantiveEqual(local, sheet)) return false;
+        const syncMs = SheetsAPI._syncedAtMs(syncedAtIso);
+        const localTs = SheetsAPI.todoUpdatedAt(local);
+        const sheetTs = SheetsAPI.todoUpdatedAt(sheet);
+        if (syncMs > 0) {
+            return localTs > syncMs && sheetTs > syncMs;
+        }
+        return localTs === sheetTs && localTs > 0;
+    }
+
+    static bothTodoCategoryVersionsEditedSinceSync(local, sheet, syncedAtIso) {
+        if (SheetsAPI.todoCategorySubstantiveEqual(local, sheet)) return false;
+        const syncMs = SheetsAPI._syncedAtMs(syncedAtIso);
+        const localTs = SheetsAPI.todoCategoryUpdatedAt(local);
+        const sheetTs = SheetsAPI.todoCategoryUpdatedAt(sheet);
+        if (syncMs > 0) {
+            return localTs > syncMs && sheetTs > syncMs;
+        }
+        return localTs === sheetTs && localTs > 0;
+    }
+
+    static _todoConflictTitle(todo, suffix) {
+        const text = String(todo?.text || '').trim() || 'Untitled';
+        const short = text.length > 48 ? `${text.slice(0, 45)}…` : text;
+        return `"${short}" — ${suffix}`;
+    }
+
+    static _todoCategoryConflictTitle(cat, suffix) {
+        const name = String(cat?.name || '').trim() || 'List';
+        return `List "${name}" — ${suffix}`;
+    }
+
+    /**
+     * TODO items that need user input during sync merge (edit/delete and dual edits only).
+     */
+    static computeTodoConflictItems(localTodos, sheetTodos, localDeleted, sheetDeleted, syncedAtIso) {
+        const localDelSet = new Set(
+            (localDeleted || []).map(d => (typeof d === 'string' ? d : d?.id)).filter(Boolean)
+        );
+        const sheetDelSet = new Set(
+            (sheetDeleted || []).map(d => (typeof d === 'string' ? d : d?.id)).filter(Boolean)
+        );
+        const localById = new Map(
+            (localTodos || []).filter(t => SheetsAPI._todoId(t)).map(t => [SheetsAPI._todoId(t), t])
+        );
+        const sheetById = new Map(
+            (sheetTodos || []).filter(t => SheetsAPI._todoId(t)).map(t => [SheetsAPI._todoId(t), t])
+        );
+        const allIds = new Set([
+            ...localById.keys(),
+            ...sheetById.keys(),
+            ...localDelSet,
+            ...sheetDelSet
+        ]);
+        const items = [];
+
+        for (const id of allIds) {
+            const local = localById.get(id);
+            const sheet = sheetById.get(id);
+            const localTomb = localDelSet.has(id);
+            const sheetTomb = sheetDelSet.has(id);
+
+            if (localTomb && sheetTomb) continue;
+
+            if (localTomb && sheet) {
+                items.push({
+                    id: `todo:deleted-local:${id}`,
+                    todoId: id,
+                    todoKind: 'todo',
+                    type: 'deleted_on_local',
+                    sheet,
+                    title: SheetsAPI._todoConflictTitle(sheet, 'deleted on this device, still on sheet')
+                });
+                continue;
+            }
+            if (sheetTomb && local) {
+                items.push({
+                    id: `todo:deleted-sheet:${id}`,
+                    todoId: id,
+                    todoKind: 'todo',
+                    type: 'deleted_on_sheet',
+                    local,
+                    title: SheetsAPI._todoConflictTitle(local, 'deleted on sheet, still on this device')
+                });
+                continue;
+            }
+
+            if (local && sheet && SheetsAPI.bothTodoVersionsEditedSinceSync(local, sheet, syncedAtIso)) {
+                items.push({
+                    id: `todo:${id}`,
+                    todoId: id,
+                    todoKind: 'todo',
+                    type: 'modified',
+                    local,
+                    sheet,
+                    title: SheetsAPI._todoConflictTitle(local, 'edited on both sides')
+                });
+            }
+        }
+
+        return items;
+    }
+
+    static computeTodoCategoryConflictItems(localCategories, sheetCategories, localDeleted, sheetDeleted, syncedAtIso) {
+        const localDelSet = new Set(
+            (localDeleted || []).map(d => (typeof d === 'string' ? d : d?.id)).filter(Boolean)
+        );
+        const sheetDelSet = new Set(
+            (sheetDeleted || []).map(d => (typeof d === 'string' ? d : d?.id)).filter(Boolean)
+        );
+        const localList = SheetsAPI.filterTodoLabelCategories(localCategories);
+        const sheetList = SheetsAPI.filterTodoLabelCategories(sheetCategories);
+        const localById = new Map(localList.filter(c => SheetsAPI._todoCategoryId(c)).map(c => [SheetsAPI._todoCategoryId(c), c]));
+        const sheetById = new Map(sheetList.filter(c => SheetsAPI._todoCategoryId(c)).map(c => [SheetsAPI._todoCategoryId(c), c]));
+        const allIds = new Set([
+            ...localById.keys(),
+            ...sheetById.keys(),
+            ...localDelSet,
+            ...sheetDelSet
+        ]);
+        const items = [];
+
+        for (const id of allIds) {
+            const local = localById.get(id);
+            const sheet = sheetById.get(id);
+            const localTomb = localDelSet.has(id);
+            const sheetTomb = sheetDelSet.has(id);
+
+            if (localTomb && sheetTomb) continue;
+
+            if (localTomb && sheet) {
+                items.push({
+                    id: `todo-cat:deleted-local:${id}`,
+                    categoryId: id,
+                    todoKind: 'category',
+                    type: 'deleted_on_local',
+                    sheet,
+                    title: SheetsAPI._todoCategoryConflictTitle(sheet, 'deleted on this device, still on sheet')
+                });
+                continue;
+            }
+            if (sheetTomb && local) {
+                items.push({
+                    id: `todo-cat:deleted-sheet:${id}`,
+                    categoryId: id,
+                    todoKind: 'category',
+                    type: 'deleted_on_sheet',
+                    local,
+                    title: SheetsAPI._todoCategoryConflictTitle(local, 'deleted on sheet, still on this device')
+                });
+                continue;
+            }
+
+            if (local && sheet && SheetsAPI.bothTodoCategoryVersionsEditedSinceSync(local, sheet, syncedAtIso)) {
+                items.push({
+                    id: `todo-cat:${id}`,
+                    categoryId: id,
+                    todoKind: 'category',
+                    type: 'modified',
+                    local,
+                    sheet,
+                    title: SheetsAPI._todoCategoryConflictTitle(local, 'edited on both sides')
+                });
+            }
+        }
+
+        return items;
+    }
+
     static _todoCategoryId(cat) {
         return cat && String(cat.id || '').trim();
     }
@@ -1011,6 +1200,9 @@ class SheetsAPI {
     }
 
     async _syncTodosWithSheetOnce() {
+        if (this._syncConflictPending) {
+            return { changed: false };
+        }
         await this._ensureTodosSheets();
 
         const local = this._readLocalTodos();
@@ -1484,6 +1676,212 @@ class SheetsAPI {
         return Array.from(byId.values());
     }
 
+    buildMergedTodoStateFromSelections(conflictData, selections) {
+        const localTodos = conflictData.localTodos || [];
+        const sheetTodos = conflictData.sheetTodos || [];
+        const localDeleted = conflictData.localDeletedTodos || [];
+        const sheetDeleted = conflictData.sheetDeletedTodos || [];
+        const localCategories = conflictData.localTodoCategories || [];
+        const sheetCategories = conflictData.sheetTodoCategories || [];
+        const localDeletedCategories = conflictData.localDeletedTodoCategories || [];
+        const sheetDeletedCategories = conflictData.sheetDeletedTodoCategories || [];
+        const todoItems = conflictData.todoItems || [];
+        const todoCategoryItems = conflictData.todoCategoryItems || [];
+
+        let mergedDeleted = SheetsAPI.mergeDeletedTodos(localDeleted, sheetDeleted);
+        let mergedDeletedCategories = SheetsAPI.mergeDeletedTodoCategories(
+            localDeletedCategories,
+            sheetDeletedCategories
+        );
+
+        const editDeleteTodoIds = new Set(
+            todoItems.filter(i => i.type === 'deleted_on_sheet' || i.type === 'deleted_on_local').map(i => i.todoId)
+        );
+        const editDeleteCategoryIds = new Set(
+            todoCategoryItems.filter(i => i.type === 'deleted_on_sheet' || i.type === 'deleted_on_local').map(i => i.categoryId)
+        );
+
+        const deletedIds = new Set(
+            mergedDeleted.map(d => d.id).filter(id => !editDeleteTodoIds.has(id))
+        );
+        const deletedCategoryIds = new Set(
+            mergedDeletedCategories.map(d => d.id).filter(id => !editDeleteCategoryIds.has(id))
+        );
+
+        let mergedTodos = SheetsAPI.mergeTodos(localTodos, sheetTodos, deletedIds);
+        let mergedCategories = SheetsAPI.mergeTodoCategories(
+            localCategories,
+            sheetCategories,
+            deletedCategoryIds
+        );
+
+        const todoById = new Map(mergedTodos.filter(t => SheetsAPI._todoId(t)).map(t => [SheetsAPI._todoId(t), t]));
+        const catById = new Map(
+            SheetsAPI.filterTodoLabelCategories(mergedCategories)
+                .filter(c => SheetsAPI._todoCategoryId(c))
+                .map(c => [SheetsAPI._todoCategoryId(c), c])
+        );
+
+        const dropTodoTombstone = (id) => {
+            mergedDeleted = mergedDeleted.filter(d => d.id !== id);
+            deletedIds.delete(id);
+        };
+        const addTodoTombstone = (id) => {
+            if (!deletedIds.has(id)) {
+                deletedIds.add(id);
+                if (!mergedDeleted.some(d => d.id === id)) {
+                    mergedDeleted.push({ id, deletedAt: new Date().toISOString() });
+                }
+            }
+            todoById.delete(id);
+        };
+
+        const dropCategoryTombstone = (id) => {
+            mergedDeletedCategories = mergedDeletedCategories.filter(d => d.id !== id);
+            deletedCategoryIds.delete(id);
+        };
+        const addCategoryTombstone = (id) => {
+            if (!deletedCategoryIds.has(id)) {
+                deletedCategoryIds.add(id);
+                if (!mergedDeletedCategories.some(d => d.id === id)) {
+                    mergedDeletedCategories.push({ id, deletedAt: new Date().toISOString() });
+                }
+            }
+            catById.delete(id);
+        };
+
+        for (const item of todoItems) {
+            const id = item.todoId;
+            switch (item.type) {
+                case 'modified': {
+                    const choice = selections[item.id] || 'sheet';
+                    const chosen = choice === 'local' ? item.local : item.sheet;
+                    if (chosen && id) todoById.set(id, { ...chosen, id });
+                    break;
+                }
+                case 'deleted_on_sheet': {
+                    const choice = selections[item.id];
+                    const keep = choice === 'keep' || (choice !== 'discard' && choice !== false);
+                    if (keep && item.local) {
+                        dropTodoTombstone(id);
+                        todoById.set(id, { ...item.local, id });
+                    } else {
+                        addTodoTombstone(id);
+                    }
+                    break;
+                }
+                case 'deleted_on_local': {
+                    const choice = selections[item.id];
+                    const keepDeleted = choice === 'delete' || choice === 'keep-deleted'
+                        || (choice !== 'sheet' && choice !== false && choice !== 'discard');
+                    if (keepDeleted) {
+                        addTodoTombstone(id);
+                    } else if (item.sheet) {
+                        dropTodoTombstone(id);
+                        todoById.set(id, { ...item.sheet, id });
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+
+        for (const item of todoCategoryItems) {
+            const id = item.categoryId;
+            switch (item.type) {
+                case 'modified': {
+                    const choice = selections[item.id] || 'sheet';
+                    const chosen = choice === 'local' ? item.local : item.sheet;
+                    if (chosen?.id) catById.set(id, { ...chosen, id });
+                    break;
+                }
+                case 'deleted_on_sheet': {
+                    const choice = selections[item.id];
+                    const keep = choice === 'keep' || (choice !== 'discard' && choice !== false);
+                    if (keep && item.local) {
+                        dropCategoryTombstone(id);
+                        catById.set(id, { ...item.local, id });
+                    } else {
+                        addCategoryTombstone(id);
+                    }
+                    break;
+                }
+                case 'deleted_on_local': {
+                    const choice = selections[item.id];
+                    const keepDeleted = choice === 'delete' || choice === 'keep-deleted'
+                        || (choice !== 'sheet' && choice !== false && choice !== 'discard');
+                    if (keepDeleted) {
+                        addCategoryTombstone(id);
+                    } else if (item.sheet) {
+                        dropCategoryTombstone(id);
+                        catById.set(id, { ...item.sheet, id });
+                    }
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+
+        mergedTodos = Array.from(todoById.values());
+        mergedCategories = SheetsAPI.mergeTodoCategories(
+            Array.from(catById.values()),
+            [],
+            deletedCategoryIds
+        );
+        mergedTodos = SheetsAPI.reassignTodosFromDeletedCategories(mergedTodos, deletedCategoryIds);
+        mergedCategories = SheetsAPI.ensureCategoriesFromTodos(mergedCategories, mergedTodos);
+
+        return {
+            mergedTodos,
+            mergedDeleted,
+            mergedCategories,
+            mergedDeletedCategories
+        };
+    }
+
+    async _pushMergedTodoStateToSheet(mergedTodos, mergedDeleted, mergedCategories, mergedDeletedCategories) {
+        const sheetTodos = await this.getAllTodos();
+        const sheetDeleted = await this.getDeletedTodos();
+        const sheetCategories = await this.getAllTodoCategories();
+        const sheetDeletedCategories = await this.getDeletedTodoCategories();
+
+        const deletedIds = new Set(mergedDeleted.map(d => d.id));
+        const deletedCategoryIds = new Set(mergedDeletedCategories.map(d => d.id));
+
+        const sheetDeletedIds = new Set(sheetDeleted.map(d => d.id));
+        const newDeletionIds = mergedDeleted.map(d => d.id).filter(id => !sheetDeletedIds.has(id));
+        const survivingSheetTodos = SheetsAPI.reassignTodosFromDeletedCategories(
+            sheetTodos.filter(t => t.id && !deletedIds.has(t.id)),
+            deletedCategoryIds
+        );
+        const todosChanged = !SheetsAPI.todosEqual(mergedTodos, survivingSheetTodos);
+
+        const sheetDeletedCategoryIds = new Set(sheetDeletedCategories.map(d => d.id));
+        const newCategoryDeletionIds = mergedDeletedCategories
+            .map(d => d.id)
+            .filter(id => !sheetDeletedCategoryIds.has(id));
+        const survivingSheetCategories = SheetsAPI.filterTodoLabelCategories(
+            (sheetCategories || []).filter(c => c.id && !deletedCategoryIds.has(c.id))
+        );
+        const mergedLabelCategories = SheetsAPI.filterTodoLabelCategories(mergedCategories);
+        const categoriesChanged = !SheetsAPI.todoCategoriesEqual(mergedLabelCategories, survivingSheetCategories);
+
+        if (todosChanged) {
+            await this.uploadAllTodos(mergedTodos, mergedCategories);
+        }
+        if (categoriesChanged) {
+            await this.uploadAllTodoCategories(mergedCategories);
+        }
+        if (newDeletionIds.length) {
+            await this.appendDeletedTodos(newDeletionIds, mergedDeleted);
+        }
+        if (newCategoryDeletionIds.length) {
+            await this.appendDeletedTodoCategories(newCategoryDeletionIds, mergedDeletedCategories);
+        }
+    }
+
     async _presentSyncConflict(d, sheetTs) {
         const logbook = window.logbook;
         const localJumps = logbook ? [...logbook.jumps] : await DB.getAllJumps();
@@ -1512,6 +1910,45 @@ class SheetsAPI {
         };
         const equipmentItems = this.computeEquipmentConflictItems(localEquipment, sheetEquipment);
 
+        let todoSnapshot = null;
+        let todoItems = [];
+        let todoCategoryItems = [];
+        try {
+            await this._ensureTodosSheets();
+            const localTodoState = this._readLocalTodos();
+            const sheetTodos = await this.getAllTodos();
+            const sheetDeletedTodos = await this.getDeletedTodos();
+            const sheetTodoCategories = await this.getAllTodoCategories();
+            const sheetDeletedTodoCategories = await this.getDeletedTodoCategories();
+            const syncedAtIso = localStorage.getItem('skydiving-data-synced') || '';
+            todoItems = SheetsAPI.computeTodoConflictItems(
+                localTodoState.todos,
+                sheetTodos,
+                localTodoState.deleted,
+                sheetDeletedTodos,
+                syncedAtIso
+            );
+            todoCategoryItems = SheetsAPI.computeTodoCategoryConflictItems(
+                localTodoState.categories,
+                sheetTodoCategories,
+                localTodoState.deletedCategories,
+                sheetDeletedTodoCategories,
+                syncedAtIso
+            );
+            todoSnapshot = {
+                localTodos: localTodoState.todos,
+                sheetTodos,
+                localDeletedTodos: localTodoState.deleted,
+                sheetDeletedTodos,
+                localTodoCategories: localTodoState.categories,
+                sheetTodoCategories,
+                localDeletedTodoCategories: localTodoState.deletedCategories,
+                sheetDeletedTodoCategories
+            };
+        } catch (err) {
+            console.warn('[Sync] Could not load TODO data for conflict UI:', err);
+        }
+
         this._syncConflictPending = true;
         this._pendingConflict = {
             sheetData: d,
@@ -1523,7 +1960,10 @@ class SheetsAPI {
             items: jumpItems,
             localEquipment,
             sheetEquipment,
-            equipmentItems
+            equipmentItems,
+            todoItems,
+            todoCategoryItems,
+            ...(todoSnapshot || {})
         };
         this.updateSyncStatus('Conflict');
 
@@ -1542,7 +1982,7 @@ class SheetsAPI {
         this._pendingConflict = null;
     }
 
-    async completeConflictResolution(mergedJumps, mergedEquipment = null) {
+    async completeConflictResolution(mergedJumps, mergedEquipment = null, todoSelections = null) {
         const conflict = this._pendingConflict;
         if (!conflict) return;
 
@@ -1601,7 +2041,37 @@ class SheetsAPI {
 
         const newTs = new Date().toISOString();
         await this.uploadAllJumps(mergedJumps);
-        await this.syncTodosWithSheetSafe();
+        if (todoSelections === 'local-only') {
+            const localTodoState = this._readLocalTodos();
+            this._applyTodosLocally(
+                localTodoState.todos,
+                localTodoState.deleted,
+                localTodoState.categories,
+                localTodoState.deletedCategories
+            );
+            await this._pushMergedTodoStateToSheet(
+                localTodoState.todos,
+                localTodoState.deleted,
+                localTodoState.categories,
+                localTodoState.deletedCategories
+            );
+        } else if (conflict.localTodos && conflict.sheetTodos) {
+            const todoState = this.buildMergedTodoStateFromSelections(conflict, todoSelections || {});
+            this._applyTodosLocally(
+                todoState.mergedTodos,
+                todoState.mergedDeleted,
+                todoState.mergedCategories,
+                todoState.mergedDeletedCategories
+            );
+            await this._pushMergedTodoStateToSheet(
+                todoState.mergedTodos,
+                todoState.mergedDeleted,
+                todoState.mergedCategories,
+                todoState.mergedDeletedCategories
+            );
+        } else {
+            await this.syncTodosWithSheetSafe();
+        }
         await this.syncEquipmentToSheet(newTs);
         localStorage.setItem('skydiving-data-synced', newTs);
         localStorage.setItem('skydiving-data-modified', newTs);
@@ -1652,7 +2122,6 @@ class SheetsAPI {
                 if (this._hasSyncConflict(d, localSynced, localModified)) {
                     console.warn('[Startup] Conflict — sheet is newer and local has pending changes');
                     await this._presentSyncConflict(d, sheetTs);
-                    await this.syncTodosWithSheetSafe();
                 } else {
                     console.log('[Startup] Sheet is newer, pulling all data...');
                     await this._pullAllFromSheet(d, sheetTs);
@@ -1757,7 +2226,6 @@ class SheetsAPI {
             if (this._hasSyncConflict(d, localSynced, localModified)) {
                 console.warn('[Sync] Conflict — sheet is newer and local has pending changes');
                 await this._presentSyncConflict(d, sheetTs);
-                await this.syncTodosWithSheetSafe();
                 this.updateSyncStatus('Conflict');
                 return;
             }
@@ -1934,7 +2402,6 @@ class SheetsAPI {
                 if (this._hasSyncConflict(d, localSynced, localModified)) {
                     console.warn('[Poll] Conflict — sheet is newer and local has pending changes');
                     await this._presentSyncConflict(d, sheetTs);
-                    await this.syncTodosWithSheetSafe();
                     this.updateSyncStatus('Conflict');
                     return;
                 }

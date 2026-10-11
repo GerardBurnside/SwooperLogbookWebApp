@@ -267,6 +267,46 @@ test('deleting a label removes it from items', () => {
     assert.equal(logbook.deletedTodoCategories.some(d => d.id === 'groc'), true);
 });
 
+test('todo conflict: dual edit since last sync', () => {
+    const syncedAt = '2026-01-01T12:00:00.000Z';
+    const syncMs = Date.parse(syncedAt);
+    const local = [todo({ id: 'a', text: 'Local', updatedAt: syncMs + 1000 })];
+    const sheet = [todo({ id: 'a', text: 'Sheet', updatedAt: syncMs + 2000 })];
+    const items = SheetsAPI.computeTodoConflictItems(local, sheet, [], [], syncedAt);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].type, 'modified');
+});
+
+test('todo conflict: one-sided edit does not prompt', () => {
+    const syncedAt = '2026-01-01T12:00:00.000Z';
+    const syncMs = Date.parse(syncedAt);
+    const local = [todo({ id: 'a', text: 'New local', updatedAt: syncMs + 5000 })];
+    const sheet = [todo({ id: 'a', text: 'Old', updatedAt: syncMs - 1000 })];
+    const items = SheetsAPI.computeTodoConflictItems(local, sheet, [], [], syncedAt);
+    assert.equal(items.length, 0);
+});
+
+test('todo conflict: deleted on sheet vs local copy', () => {
+    const local = [todo({ id: 'a', text: 'Still here' })];
+    const sheet = [];
+    const items = SheetsAPI.computeTodoConflictItems(local, sheet, [], [{ id: 'a' }], '');
+    assert.equal(items.length, 1);
+    assert.equal(items[0].type, 'deleted_on_sheet');
+});
+
+test('todo conflict: deleted locally vs sheet copy', () => {
+    const local = [];
+    const sheet = [todo({ id: 'a', text: 'On sheet' })];
+    const items = SheetsAPI.computeTodoConflictItems(local, sheet, [{ id: 'a' }], [], '');
+    assert.equal(items.length, 1);
+    assert.equal(items[0].type, 'deleted_on_local');
+});
+
+test('todo conflict: both deleted is not listed', () => {
+    const items = SheetsAPI.computeTodoConflictItems([], [], [{ id: 'a' }], [{ id: 'a' }], '');
+    assert.equal(items.length, 0);
+});
+
 test('clearing done items only removes them from the active label filter', () => {
     const appJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
     const localStorage = createLocalStorageStub();

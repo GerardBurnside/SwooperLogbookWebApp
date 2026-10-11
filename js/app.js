@@ -8239,20 +8239,31 @@ class SkydivingLogbook {
 
         const jumpItems = conflictData.jumpItems || conflictData.items || [];
         const equipmentItems = conflictData.equipmentItems || [];
-        const totalDiffs = jumpItems.length + equipmentItems.length;
+        const todoItems = conflictData.todoItems || [];
+        const todoCategoryItems = conflictData.todoCategoryItems || [];
+        const totalDiffs = jumpItems.length + equipmentItems.length + todoItems.length + todoCategoryItems.length;
         const localCount = conflictData.localJumps?.length ?? 0;
         const sheetCount = conflictData.sheetJumps?.length ?? 0;
+        const localTodoCount = conflictData.localTodos?.length ?? 0;
+        const sheetTodoCount = conflictData.sheetTodos?.length ?? 0;
 
         if (summaryEl) {
-            summaryEl.textContent =
+            let summary =
                 `${localCount} jump(s) on this device, ${sheetCount} on the sheet. `
                 + `${totalDiffs} difference(s) to review when merging `
-                + `(${jumpItems.length} jump, ${equipmentItems.length} equipment). `
-                + `Jump numbers will be renumbered from #${this.settings.startingJumpNumber} after sync.`;
+                + `(${jumpItems.length} jump, ${equipmentItems.length} equipment`;
+            if (conflictData.localTodos) {
+                summary += `, ${todoItems.length} TODO, ${todoCategoryItems.length} TODO list`;
+            }
+            summary += `). Jump numbers will be renumbered from #${this.settings.startingJumpNumber} after sync.`;
+            if (conflictData.localTodos) {
+                summary += ` ${localTodoCount} TODO item(s) here, ${sheetTodoCount} on the sheet.`;
+            }
+            summaryEl.textContent = summary;
         }
         if (introEl) {
             introEl.textContent = totalDiffs
-                ? 'This device and Google Sheets both have changes since the last sync. Use local data to discard sheet changes, or review each jump and equipment difference below and merge.'
+                ? 'This device and Google Sheets both have changes since the last sync. Use local data to discard sheet changes, or review each difference below and merge.'
                 : 'This device and Google Sheets both have changes since the last sync. Use local data to overwrite the sheet, or merge to combine both logbooks.';
         }
 
@@ -8261,6 +8272,12 @@ class SkydivingLogbook {
             'No individual jump differences detected — merge will combine both jump lists using the default rules.');
         this._appendSyncConflictSection(listEl, 'Equipment', equipmentItems,
             'No equipment differences detected — merge will combine harnesses, canopies, locations, and settings using the default rules.');
+        if (conflictData.localTodos) {
+            this._appendSyncConflictSection(listEl, 'TODO items', todoItems,
+                'No TODO conflicts — items will merge automatically (including new items on either side and matching deletions).');
+            this._appendSyncConflictSection(listEl, 'TODO lists', todoCategoryItems,
+                'No TODO list conflicts — labels will merge automatically.');
+        }
 
         modal.style.display = 'block';
     }
@@ -8303,14 +8320,16 @@ class SkydivingLogbook {
         if (item.type === 'modified') {
             const options = document.createElement('div');
             options.className = 'conflict-options';
+            const sheetDetails = this._formatSyncConflictDetails(item.sheet, item);
+            const localDetails = this._formatSyncConflictDetails(item.local, item);
             options.innerHTML = `
                 <div class="conflict-option selected" data-choice="sheet">
                     <label>Sheet</label>
-                    ${this._formatSyncConflictDetails(item.sheet, item)}
+                    ${sheetDetails}
                 </div>
                 <div class="conflict-option" data-choice="local">
                     <label>This device</label>
-                    ${this._formatSyncConflictDetails(item.local, item)}
+                    ${localDetails}
                 </div>
             `;
             options.querySelectorAll('.conflict-option').forEach(opt => {
@@ -8319,6 +8338,42 @@ class SkydivingLogbook {
                     opt.classList.add('selected');
                 });
             });
+            wrap.appendChild(options);
+        } else if (item.type === 'deleted_on_local') {
+            const options = document.createElement('div');
+            options.className = 'conflict-options';
+            options.innerHTML = `
+                <div class="conflict-option conflict-option-keep selected">
+                    <label class="conflict-keep-toggle">
+                        <input type="checkbox" data-conflict-keep checked>
+                        <span>Keep deleted on this device</span>
+                    </label>
+                    <div class="conflict-detail">Removed here; still on sheet.</div>
+                </div>
+                <div class="conflict-option" data-choice="sheet">
+                    <label>Use sheet version</label>
+                    ${this._formatSyncConflictDetails(item.sheet, item)}
+                </div>
+            `;
+            const keepRow = options.querySelector('.conflict-option-keep');
+            const keepChk = options.querySelector('[data-conflict-keep]');
+            const sheetOpt = options.querySelector('[data-choice="sheet"]');
+            const syncVisual = () => {
+                const keepDeleted = keepChk.checked;
+                keepRow.classList.toggle('selected', keepDeleted);
+                sheetOpt.classList.toggle('selected', !keepDeleted);
+            };
+            keepChk.addEventListener('change', syncVisual);
+            sheetOpt.addEventListener('click', () => {
+                keepChk.checked = false;
+                syncVisual();
+            });
+            keepRow.addEventListener('click', (e) => {
+                if (e.target === keepChk) return;
+                keepChk.checked = true;
+                syncVisual();
+            });
+            syncVisual();
             wrap.appendChild(options);
         } else {
             const options = document.createElement('div');
@@ -8352,10 +8407,46 @@ class SkydivingLogbook {
 
     _formatSyncConflictDetails(entity, item) {
         if (!entity) return '';
+        if (item.todoKind === 'todo') {
+            return this._formatTodoConflictDetails(entity);
+        }
+        if (item.todoKind === 'category') {
+            return this._formatTodoCategoryConflictDetails(entity);
+        }
         if (item.equipmentKind) {
             return this._formatEquipmentConflictDetails(entity, item.equipmentKind);
         }
         return this._formatJumpConflictDetails(entity);
+    }
+
+    _formatTodoConflictDetails(todo) {
+        if (!todo) return '';
+        const esc = (s) => String(s ?? '').replace(/</g, '&lt;');
+        const text = esc(todo.text || 'Untitled');
+        const done = todo.done ? 'Done' : 'Open';
+        const label = todo.categoryId ? esc(todo.categoryId) : 'No list';
+        const ts = SheetsAPI.todoUpdatedAt(todo);
+        const tsHtml = ts
+            ? `<div class="conflict-ts">${new Date(ts).toLocaleString()}</div>`
+            : '';
+        return `
+            <div class="conflict-detail">${text}</div>
+            <div class="conflict-detail">${done} · ${label}</div>
+            ${tsHtml}
+        `;
+    }
+
+    _formatTodoCategoryConflictDetails(cat) {
+        if (!cat) return '';
+        const esc = (s) => String(s ?? '').replace(/</g, '&lt;');
+        const ts = SheetsAPI.todoCategoryUpdatedAt(cat);
+        const tsHtml = ts
+            ? `<div class="conflict-ts">${new Date(ts).toLocaleString()}</div>`
+            : '';
+        return `
+            <div class="conflict-detail">${esc(cat.name || 'List')}</div>
+            ${tsHtml}
+        `;
     }
 
     _formatEquipmentConflictDetails(entity, kind) {
@@ -8423,8 +8514,11 @@ class SkydivingLogbook {
             }
             const keepChk = itemEl.querySelector('[data-conflict-keep]');
             if (keepChk) {
-                if (id.startsWith('deleted:')) {
+                if (id.startsWith('deleted:') || id.startsWith('todo:deleted-sheet:') || id.startsWith('todo-cat:deleted-sheet:')) {
                     selections[id] = keepChk.checked ? 'keep' : 'discard';
+                } else if (id.startsWith('todo:deleted-local:') || id.startsWith('todo-cat:deleted-local:')) {
+                    const sheetSelected = itemEl.querySelector('.conflict-option[data-choice="sheet"].selected');
+                    selections[id] = sheetSelected ? 'sheet' : 'delete';
                 } else {
                     selections[id] = keepChk.checked;
                 }
@@ -8444,7 +8538,7 @@ class SkydivingLogbook {
             const selections = this._collectSyncConflictSelections();
             const mergedJumps = window.SheetsAPI.buildMergedJumpsFromSelections(conflict, selections);
             const mergedEquipment = window.SheetsAPI.buildMergedEquipmentFromSelections(conflict, selections);
-            await window.SheetsAPI.completeConflictResolution(mergedJumps, mergedEquipment);
+            await window.SheetsAPI.completeConflictResolution(mergedJumps, mergedEquipment, selections);
             this.closeSyncConflictModal();
             this.showMessage('Changes merged and synced to Google Sheets.', 'success');
         } catch (err) {
@@ -8473,7 +8567,7 @@ class SkydivingLogbook {
                 locations: [...this.locations],
                 settings: { ...this.settings }
             };
-            await window.SheetsAPI.completeConflictResolution(this.jumps, localEquipment);
+            await window.SheetsAPI.completeConflictResolution(this.jumps, localEquipment, 'local-only');
             this.closeSyncConflictModal();
             this.showMessage('Local logbook uploaded — sheet changes were overwritten.', 'success');
         } catch (err) {
