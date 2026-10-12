@@ -3576,3 +3576,129 @@ body.flysight-graph-open {
 .todo-item-modal-content .todo-edit-actions .btn-danger {
     width: 100%;
 }
+
+.coords-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.4rem;
+}
+
+.coords-action-row .use-current-location-btn,
+.coords-action-row .view-location-map-btn {
+    flex: 1;
+    min-width: 140px;
+    margin-bottom: 0;
+}
+
+.location-gates-summary {
+    margin-top: 0.25rem;
+}
+
+.location-map-modal .modal-content {
+    max-width: 920px;
+    width: 95%;
+}
+
+.location-map-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.location-map-header h2 {
+    margin: 0;
+}
+
+.location-map-hud {
+    font-weight: 600;
+    color: #1565C0;
+    margin-bottom: 0.5rem;
+    min-height: 1.25rem;
+}
+
+.location-map-canvas {
+    width: 100%;
+    height: min(65vh, 520px);
+    border-radius: 8px;
+    border: 1px solid #dce8fb;
+    background: #e8eef5;
+}
+
+.location-map-toolbar {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.location-map-toolbar .btn-primary {
+    margin-left: auto;
+}
+
+#locationMapAddGateBtn.active {
+    outline: 2px solid #2196F3;
+}
+
+.location-map-gate-panel {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid #eee;
+}
+
+.location-map-gate-panel label {
+    display: block;
+    margin-bottom: 0.35rem;
+}
+
+.location-map-delete-gate {
+    margin-top: 0.5rem;
+    width: 100%;
+}
+
+.location-map-error {
+    color: #c62828;
+    margin-bottom: 0.5rem;
+}
+
+.dev-gates-seed-section code {
+    font-size: 12px;
+}
+
+.gates-seed-export-content {
+    max-width: 720px;
+    width: 95%;
+}
+
+.gates-seed-export-hint {
+    color: #666;
+    font-size: 13px;
+    margin: 0 0 10px 0;
+}
+
+.gates-seed-export-text {
+    width: 100%;
+    min-height: 280px;
+    max-height: 50vh;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 10px;
+    border: 1px solid #dce8fb;
+    border-radius: 8px;
+    box-sizing: border-box;
+    resize: vertical;
+}
+
+.gates-seed-export-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.gates-seed-export-actions .btn-primary {
+    flex: 1;
+    min-width: 160px;
+}

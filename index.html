@@ -336,8 +336,12 @@
                             <input type="number" id="componentLat" step="any" min="-90" max="90" placeholder="Latitude">
                             <input type="number" id="componentLng" step="any" min="-180" max="180" placeholder="Longitude">
                         </div>
-                        <button type="button" id="useCurrentLocationBtn" class="btn-secondary use-current-location-btn">📍 Use current GPS position</button>
+                        <div class="coords-action-row">
+                            <button type="button" id="useCurrentLocationBtn" class="btn-secondary use-current-location-btn">📍 Use current GPS position</button>
+                            <button type="button" id="viewLocationMapBtn" class="btn-secondary view-location-map-btn">🗺 View on map</button>
+                        </div>
                         <small id="coordsHint" class="coords-hint"></small>
+                        <small id="locationGatesSummary" class="coords-hint location-gates-summary"></small>
                     </div>
                     <div id="canopyLinesetSection" style="display:none; border-top: 1px solid #eee; padding-top: 1rem; margin-top: 0.5rem;">
                         <p style="font-weight: 600; color: #333; margin-bottom: 0.75rem;">Lineset #1</p>
@@ -458,6 +462,29 @@
                     <button type="button" id="resetDbBtn" class="btn-secondary reset-db-settings-btn">Reset DB</button>
                 </div>
 
+                <div id="devGatesSeedSection" class="dev-gates-seed-section" hidden>
+                    <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
+                    <h3 style="margin-bottom: 8px;">Developer (localhost)</h3>
+                    <p style="color:#666; font-size:13px; margin:0 0 10px 0; line-height:1.45;">
+                        Export saved location gates as <code>js/location-gates-seed.js</code> content. Save each location after editing gates on the map, then export and replace that file in the repo.
+                    </p>
+                    <button type="button" id="exportGatesSeedBtn" class="btn-secondary" style="width:100%;">Export gates seed…</button>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Dev: gates seed export (localhost only) -->
+        <div id="gatesSeedExportModal" class="modal gates-seed-export-modal">
+            <div class="modal-content gates-seed-export-content">
+                <span class="close" id="gatesSeedExportClose">&times;</span>
+                <h2>Gates seed export</h2>
+                <p class="gates-seed-export-hint">Copy into <code>js/location-gates-seed.js</code> and commit. Locations without saved gates are omitted.</p>
+                <textarea id="gatesSeedExportText" class="gates-seed-export-text" readonly spellcheck="false"></textarea>
+                <div class="gates-seed-export-actions">
+                    <button type="button" id="gatesSeedExportCopyBtn" class="btn-primary">Copy to clipboard</button>
+                    <button type="button" id="gatesSeedExportDoneBtn" class="btn-secondary">Close</button>
+                </div>
             </div>
         </div>
 
@@ -849,6 +876,29 @@
             </div>
         </div>
 
+
+        <!-- Location map modal -->
+        <div id="locationMapModal" class="modal location-map-modal">
+            <div class="modal-content location-map-modal-content">
+                <div class="location-map-header">
+                    <h2>Location map</h2>
+                    <span class="close" id="locationMapClose">&times;</span>
+                </div>
+                <p id="locationMapError" class="location-map-error" style="display:none;"></p>
+                <div id="locationMapHud" class="location-map-hud">Loading map…</div>
+                <div id="locationMapCanvas" class="location-map-canvas"></div>
+                <div class="location-map-toolbar">
+                    <button type="button" id="locationMapAddGateBtn" class="btn-secondary">Add gate</button>
+                    <button type="button" id="locationMapDone" class="btn-primary">Done</button>
+                </div>
+                <div id="locationMapGatePanel" class="location-map-gate-panel" style="display:none;">
+                    <label for="locationMapGateLabel">Selected gate</label>
+                    <input type="text" id="locationMapGateLabel" placeholder="Gate name">
+                    <button type="button" id="locationMapDeleteGateBtn" class="btn-danger location-map-delete-gate">Delete gate</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Footer -->
         <footer>
             <button id="settingsBtn" class="btn-secondary">Settings</button>
@@ -863,6 +913,10 @@
     <script src="js/db.js"></script>
     <script src="js/auth.js"></script>
     <script src="js/external-csv-import.js"></script>
+    <script src="config/google-maps.js"></script>
+    <script src="js/location-gates-seed.js"></script>
+    <script src="js/location-gates-util.js"></script>
+    <script src="js/location-map.js"></script>
     <script src="js/flysight.js"></script>
     <script src="js/app.js"></script>
     <script src="js/sheets.js"></script>

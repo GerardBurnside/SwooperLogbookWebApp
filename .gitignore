@@ -25,3 +25,4 @@ build/
 npm-debug.log*
 *.swp
 *.csv
+config/google-maps.js

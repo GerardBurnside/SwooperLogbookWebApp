@@ -98,3 +98,27 @@ firebase deploy
 ```
 
 Choose the option that best fits your technical comfort level and requirements!
+
+## Google Maps (location gate map)
+
+Maps uses a **referrer-restricted** browser key (not stored in Settings).
+
+### GitHub Pages (this repo)
+
+1. In Google Cloud: enable **Maps JavaScript API**, create an API key restricted to HTTP referrers `https://gerardburnside.github.io/*` (and `http://localhost:*` for local dev).
+2. In GitHub: **Settings → Secrets and variables → Actions** → add `GOOGLE_MAPS_API_KEY`.
+3. In GitHub: **Settings → Pages** → Build and deployment → **GitHub Actions** (not “Deploy from branch”).
+4. Push to `main`; the workflow writes `config/google-maps.js` during deploy.
+
+### Local development
+
+```bash
+cp config/google-maps.example.js config/google-maps.js
+# edit config/google-maps.js and paste your key
+```
+
+`config/google-maps.js` is gitignored.
+
+### Updating default gate positions (localhost)
+
+After moving gates on the map, **Save Component** for each location. On localhost only: **Settings → Export gates seed…**, copy the text into `js/location-gates-seed.js`, and commit. New installs (empty `gates`) pick up the file; existing users keep their saved gates until cleared.

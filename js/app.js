@@ -134,6 +134,8 @@ class SkydivingLogbook {
         this.activeEditJumpId = null;
         /** Trimmed location when edit jump modal was opened (for bulk same-day option). */
         this.editJumpLocationAtOpen = null;
+        /** Working copy of gates while location component modal is open. */
+        this._componentGatesDraft = [];
         /** `YYYY-MM-DD` when edit jump modal was opened (for bulk date-shift option). */
         this.editJumpDateAtOpen = null;
         this._olderJumpsCache = []; // cached older jumps for lazy rendering
@@ -208,7 +210,8 @@ class SkydivingLogbook {
                 { id: 'loc_lfoz',    name: 'LFOZ Epcol',             lat: 47.90293836878678, lng: 2.168939324589268 },
                 { id: 'loc_klatovy', name: 'Klatovy LKKT',                lat: 49.4181547, lng: 13.321609 },
                 { id: 'loc_ravenna', name: 'Ravenna LIDR',                lat: 44.362208, lng: 12.202889 },
-                { id: 'loc_eloy',    name: 'Eloy Skydive Arizona',   lat: 32.7555, lng: -111.8467 },
+                { id: 'loc_eloy',    name: 'Eloy Skydive Arizona',   lat: 32.808323, lng: -111.581359 },
+                { id: 'loc_pretoria', name: 'Pretoria',              lat: -25.662950, lng: 28.221036 },
                 { id: 'loc_palm',    name: 'The Palm Skydive Dubai', lat: 25.112176, lng: 55.153587 },
                 { id: 'loc_desert',  name: 'Desert Skydive Dubai',   lat: 24.985654, lng: 55.146111 }
             ];
@@ -221,7 +224,9 @@ class SkydivingLogbook {
         this.locations.forEach(loc => {
             if (loc.lat === undefined) loc.lat = null;
             if (loc.lng === undefined) loc.lng = null;
+            if (!Array.isArray(loc.gates)) loc.gates = [];
         });
+        if (this.seedAllLocationGates(false)) this.saveComponentsToLocalStorage();
 
         // Ensure every canopy has a linesets array with at least one lineset
         this.canopies.forEach(canopy => {
@@ -236,6 +241,7 @@ class SkydivingLogbook {
         this.initializeCanopyLinesetJumpCounts();
 
         this.setupEventListeners();
+        this.syncDevGatesSeedSettingsUi();
         this.updateStats();
         this.renderJumpsList();
         this.setCurrentDate();
@@ -383,6 +389,15 @@ class SkydivingLogbook {
             this.setComponentCoordsFromGPS();
         });
 
+        document.getElementById('viewLocationMapBtn').addEventListener('click', () => {
+            this.openLocationMapFromComponent();
+        });
+
+        const latInp = document.getElementById('componentLat');
+        const lngInp = document.getElementById('componentLng');
+        if (latInp) latInp.addEventListener('input', () => this.updateLocationGatesSummary());
+        if (lngInp) lngInp.addEventListener('input', () => this.updateLocationGatesSummary());
+
         // Google Sheets Integration modal (OAuth)
         document.getElementById('googleSheetsIntegrationBtn').addEventListener('click', () => {
             this.openSheetsModal();
@@ -396,10 +411,15 @@ class SkydivingLogbook {
                 'click',
                 (e) => {
                     if (e.target.closest('#resetDbBtn')) this.openResetDbConfirmModal();
+                    else if (e.target.closest('#exportGatesSeedBtn')) this.openGatesSeedExportModal();
                 },
                 true
             );
         }
+
+        document.getElementById('gatesSeedExportClose')?.addEventListener('click', () => this.closeGatesSeedExportModal());
+        document.getElementById('gatesSeedExportDoneBtn')?.addEventListener('click', () => this.closeGatesSeedExportModal());
+        document.getElementById('gatesSeedExportCopyBtn')?.addEventListener('click', () => this.copyGatesSeedExport());
 
         const resetDbConfirmModalEl = document.getElementById('resetDbConfirmModal');
         if (resetDbConfirmModalEl) {
@@ -643,6 +663,10 @@ class SkydivingLogbook {
             const componentModal = document.getElementById('componentModal');
             const sheetsModal = document.getElementById('sheetsModal');
             const jumpNoteModal = document.getElementById('jumpNoteModal');
+            const gatesSeedExportModal = document.getElementById('gatesSeedExportModal');
+            if (e.target === gatesSeedExportModal) {
+                this.closeGatesSeedExportModal();
+            }
             if (e.target === settingsModal) {
                 this.closeModal();
             }
@@ -2149,6 +2173,8 @@ class SkydivingLogbook {
         if (modal) modal.style.display = 'none';
         this.activeEditJumpId = null;
         this.editJumpLocationAtOpen = null;
+        /** Working copy of gates while location component modal is open. */
+        this._componentGatesDraft = [];
         this.editJumpDateAtOpen = null;
         const applyWrap = document.getElementById('editJumpApplyLocationToDayWrap');
         const applyChk = document.getElementById('editJumpApplyLocationToSameDay');
@@ -2575,11 +2601,66 @@ class SkydivingLogbook {
                     : '';
         }
 
+        this.syncDevGatesSeedSettingsUi();
         document.getElementById('settingsModal').style.display = 'block';
     }
 
     closeModal() {
         document.getElementById('settingsModal').style.display = 'none';
+    }
+
+    syncDevGatesSeedSettingsUi() {
+        const U = window.LocationGatesUtil;
+        const section = document.getElementById('devGatesSeedSection');
+        if (!section) return;
+        const show = !!(U && U.isDevHost());
+        section.hidden = !show;
+    }
+
+    openGatesSeedExportModal() {
+        const U = window.LocationGatesUtil;
+        if (!U || !U.isDevHost()) {
+            this.showMessage('Gates seed export is only available on localhost', 'error');
+            return;
+        }
+        const seed = U.buildGatesSeedFromLocations(this.locations);
+        const text = U.formatLocationGatesSeedJs(seed);
+        const locCount = Object.keys(seed).length;
+        const gateCount = Object.values(seed).reduce((n, arr) => n + arr.length, 0);
+        if (gateCount === 0) {
+            this.showMessage('No saved gates on any location — edit locations on the map and Save Component first', 'error');
+            return;
+        }
+        const ta = document.getElementById('gatesSeedExportText');
+        const hint = document.querySelector('.gates-seed-export-hint');
+        if (ta) ta.value = text;
+        if (hint) {
+            hint.textContent = `${locCount} location(s), ${gateCount} gate(s). Copy into js/location-gates-seed.js and commit. Locations without gates are omitted.`;
+        }
+        document.getElementById('gatesSeedExportModal').style.display = 'block';
+    }
+
+    closeGatesSeedExportModal() {
+        const modal = document.getElementById('gatesSeedExportModal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    async copyGatesSeedExport() {
+        const ta = document.getElementById('gatesSeedExportText');
+        if (!ta || !ta.value) return;
+        try {
+            await navigator.clipboard.writeText(ta.value);
+            this.showMessage('Gates seed copied to clipboard', 'success');
+        } catch (_) {
+            ta.focus();
+            ta.select();
+            try {
+                document.execCommand('copy');
+                this.showMessage('Gates seed copied to clipboard', 'success');
+            } catch (err2) {
+                this.showMessage('Could not copy — select the text and copy manually', 'error');
+            }
+        }
     }
 
     openSheetsModal() {
@@ -4855,6 +4936,8 @@ class SkydivingLogbook {
             const hint = document.getElementById('coordsHint');
             hint.textContent = 'Leave blank to auto-geocode from the name.';
             hint.style.color = '#888';
+            this._componentGatesDraft = [];
+            this.updateLocationGatesSummary();
         }
         // Show/hide initial lineset section for new canopies
         const isCanopy = type === 'canopy';
@@ -4966,6 +5049,8 @@ class SkydivingLogbook {
                             }
                         }
                     }
+                    const U = window.LocationGatesUtil;
+                    component.gates = U ? U.cloneGates(this._componentGatesDraft || []) : [];
                 }
             }
         } else {
@@ -4991,6 +5076,8 @@ class SkydivingLogbook {
                     newComponent.lng = null;
                     this.geocodeLocation(newComponent);
                 }
+                const U = window.LocationGatesUtil;
+                newComponent.gates = U ? U.cloneGates(this._componentGatesDraft || []) : [];
                 collection.push(newComponent);
             } else {
                 collection.push(newComponent);
@@ -5299,6 +5386,89 @@ class SkydivingLogbook {
         document.addEventListener('click', (e) => {
             if (wrap && wrap.contains(e.target)) return;
             dropdown.classList.remove('open');
+        });
+    }
+
+
+    // ── Location gates & map ───────────────────────────────────────────────
+
+    _getLocationGatesSeed() {
+        return (typeof window !== 'undefined' && window.LOCATION_GATES_SEED) ? window.LOCATION_GATES_SEED : {};
+    }
+
+    seedAllLocationGates(persist) {
+        const U = window.LocationGatesUtil;
+        if (!U) return false;
+        const seed = this._getLocationGatesSeed();
+        let changed = false;
+        for (const loc of this.locations) {
+            if (U.ensureLocationGatesSeeded(loc, loc.id, seed)) changed = true;
+        }
+        if (changed && persist) this.saveComponentsToLocalStorage();
+        return changed;
+    }
+
+    _ensureComponentGatesDraft(locationId) {
+        const U = window.LocationGatesUtil;
+        if (!U) {
+            this._componentGatesDraft = [];
+            return;
+        }
+        if (locationId) {
+            const loc = this.locations.find(l => l.id === locationId);
+            if (loc) {
+                let gates = Array.isArray(loc.gates) && loc.gates.length
+                    ? U.cloneGates(loc.gates)
+                    : [];
+                if (!gates.length) {
+                    const seedEntries = this._getLocationGatesSeed()[locationId];
+                    if (seedEntries && seedEntries.length) {
+                        gates = U.gatesFromSeedEntries(seedEntries);
+                    }
+                }
+                this._componentGatesDraft = gates;
+                return;
+            }
+        }
+        this._componentGatesDraft = U.cloneGates(this._componentGatesDraft || []);
+    }
+
+    updateLocationGatesSummary() {
+        const el = document.getElementById('locationGatesSummary');
+        const section = document.getElementById('locationCoordsSection');
+        if (!el || !section || section.style.display === 'none') return;
+        const n = (this._componentGatesDraft || []).length;
+        el.textContent = n ? `${n} gate${n === 1 ? '' : 's'} — open map to edit` : 'No gates yet — open map to add or import defaults';
+        el.style.color = '#666';
+    }
+
+    openLocationMapFromComponent() {
+        const type = document.getElementById('componentType')?.value;
+        if (type !== 'location') return;
+        const latVal = document.getElementById('componentLat')?.value ?? '';
+        const lngVal = document.getElementById('componentLng')?.value ?? '';
+        const locationId = document.getElementById('componentId')?.value || '';
+        if (!window.LocationMap) {
+            this.showMessage('Map module failed to load', 'error');
+            return;
+        }
+        window.LocationMap.open({
+            lat: latVal,
+            lng: lngVal,
+            gates: this._componentGatesDraft || [],
+            onGatesChange: (gates) => {
+                this._componentGatesDraft = gates;
+                this.updateLocationGatesSummary();
+            },
+            onLatLngChange: (lat, lng) => {
+                document.getElementById('componentLat').value = lat.toFixed(6);
+                document.getElementById('componentLng').value = lng.toFixed(6);
+                const hint = document.getElementById('coordsHint');
+                if (hint) {
+                    hint.textContent = `Map: ${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+                    hint.style.color = '#2e7d32';
+                }
+            }
         });
     }
 
@@ -5615,6 +5785,8 @@ class SkydivingLogbook {
                     hint.textContent = 'No coordinates saved yet — leave blank to auto-geocode from name.';
                     hint.style.color = '#888';
                 }
+                this._ensureComponentGatesDraft(component.id);
+                this.updateLocationGatesSummary();
             }
             const harnessPre = document.getElementById('harnessPreAppSection');
             const canopyPre = document.getElementById('canopyPreAppSection');
