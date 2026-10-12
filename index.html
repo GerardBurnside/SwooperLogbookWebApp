@@ -205,11 +205,7 @@
                         </button>
                     </div>
                     <div class="flysight-controls">
-                        <label class="flysight-avg-label" for="flysightMaxHeight">
-                            Max height: <span id="flysightMaxHeightValue">500</span> m AGL
-                        </label>
-                        <input type="range" id="flysightMaxHeight" class="flysight-avg-slider" min="1" max="500" value="500" step="1">
-                        <div class="flysight-speed-mode flysight-control-spaced">
+                        <div class="flysight-speed-mode">
                             <span class="flysight-avg-label">Speed metric</span>
                             <div class="flysight-speed-toggle" role="group" aria-label="Speed metric">
                                 <button type="button" id="flysightSpeedVertical" class="flysight-speed-btn is-active" aria-pressed="true">Vertical</button>
@@ -672,13 +668,6 @@
                     </label>
                     <small class="flysight-settings-help">Smooths GPS speeds over this many samples (Flysight typically logs at 10 Hz). A larger window reduces noise but can slightly lower the reported peak speed. Default: 3 points.</small>
                     <input type="range" id="flysightAvgPoints" class="flysight-avg-slider" min="1" max="20" value="3" step="1">
-                </div>
-                <div class="form-group">
-                    <label for="flysightMaxHeightSliderMax">Max height slider range</label>
-                    <div class="flysight-settings-unit-row">
-                        <input type="number" id="flysightMaxHeightSliderMax" value="500" min="1" max="10000" step="50" inputmode="numeric">
-                        <span>m</span>
-                    </div>
                 </div>
                 <div class="form-group">
                     <label for="flysightCursorBDiveAngle">Cursor B dive-angle threshold</label>

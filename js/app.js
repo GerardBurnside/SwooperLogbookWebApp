@@ -150,13 +150,6 @@ class SkydivingLogbook {
         this._flysightScrollY = 0;
         const savedFlysightAvg = parseInt(localStorage.getItem('flysight-avg-points'), 10);
         this.flysightAvgPoints = Number.isFinite(savedFlysightAvg) ? Math.min(20, Math.max(1, savedFlysightAvg)) : 3;
-        this.flysightMaxHeightSliderMaxM = this._parseFlysightMaxHeightSliderMax(
-            localStorage.getItem('flysight-max-height-slider-max')
-        );
-        const savedFlysightMaxHeight = parseInt(localStorage.getItem('flysight-max-height'), 10);
-        this.flysightMaxHeightM = Number.isFinite(savedFlysightMaxHeight)
-            ? this._parseFlysightMaxHeight(savedFlysightMaxHeight)
-            : Math.min(this.flysightMaxHeightSliderMaxM, this._flysightHeightLimits().defaultM);
         const savedFlysightSpeedMetric = localStorage.getItem('flysight-speed-metric');
         this.flysightSpeedMetric = ['vertical', 'total', 'both'].includes(savedFlysightSpeedMetric)
             ? savedFlysightSpeedMetric
@@ -5730,59 +5723,6 @@ class SkydivingLogbook {
             : '';
     }
 
-    _flysightHeightLimits() {
-        const minM = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.MIN_MAX_HEIGHT_M))
-            ? Flysight.MIN_MAX_HEIGHT_M
-            : 1;
-        const defaultM = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.DEFAULT_MAX_HEIGHT_M))
-            ? Flysight.DEFAULT_MAX_HEIGHT_M
-            : 500;
-        const absMaxM = (typeof Flysight !== 'undefined' && Number.isFinite(Flysight.MAX_MAX_HEIGHT_M))
-            ? Flysight.MAX_MAX_HEIGHT_M
-            : 10000;
-        return { minM, defaultM, absMaxM };
-    }
-
-    _parseFlysightMaxHeightSliderMax(value) {
-        const { minM, defaultM, absMaxM } = this._flysightHeightLimits();
-        const n = parseInt(value, 10);
-        if (!Number.isFinite(n)) return defaultM;
-        return Math.min(absMaxM, Math.max(minM, n));
-    }
-
-    _parseFlysightMaxHeight(value) {
-        const { minM } = this._flysightHeightLimits();
-        const n = parseInt(value, 10);
-        const fallback = this.flysightMaxHeightSliderMaxM;
-        if (!Number.isFinite(n)) return fallback;
-        return Math.min(this.flysightMaxHeightSliderMaxM, Math.max(minM, n));
-    }
-
-    _updateFlysightMaxHeightLabel() {
-        const maxHeightValue = document.getElementById('flysightMaxHeightValue');
-        if (maxHeightValue) maxHeightValue.textContent = String(this.flysightMaxHeightM);
-    }
-
-    _syncFlysightMaxHeightSlider() {
-        const slider = document.getElementById('flysightMaxHeight');
-        if (slider) {
-            slider.max = String(this.flysightMaxHeightSliderMaxM);
-            slider.value = String(this.flysightMaxHeightM);
-        }
-        this._updateFlysightMaxHeightLabel();
-    }
-
-    _applyFlysightMaxHeightSliderMax(value) {
-        this.flysightMaxHeightSliderMaxM = this._parseFlysightMaxHeightSliderMax(value);
-        localStorage.setItem('flysight-max-height-slider-max', String(this.flysightMaxHeightSliderMaxM));
-        const clamped = this._parseFlysightMaxHeight(this.flysightMaxHeightM);
-        if (clamped !== this.flysightMaxHeightM) {
-            this.flysightMaxHeightM = clamped;
-            localStorage.setItem('flysight-max-height', String(this.flysightMaxHeightM));
-        }
-        this._syncFlysightMaxHeightSlider();
-    }
-
     _updateFlysightSpeedModeButtons() {
         const verticalBtn = document.getElementById('flysightSpeedVertical');
         const totalBtn = document.getElementById('flysightSpeedTotal');
@@ -5825,20 +5765,12 @@ class SkydivingLogbook {
 
     _syncFlysightSettingsForm() {
         const avgSlider = document.getElementById('flysightAvgPoints');
-        const sliderMaxInput = document.getElementById('flysightMaxHeightSliderMax');
         const angleInput = document.getElementById('flysightCursorBDiveAngle');
         const ticksInput = document.getElementById('flysightCursorBAltTicks');
         if (avgSlider) avgSlider.value = String(this.flysightAvgPoints);
-        if (sliderMaxInput) {
-            const { minM, absMaxM } = this._flysightHeightLimits();
-            sliderMaxInput.min = String(minM);
-            sliderMaxInput.max = String(absMaxM);
-            sliderMaxInput.value = String(this.flysightMaxHeightSliderMaxM);
-        }
         if (angleInput) angleInput.value = String(this.flysightCursorBDiveAngleDeg);
         if (ticksInput) ticksInput.value = String(this.flysightCursorBAltTicks);
         this._updateFlysightAvgLabel();
-        this._syncFlysightMaxHeightSlider();
     }
 
     openFlysightSettingsModal() {
@@ -5863,7 +5795,6 @@ class SkydivingLogbook {
         this.flysightAvgPoints = defaultAvg;
         this.flysightCursorBDiveAngleDeg = defaultAngle;
         this.flysightCursorBAltTicks = defaultTicks;
-        this._applyFlysightMaxHeightSliderMax(this._flysightHeightLimits().defaultM);
         localStorage.setItem('flysight-avg-points', String(this.flysightAvgPoints));
         localStorage.setItem('flysight-cursor-b-dive-angle', String(this.flysightCursorBDiveAngleDeg));
         localStorage.setItem('flysight-cursor-b-alt-ticks', String(this.flysightCursorBAltTicks));
@@ -5885,16 +5816,6 @@ class SkydivingLogbook {
             };
             angleInput.addEventListener('input', applyAngle);
             angleInput.addEventListener('change', applyAngle);
-        }
-        const sliderMaxInput = document.getElementById('flysightMaxHeightSliderMax');
-        if (sliderMaxInput && sliderMaxInput.dataset.bound !== '1') {
-            sliderMaxInput.dataset.bound = '1';
-            const applySliderMax = () => {
-                this._applyFlysightMaxHeightSliderMax(sliderMaxInput.value);
-                if (this.flysightFiles.length) this.renderFlysightView();
-            };
-            sliderMaxInput.addEventListener('input', applySliderMax);
-            sliderMaxInput.addEventListener('change', applySliderMax);
         }
         const ticksInput = document.getElementById('flysightCursorBAltTicks');
         if (ticksInput && ticksInput.dataset.bound !== '1') {
@@ -5947,14 +5868,12 @@ class SkydivingLogbook {
         const dirInput = document.getElementById('flysightDirInput');
         const importDirsBtn = document.getElementById('flysightImportDirsBtn');
         const avgSlider = document.getElementById('flysightAvgPoints');
-        const maxHeightSlider = document.getElementById('flysightMaxHeight');
         const speedVerticalBtn = document.getElementById('flysightSpeedVertical');
         const speedTotalBtn = document.getElementById('flysightSpeedTotal');
         const speedBothBtn = document.getElementById('flysightSpeedBoth');
-        if (!dropZone || !fileInput || !dirInput || !avgSlider || !maxHeightSlider || !speedVerticalBtn || !speedTotalBtn || !speedBothBtn) return;
+        if (!dropZone || !fileInput || !dirInput || !avgSlider || !speedVerticalBtn || !speedTotalBtn || !speedBothBtn) return;
 
         avgSlider.value = String(this.flysightAvgPoints);
-        this._syncFlysightMaxHeightSlider();
         this._updateFlysightAvgLabel();
         this._updateFlysightSpeedModeButtons();
         this._syncFlysightSettingsForm();
@@ -6062,13 +5981,6 @@ class SkydivingLogbook {
             localStorage.setItem('flysight-avg-points', String(this.flysightAvgPoints));
             if (this.flysightFiles.length) this.renderFlysightView();
             this._rebuildFlysightGraphIfOpen();
-        });
-
-        maxHeightSlider.addEventListener('input', () => {
-            this.flysightMaxHeightM = this._parseFlysightMaxHeight(maxHeightSlider.value);
-            this._updateFlysightMaxHeightLabel();
-            localStorage.setItem('flysight-max-height', String(this.flysightMaxHeightM));
-            if (this.flysightFiles.length) this.renderFlysightView();
         });
 
         speedVerticalBtn.addEventListener('click', () => this._setFlysightSpeedMetric('vertical'));
@@ -6754,7 +6666,6 @@ class SkydivingLogbook {
             result: Flysight.analyzeFlysightCsv(
                 file.text,
                 this.flysightAvgPoints,
-                this.flysightMaxHeightM,
                 this.flysightSpeedMetric
             )
         }));
@@ -6826,7 +6737,6 @@ class SkydivingLogbook {
         const result = Flysight.analyzeFlysightCsv(
             file.text,
             this.flysightAvgPoints,
-            this.flysightMaxHeightM,
             this.flysightSpeedMetric
         );
         return !result.error;

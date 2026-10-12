@@ -118,39 +118,18 @@ test('formatDurationSec renders compact seconds suffix', () => {
     assert.equal(F.formatDurationSec(0.4), '0.40s');
 });
 
-test('filterPointsByMaxHeight ignores points above AGL ceiling', () => {
+test('analyzeFlysightTrack: vertical peak matches graph series max', () => {
     const { points } = F.parseFlysightCsv(SAMPLE_CSV);
-    const filtered = F.filterPointsByMaxHeight(points, 10);
-    assert.ok(filtered.length < points.length);
-    assert.ok(filtered.every(p => p.hMSL <= 1420.272 + 10));
-});
-
-test('filterPointsByMaxHeight allows ceilings above the default 500 m', () => {
-    const points = [
-        { hMSL: 100, velD: 1 },
-        { hMSL: 700, velD: 1 },
-        { hMSL: 1200, velD: 1 }
-    ];
-    const at500 = F.filterPointsByMaxHeight(points, 500);
-    const at800 = F.filterPointsByMaxHeight(points, 800);
-    assert.equal(at500.length, 1);
-    assert.equal(at800.length, 2);
-    assert.equal(at800[1].hMSL, 700);
-    assert.ok(F.MAX_MAX_HEIGHT_M > 500);
-});
-
-test('analyzeFlysightTrack: max height limits eligible points', () => {
-    const { points } = F.parseFlysightCsv(SAMPLE_CSV);
-    const full = F.analyzeFlysightTrack(points, 1, 500);
-    const limited = F.analyzeFlysightTrack(points, 1, 5);
-    assert.equal(full.pointCount, points.length);
-    assert.ok(limited.pointCount < full.pointCount);
+    const { samples } = F.buildSwoopCursorSeries(points, 1);
+    const graphMaxKmh = Math.max(...samples.map(s => s.velD * 3.6));
+    const r = F.analyzeFlysightTrack(points, 1, 'vertical');
+    assert.ok(Math.abs(r.maxVerticalSpeedKmh - graphMaxKmh) < 0.01);
 });
 
 test('analyzeFlysightTrack: speed metric selects vertical vs total trajectory speed', () => {
     const { points } = F.parseFlysightCsv(SAMPLE_CSV);
-    const vertical = F.analyzeFlysightTrack(points, 1, 500, 'vertical');
-    const total = F.analyzeFlysightTrack(points, 1, 500, 'total');
+    const vertical = F.analyzeFlysightTrack(points, 1, 'vertical');
+    const total = F.analyzeFlysightTrack(points, 1, 'total');
     assert.equal(vertical.speedMetric, 'vertical');
     assert.equal(total.speedMetric, 'total');
     assert.ok(total.maxVerticalSpeedKmh > vertical.maxVerticalSpeedKmh);
@@ -160,9 +139,9 @@ test('analyzeFlysightTrack: speed metric selects vertical vs total trajectory sp
 
 test('analyzeFlysightTrack: both mode returns vertical and total peaks', () => {
     const { points } = F.parseFlysightCsv(SAMPLE_CSV);
-    const both = F.analyzeFlysightTrack(points, 1, 500, 'both');
-    const vertical = F.analyzeFlysightTrack(points, 1, 500, 'vertical');
-    const total = F.analyzeFlysightTrack(points, 1, 500, 'total');
+    const both = F.analyzeFlysightTrack(points, 1, 'both');
+    const vertical = F.analyzeFlysightTrack(points, 1, 'vertical');
+    const total = F.analyzeFlysightTrack(points, 1, 'total');
     assert.equal(both.speedMetric, 'both');
     assert.equal(both.maxVerticalSpeedKmh, vertical.maxVerticalSpeedKmh);
     assert.equal(both.maxTotalSpeedKmh, total.maxVerticalSpeedKmh);
@@ -268,7 +247,7 @@ test('analyzeFlysightTrack ignores post-landing GNSS wander so 0 m AGL is landin
     assert.ok(flight.every(p => Date.parse(p.time) <= F.findStationaryCutoffMs(points)));
     assert.ok(Math.min(...flight.map(p => p.hMSL)) > 110);
 
-    const r = F.analyzeFlysightTrack(points, 1, 30, 'total');
+    const r = F.analyzeFlysightTrack(points, 1, 'total');
     assert.ok(r.minHmsl > 110 && r.minHmsl < 120);
     assert.ok(r.maxVerticalSpeedKmh > 100, `expected swoop speed, got ${r.maxVerticalSpeedKmh}`);
     assert.ok(r.altitudeM > 20 && r.altitudeM <= 30);
@@ -285,7 +264,7 @@ test('analyzeFlysightTrack ignores lock-on glitch so ground and peak come from t
 2026-09-12T13:07:20.20Z,47.9039040,2.1710200,155.000,19.00,29.00,24.50,0.40,0.60,0.17,240.00000,0.50,3,16
 2026-09-12T13:07:25.00Z,47.9039600,2.1716100,118.560,0.20,0.10,0.05,0.44,0.62,0.15,40.00000,10.00,3,16`;
     const { points } = F.parseFlysightCsv(csv);
-    const r = F.analyzeFlysightTrack(points, 1, 500, 'vertical');
+    const r = F.analyzeFlysightTrack(points, 1, 'vertical');
     assert.ok(r.minHmsl > 100 && r.minHmsl < 120);
     assert.ok(r.maxVerticalSpeedKmh > 88 && r.maxVerticalSpeedKmh < 91);
     assert.ok(r.altitudeM > 30 && r.altitudeM < 50);
@@ -377,18 +356,26 @@ test('buildSwoopCursorSeries keeps last 25s in chronological order, ending at la
     assert.ok(samples[0].tRev <= 25.05);
 });
 
-test('buildSwoopCursorSeries is not clipped by the analysis max-height ceiling', () => {
-    const csv = fs.readFileSync(path.join(__dirname, '..', '08-55-08.CSV'), 'utf8');
+test('buildSwoopCursorSeries spans the last 25 s before landing', () => {
+    const csvPath = path.join(__dirname, '..', '08-55-08.CSV');
+    if (!fs.existsSync(csvPath)) return;
+    const csv = fs.readFileSync(csvPath, 'utf8');
     const { points } = F.parseFlysightCsv(csv);
-    const quality = F.filterPointsBySpeedAccuracy(points);
-    const below500 = F.filterPointsByMaxHeight(quality, 500);
-    const cutoff = F.findStationaryCutoffMs(quality);
-    const firstBelow500 = below500[0];
-    const clippedSpan = (cutoff - Date.parse(firstBelow500.time)) / 1000;
-    assert.ok(clippedSpan < 24, `height-filtered lookback should be under 25s (${clippedSpan})`);
     const { samples } = F.buildSwoopCursorSeries(points, 5);
     assert.ok(samples[0].tRev > 24);
     assert.ok(samples[0].tRev <= 25.05);
+});
+
+test('analyzeFlysightTrack vertical summary matches graph for 08-33-24', () => {
+    const csvPath = path.join(__dirname, '..', '08-33-24.CSV');
+    if (!fs.existsSync(csvPath)) return;
+    const csv = fs.readFileSync(csvPath, 'utf8');
+    const { points } = F.parseFlysightCsv(csv);
+    const { samples } = F.buildSwoopCursorSeries(points, 3);
+    const graphMaxKmh = Math.max(...samples.map(s => s.velD * 3.6));
+    const r = F.analyzeFlysightTrack(points, 3, 'vertical');
+    assert.ok(Math.abs(r.maxVerticalSpeedKmh - graphMaxKmh) < 0.05);
+    assert.ok(r.maxVerticalSpeedKmh > 100);
 });
 
 test('defaultSwoopCursorIndices: A is first strong flattening after peak velD', () => {

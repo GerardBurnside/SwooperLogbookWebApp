@@ -338,12 +338,52 @@
     }
 
     /**
+     * Last `windowSec` before landing on the trimmed flight track.
+     *
+     * @param {{ time: string }[]} points
+     * @param {number} [windowSec]
+     * @returns {{
+     *   windowed: { time: string, hMSL: number, velD: number, velN?: number, velE?: number }[],
+     *   flight: { time: string }[],
+     *   tEnd: number,
+     *   error?: string
+     * }}
+     */
+    function flightSwoopWindow(points, windowSec = SWOOP_WINDOW_SEC) {
+        if (!points || points.length < 2) {
+            return { windowed: [], flight: [], tEnd: NaN, error: 'Not enough track points.' };
+        }
+        const quality = filterPointsBySpeedAccuracy(points);
+        const flight = pointsUpToFirstLanding(quality);
+        if (flight.length < 2) {
+            return { windowed: [], flight: [], tEnd: NaN, error: 'Not enough track points.' };
+        }
+
+        const tEnd = lastValidTimeMs(flight);
+        if (!Number.isFinite(tEnd)) {
+            return { windowed: [], flight, tEnd: NaN, error: 'Track times are invalid.' };
+        }
+
+        const windowed = [];
+        for (let i = 0; i < flight.length; i++) {
+            const t = Date.parse(flight[i].time);
+            if (!Number.isFinite(t)) continue;
+            const dt = (tEnd - t) / 1000;
+            if (dt >= 0 && dt <= windowSec) windowed.push(flight[i]);
+        }
+        if (windowed.length < 2) {
+            return { windowed: [], flight, tEnd, error: 'Not enough points in the swoop window.' };
+        }
+
+        return { windowed, flight, tEnd };
+    }
+
+    /**
      * Last `windowSec` before the first 2 s of roughly-still position (landing),
      * in chronological order (index 0 is earliest; the last sample is landing).
-     * Points after the still period are dropped. Not limited by the analysis
-     * max-height slider. `tRev` is seconds before landing. `velD` is smoothed;
-     * `flatteningDegS` is signed dγ/dt from raw velocities (negative = dive
-     * angle decreasing in real time).
+     * Points after the still period are dropped. `tRev` is seconds before landing.
+     * `velD` is smoothed; `flatteningDegS` is signed dγ/dt from raw velocities
+     * (negative = dive angle decreasing in real time).
      *
      * @param {{ time: string, hMSL: number, velD: number, velN?: number, velE?: number, lat?: number, lon?: number }[]} points
      * @param {number} [avgPoints]
@@ -358,29 +398,9 @@
         avgPoints = 3,
         windowSec = SWOOP_WINDOW_SEC
     ) {
-        if (!points || points.length < 2) {
-            return { samples: [], error: 'Not enough track points.' };
-        }
-        const quality = filterPointsBySpeedAccuracy(points);
-        const flight = pointsUpToFirstLanding(quality);
-        if (flight.length < 2) {
-            return { samples: [], error: 'Not enough track points.' };
-        }
-
-        const tEnd = lastValidTimeMs(flight);
-        if (!Number.isFinite(tEnd)) {
-            return { samples: [], error: 'Track times are invalid.' };
-        }
-
-        const windowed = [];
-        for (let i = 0; i < flight.length; i++) {
-            const t = Date.parse(flight[i].time);
-            if (!Number.isFinite(t)) continue;
-            const dt = (tEnd - t) / 1000;
-            if (dt >= 0 && dt <= windowSec) windowed.push(flight[i]);
-        }
-        if (windowed.length < 2) {
-            return { samples: [], error: 'Not enough points in the swoop window.' };
+        const { windowed, tEnd, error } = flightSwoopWindow(points, windowSec);
+        if (error) {
+            return { samples: [], error };
         }
 
         const velSmooth = movingAverage(windowed.map(p => p.velD), avgPoints);
@@ -662,10 +682,6 @@
         return out;
     }
 
-    const DEFAULT_MAX_HEIGHT_M = 500;
-    const MIN_MAX_HEIGHT_M = 1;
-    /** Absolute analysis / slider-range cap. The UI slider max defaults to 500 m and is user-configurable. */
-    const MAX_MAX_HEIGHT_M = 6000;
     const DEFAULT_SPEED_METRIC = 'vertical';
     /** Drop GNSS samples whose speed-accuracy estimate exceeds this (m/s). Missing sAcc is kept. */
     const MAX_SPEED_ACCURACY_MS = 2;
@@ -744,14 +760,20 @@
     }
 
     /**
-     * @param {{ hMSL: number }[]} points
-     * @param {number} maxHeightM
-     * @returns {{ hMSL: number, velD: number }[]}
+     * Max vertical speed from graph series (smoothed signed velD, same as the vertical-speed graph).
+     *
+     * @param {{ velD: number, hMSL?: number, time: string }[]} samples
+     * @returns {{ maxSpeedKmh: number, altitudeM: number, time: string }}
      */
-    function filterPointsByMaxHeight(points, maxHeightM) {
-        const minHmsl = points.reduce((min, p) => (p.hMSL < min ? p.hMSL : min), points[0].hMSL);
-        const ceiling = Math.max(MIN_MAX_HEIGHT_M, Math.min(MAX_MAX_HEIGHT_M, maxHeightM));
-        return points.filter(p => (p.hMSL - minHmsl) <= ceiling);
+    function peakVerticalFromGraphSamples(samples) {
+        const peakIdx = maxVelDIdx(samples);
+        const ground = minHmsl(samples);
+        const s = samples[peakIdx];
+        return {
+            maxSpeedKmh: s.velD * 3.6,
+            altitudeM: Math.max(0, aglMeters(s, ground)),
+            time: s.time
+        };
     }
 
     /**
@@ -760,7 +782,6 @@
      *
      * @param {{ hMSL: number, velD: number }[]} points
      * @param {number} avgPoints
-     * @param {number} maxHeightM — ignore points more than this many metres above landing (AGL)
      * @param {'vertical' | 'total' | 'both'} speedMetric
      * @returns {{
      *   maxVerticalSpeedKmh: number,
@@ -778,7 +799,6 @@
     function analyzeFlysightTrack(
         points,
         avgPoints = 1,
-        maxHeightM = DEFAULT_MAX_HEIGHT_M,
         speedMetric = DEFAULT_SPEED_METRIC
     ) {
         const metric = normalizeSpeedMetric(speedMetric);
@@ -796,29 +816,29 @@
             return emptyResult({ error: 'No track points.' });
         }
 
-        const quality = filterPointsBySpeedAccuracy(points);
-        const flight = pointsUpToFirstLanding(quality);
-        if (!flight.length) {
-            return emptyResult({ error: 'No track points.' });
-        }
-        const minHmsl = flight.reduce((min, p) => (p.hMSL < min ? p.hMSL : min), flight[0].hMSL);
-        const eligible = filterPointsByMaxHeight(flight, maxHeightM);
-        if (!eligible.length) {
-            return emptyResult({ minHmsl, error: 'No track points within the max height limit.' });
+        const { windowed, error: windowError } = flightSwoopWindow(points);
+        if (windowError) {
+            return emptyResult({ error: windowError });
         }
 
+        const { samples, error: seriesError } = buildSwoopCursorSeries(points, avgPoints);
+        if (seriesError || !samples.length) {
+            return emptyResult({ error: seriesError || 'Could not build swoop series.' });
+        }
+
+        const groundHmsl = minHmsl(samples);
+
         if (metric === 'both') {
-            const verticalRaw = rawSpeedsForMode(eligible, 'vertical');
-            const totalRaw = rawSpeedsForMode(eligible, 'total');
+            const totalRaw = rawSpeedsForMode(windowed, 'total');
             if (totalRaw.some(s => !Number.isFinite(s))) {
                 return emptyResult({
-                    minHmsl,
+                    minHmsl: groundHmsl,
                     error: 'Missing velN/velE columns required for total speed.'
                 });
             }
 
-            const verticalPeak = peakFromRawSpeeds(eligible, minHmsl, avgPoints, verticalRaw);
-            const totalPeak = peakFromRawSpeeds(eligible, minHmsl, avgPoints, totalRaw);
+            const verticalPeak = peakVerticalFromGraphSamples(samples);
+            const totalPeak = peakFromRawSpeeds(windowed, groundHmsl, avgPoints, totalRaw);
 
             return {
                 maxVerticalSpeedKmh: verticalPeak.maxSpeedKmh,
@@ -827,29 +847,39 @@
                 time: verticalPeak.time,
                 totalPeakTime: totalPeak.time,
                 totalPeakAltitudeM: totalPeak.altitudeM,
-                pointCount: eligible.length,
-                minHmsl,
+                pointCount: samples.length,
+                minHmsl: groundHmsl,
                 speedMetric: 'both'
             };
         }
 
-        const mode = metric === 'total' ? 'total' : 'vertical';
-        const rawSpeeds = rawSpeedsForMode(eligible, mode);
-        if (rawSpeeds.some(s => !Number.isFinite(s))) {
-            return emptyResult({
-                minHmsl,
-                error: 'Missing velN/velE columns required for total speed.'
-            });
+        if (metric === 'total') {
+            const totalRaw = rawSpeedsForMode(windowed, 'total');
+            if (totalRaw.some(s => !Number.isFinite(s))) {
+                return emptyResult({
+                    minHmsl: groundHmsl,
+                    error: 'Missing velN/velE columns required for total speed.'
+                });
+            }
+            const totalPeak = peakFromRawSpeeds(windowed, groundHmsl, avgPoints, totalRaw);
+            return {
+                maxVerticalSpeedKmh: totalPeak.maxSpeedKmh,
+                altitudeM: totalPeak.altitudeM,
+                time: totalPeak.time,
+                pointCount: samples.length,
+                minHmsl: groundHmsl,
+                speedMetric: metric
+            };
         }
 
-        const peak = peakFromRawSpeeds(eligible, minHmsl, avgPoints, rawSpeeds);
+        const verticalPeak = peakVerticalFromGraphSamples(samples);
 
         return {
-            maxVerticalSpeedKmh: peak.maxSpeedKmh,
-            altitudeM: peak.altitudeM,
-            time: peak.time,
-            pointCount: eligible.length,
-            minHmsl,
+            maxVerticalSpeedKmh: verticalPeak.maxSpeedKmh,
+            altitudeM: verticalPeak.altitudeM,
+            time: verticalPeak.time,
+            pointCount: samples.length,
+            minHmsl: groundHmsl,
             speedMetric: metric
         };
     }
@@ -857,14 +887,12 @@
     /**
      * @param {string} text
      * @param {number} avgPoints
-     * @param {number} maxHeightM
      * @param {'vertical' | 'total' | 'both'} speedMetric
      * @returns {ReturnType<typeof analyzeFlysightTrack> & { points: typeof points }}
      */
     function analyzeFlysightCsv(
         text,
         avgPoints = 1,
-        maxHeightM = DEFAULT_MAX_HEIGHT_M,
         speedMetric = DEFAULT_SPEED_METRIC
     ) {
         const metric = normalizeSpeedMetric(speedMetric);
@@ -881,7 +909,7 @@
                 error: parsed.error
             };
         }
-        const result = analyzeFlysightTrack(parsed.points, avgPoints, maxHeightM, metric);
+        const result = analyzeFlysightTrack(parsed.points, avgPoints, metric);
         return { ...result, points: parsed.points };
     }
 
@@ -1319,7 +1347,8 @@
         countCsvFilesFromVirtualNode,
         analyzeFlysightTrack,
         analyzeFlysightCsv,
-        filterPointsByMaxHeight,
+        flightSwoopWindow,
+        peakVerticalFromGraphSamples,
         filterPointsBySpeedAccuracy,
         trajectorySpeedMs,
         normalizeSpeedMetric,
@@ -1351,9 +1380,6 @@
         CURSOR_A_FLATTENING_DEG_S,
         CURSOR_A_PEAK_FRACTION,
         DEFAULT_SAMPLE_INTERVAL_SEC,
-        DEFAULT_MAX_HEIGHT_M,
-        MIN_MAX_HEIGHT_M,
-        MAX_MAX_HEIGHT_M,
         MAX_SPEED_ACCURACY_MS,
         DEFAULT_SPEED_METRIC
     };
