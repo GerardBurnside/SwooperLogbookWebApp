@@ -6500,7 +6500,7 @@ class SkydivingLogbook {
 
     _flysightResultsSummaryHtml(analyzed) {
         const ok = analyzed.filter(({ result }) => !result.error);
-        if (!ok.length) return '';
+        if (ok.length < 2) return '';
 
         let verticalSum = 0;
         let altitudeSum = 0;
