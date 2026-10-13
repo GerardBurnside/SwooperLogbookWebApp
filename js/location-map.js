@@ -10,6 +10,8 @@
 
     const PERSON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32"><circle cx="12" cy="5" r="3" fill="#1565C0"/><path d="M6 21v-1c0-3.3 2.7-6 6-6s6 2.7 6 6v1H6z" fill="#1565C0"/></svg>';
     const COARSE_ACCURACY_M = 25;
+    const OPENING_DIAGONAL_M = 100;
+    const MERCATOR_MPP_Z0 = 156543.03392804097;
 
     function getApiKey() {
         const k = global.GOOGLE_MAPS_API_KEY;
@@ -166,31 +168,54 @@
         }
     }
 
-    function fitBoundsOnce() {
-        if (!state || !state.map || state.didFitBounds) return;
-        const maps = global.google.maps;
-        const bounds = new maps.LatLngBounds();
-        let n = 0;
-        if (state.locationPos) {
-            bounds.extend(state.locationPos);
-            n++;
-        }
+    function gatesCenter() {
+        if (!state || !state.gates.length) return null;
+        let minLat = Infinity;
+        let maxLat = -Infinity;
+        let minLng = Infinity;
+        let maxLng = -Infinity;
         for (const g of state.gates) {
-            bounds.extend({ lat: g.lat, lng: g.lng });
-            n++;
+            if (g.lat < minLat) minLat = g.lat;
+            if (g.lat > maxLat) maxLat = g.lat;
+            if (g.lng < minLng) minLng = g.lng;
+            if (g.lng > maxLng) maxLng = g.lng;
         }
-        if (state.userPos) {
-            bounds.extend(state.userPos);
-            n++;
-        }
-        if (n === 0) return;
+        return { lat: (minLat + maxLat) / 2, lng: (minLng + maxLng) / 2 };
+    }
+
+    function openingCenter() {
+        return gatesCenter() || (state && (state.locationPos || state.userPos)) || null;
+    }
+
+    function zoomForViewportDiagonal(lat, diagonalM, widthPx, heightPx) {
+        const diagPx = Math.hypot(widthPx, heightPx);
+        if (!(diagPx > 0) || !Number.isFinite(lat) || !(diagonalM > 0)) return 18;
+        const mpp = diagonalM / diagPx;
+        const cosLat = Math.max(0.01, Math.abs(Math.cos((lat * Math.PI) / 180)));
+        const zoom = Math.log2((MERCATOR_MPP_Z0 * cosLat) / mpp);
+        if (!Number.isFinite(zoom)) return 18;
+        return Math.min(21, Math.max(2, zoom));
+    }
+
+    function mapPixelSize() {
+        const div = state && state.map ? state.map.getDiv() : null;
+        const w = div ? div.clientWidth : 0;
+        const h = div ? div.clientHeight : 0;
+        if (w > 0 && h > 0) return { w, h };
+        const el = document.getElementById('locationMapCanvas');
+        const cw = el ? el.clientWidth : 0;
+        const ch = el ? el.clientHeight : 0;
+        return cw > 0 && ch > 0 ? { w: cw, h: ch } : null;
+    }
+
+    function applyOpeningView() {
+        if (!state || !state.map || state.didFitBounds) return;
+        const center = openingCenter();
+        const size = mapPixelSize();
+        if (!center || !size) return;
         state.didFitBounds = true;
-        if (n === 1) {
-            state.map.setCenter(bounds.getCenter());
-            state.map.setZoom(16);
-        } else {
-            state.map.fitBounds(bounds, 48);
-        }
+        state.map.setCenter(center);
+        state.map.setZoom(zoomForViewportDiagonal(center.lat, OPENING_DIAGONAL_M, size.w, size.h));
     }
 
     function stopWatch() {
@@ -272,7 +297,7 @@
             (pos) => {
                 if (!state) return;
                 applyUserPosition(maps, pos.coords);
-                if (!state.didFitBounds) fitBoundsOnce();
+                if (!state.didFitBounds) applyOpeningView();
                 updateDistanceHud();
             },
             (err) => {
@@ -322,14 +347,23 @@
 
         loadGoogleMaps()
             .then((maps) => {
-                const center = loc || (gates[0] ? { lat: gates[0].lat, lng: gates[0].lng } : { lat: 0, lng: 0 });
-                const zoom = loc || gates.length ? 16 : 2;
+                const focus = openingCenter();
+                const center = focus || { lat: 0, lng: 0 };
+                const size = mapEl.clientWidth > 0 && mapEl.clientHeight > 0
+                    ? { w: mapEl.clientWidth, h: mapEl.clientHeight }
+                    : null;
+                const zoom = focus && size
+                    ? zoomForViewportDiagonal(center.lat, OPENING_DIAGONAL_M, size.w, size.h)
+                    : (focus ? 19 : 2);
                 state.map = new maps.Map(mapEl, {
                     center,
                     zoom,
                     mapTypeId: 'hybrid',
                     gestureHandling: 'greedy',
+                    isFractionalZoomEnabled: true,
+                    maxZoom: 21,
                 });
+                if (focus && size) state.didFitBounds = true;
 
                 if (loc) {
                     state.locationMarker = new maps.Marker({
@@ -355,7 +389,8 @@
 
                 syncGateMarkers();
                 selectGate(state.selectedGateId);
-                fitBoundsOnce();
+                applyOpeningView();
+                maps.event.addListenerOnce(state.map, 'idle', () => applyOpeningView());
                 startGeolocation(maps);
 
                 state.mapClickListener = state.map.addListener('click', (e) => {
