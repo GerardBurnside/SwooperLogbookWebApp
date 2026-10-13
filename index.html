@@ -886,7 +886,15 @@
                     <span class="close" id="locationMapClose">&times;</span>
                 </div>
                 <p id="locationMapError" class="location-map-error" style="display:none;"></p>
-                <div id="locationMapHud" class="location-map-hud">Loading map…</div>
+                <div class="location-map-hud-row">
+                    <div id="locationMapHud" class="location-map-hud">Loading map…</div>
+                    <button type="button" id="locationMapCenterUserBtn" class="location-map-center-user-btn" title="Center map on your location" aria-label="Center map on your location" disabled>
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 21s7-4.35 7-11a7 7 0 10-14 0c0 6.65 7 11 7 11z"/>
+                            <circle cx="12" cy="10" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/>
+                        </svg>
+                    </button>
+                </div>
                 <div id="locationMapCanvas" class="location-map-canvas"></div>
                 <div class="location-map-toolbar">
                     <button type="button" id="locationMapAddGateBtn" class="btn-secondary">Add gate</button>

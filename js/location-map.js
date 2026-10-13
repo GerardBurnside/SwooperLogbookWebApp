@@ -59,6 +59,30 @@
         if (el) el.textContent = text;
     }
 
+    function syncCenterUserBtn() {
+        const btn = document.getElementById('locationMapCenterUserBtn');
+        if (!btn) return;
+        const ready = !!(state && state.userPos);
+        btn.disabled = !ready;
+        btn.title = ready
+            ? 'Center map on your location'
+            : 'Waiting for GPS — center on you when ready';
+        btn.setAttribute('aria-label', btn.title);
+    }
+
+    function centerMapOnUser() {
+        if (!state?.map || !state.userPos) return;
+        const size = mapPixelSize();
+        state.map.setCenter(state.userPos);
+        if (size) {
+            state.map.setZoom(
+                zoomForViewportDiagonal(state.userPos.lat, OPENING_DIAGONAL_M, size.w, size.h)
+            );
+        } else {
+            state.map.setZoom(19);
+        }
+    }
+
     function gpsHudSuffix() {
         if (!state || !state.userPos) return '';
         const acc = U ? U.formatAccuracy(state.userAccuracy) : '';
@@ -85,14 +109,17 @@
                 ? 'Tap a gate to see live distance from your position'
                 : state.gates.length ? 'Tap a gate to see live distance' : 'No gates — use Add gate';
             setHud(gps ? `${prompt}  ·  ${gps}` : prompt);
+            syncCenterUserBtn();
             return;
         }
         if (!state.userPos) {
             setHud(`Selected: ${sel.label} — waiting for GPS…`);
+            syncCenterUserBtn();
             return;
         }
         const m = U.haversineM(state.userPos.lat, state.userPos.lng, sel.lat, sel.lng);
         setHud(`${U.formatDistance(m)} to ${sel.label}  ·  ${gps}`);
+        syncCenterUserBtn();
     }
 
     function syncGateMarkers() {
@@ -358,13 +385,16 @@
         } else {
             state.userAccuracyCircle.setMap(null);
         }
+        syncCenterUserBtn();
     }
 
     function startGeolocation(maps) {
         if (!navigator.geolocation) {
             setHud('Geolocation not supported');
+            syncCenterUserBtn();
             return;
         }
+        syncCenterUserBtn();
         state.watchId = navigator.geolocation.watchPosition(
             (pos) => {
                 if (!state) return;
@@ -375,6 +405,7 @@
             (err) => {
                 if (!state || state.userPos) return;
                 setHud(geoErrorMessage(err));
+                syncCenterUserBtn();
             },
             { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
         );
@@ -465,6 +496,7 @@
 
                 syncGateMarkers();
                 selectGate(state.selectedGateId);
+                syncCenterUserBtn();
                 applyOpeningView();
                 const refitMap = () => {
                     triggerMapResize();
@@ -516,6 +548,10 @@
             const btn = document.getElementById('locationMapAddGateBtn');
             if (btn) btn.classList.add('active');
             setHud('Tap the map to place a new gate');
+            syncCenterUserBtn();
+        });
+        document.getElementById('locationMapCenterUserBtn')?.addEventListener('click', () => {
+            centerMapOnUser();
         });
         document.getElementById('locationMapDeleteGateBtn')?.addEventListener('click', () => {
             if (!state || !state.selectedGateId) return;

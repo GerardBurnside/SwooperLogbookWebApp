@@ -3726,14 +3726,58 @@ body.flysight-graph-open {
     padding: 0.15rem 0.35rem;
 }
 
+.location-map-hud-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.35rem;
+    flex-shrink: 0;
+}
+
 .location-map-hud {
+    flex: 1;
+    min-width: 0;
     font-weight: 600;
     color: #1565C0;
-    margin-bottom: 0.35rem;
     min-height: 1.25rem;
     line-height: 1.35;
-    flex-shrink: 0;
     font-size: 0.875rem;
+}
+
+.location-map-center-user-btn {
+    flex-shrink: 0;
+    width: 2.25rem;
+    height: 2.25rem;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    border: 1px solid #c5cae9;
+    border-radius: 8px;
+    background: #fff;
+    color: #1565C0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.location-map-center-user-btn svg {
+    width: 1.15rem;
+    height: 1.15rem;
+    display: block;
+}
+
+.location-map-center-user-btn:hover:not(:disabled),
+.location-map-center-user-btn:active:not(:disabled) {
+    background: #e3f2fd;
+    border-color: #90caf9;
+}
+
+.location-map-center-user-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
 }
 
 .location-map-canvas {
