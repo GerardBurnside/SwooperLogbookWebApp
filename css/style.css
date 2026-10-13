@@ -3099,16 +3099,35 @@ footer.legal-footer a {
     font-weight: 800;
 }
 
-/* Narrow viewports (e.g. 720-wide); 1080+ keeps label sizes above */
+/* Narrow viewports (e.g. 720-wide); 1080+ keeps label/value sizes above */
 @media (max-width: 1079px) {
     .flysight-results .flysight-metric-label {
         font-size: 0.85rem;
         letter-spacing: 0.02em;
     }
 
+    .flysight-results .flysight-metric-value {
+        font-size: 1.02rem;
+    }
+
+    .flysight-results .flysight-result-metrics.is-single {
+        grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 0.92fr);
+        gap: 0.35rem 0.25rem;
+    }
+
     .flysight-results .flysight-result-metrics.is-single .flysight-metric-label {
         font-size: 0.62rem;
         letter-spacing: 0.008em;
+    }
+
+    .flysight-results .flysight-result-metrics.is-single .flysight-metric-value {
+        font-size: 0.875rem;
+    }
+
+    .flysight-results .flysight-result-metrics.is-single > div:last-child {
+        text-align: right;
+        justify-self: end;
+        max-width: 100%;
     }
 }
 
