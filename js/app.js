@@ -393,6 +393,23 @@ class SkydivingLogbook {
             this.openLocationMapFromComponent();
         });
 
+        const flysightViewEl = document.getElementById('flysightView');
+        const onFlysightLocationMapActivate = (e) => {
+            const btn = e.target instanceof Element ? e.target.closest('#flysightLocationMapBtn') : null;
+            if (!btn || btn.disabled) return;
+            e.preventDefault();
+            e.stopPropagation();
+            try {
+                this.openFlysightNearestLocationMap();
+            } catch (err) {
+                console.error('[Flysight] location map:', err);
+                this.showMessage('Could not open location map.', 'error');
+            }
+        };
+        if (flysightViewEl) {
+            flysightViewEl.addEventListener('click', onFlysightLocationMapActivate, true);
+        }
+
         const latInp = document.getElementById('componentLat');
         const lngInp = document.getElementById('componentLng');
         if (latInp) latInp.addEventListener('input', () => this.updateLocationGatesSummary());
@@ -5455,6 +5472,20 @@ class SkydivingLogbook {
         return best;
     }
 
+    _flysightNearestLocationMatchFromFiles() {
+        if (typeof Flysight === 'undefined' || !this.flysightFiles.length) return null;
+        const seed = this._getLocationGatesSeed();
+        let best = null;
+        for (const file of this.flysightFiles) {
+            const parsed = Flysight.parseFlysightCsv(file.text);
+            if (parsed.error || !parsed.points?.length) continue;
+            const match = Flysight.matchLocationForTrack(parsed.points, this.locations, undefined, seed);
+            if (!match) continue;
+            if (!best || match.minDistM < best.minDistM) best = match;
+        }
+        return best;
+    }
+
     _flysightNearestLocationForPoint(lat, lon) {
         if (typeof Flysight === 'undefined' || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
         const seed = this._getLocationGatesSeed();
@@ -5542,7 +5573,7 @@ class SkydivingLogbook {
         });
     }
 
-    async openFlysightNearestLocationMap() {
+    openFlysightNearestLocationMap() {
         if (!window.LocationMap) {
             this.showMessage('Map module failed to load', 'error');
             return;
@@ -5552,7 +5583,12 @@ class SkydivingLogbook {
             return;
         }
 
-        let match = this._flysightNearestMapMatch;
+        let match = this.flysightFiles.length
+            ? this._flysightNearestLocationMatchFromFiles()
+            : null;
+        this._flysightNearestMapMatch = match;
+        this._updateFlysightLocationMapBtn(match);
+
         if (!match && !this.flysightFiles.length) {
             if (!navigator.geolocation) {
                 this.showMessage('Geolocation is not available in this browser.', 'error');
@@ -5560,42 +5596,45 @@ class SkydivingLogbook {
             }
             const btn = document.getElementById('flysightLocationMapBtn');
             const prevLabel = btn?.textContent;
-            if (btn) {
-                btn.disabled = true;
-                btn.textContent = 'Locating…';
-            }
-            try {
-                const pos = await new Promise((resolve, reject) =>
-                    navigator.geolocation.getCurrentPosition(resolve, reject, {
-                        enableHighAccuracy: true,
-                        maximumAge: 0,
-                        timeout: 20000
-                    })
-                );
-                match = this._flysightNearestLocationForPoint(
-                    pos.coords.latitude,
-                    pos.coords.longitude
-                );
-            } catch (err) {
-                const code = err && err.code;
-                const msg = code === 1
-                    ? 'Location permission denied — enable GPS to find the nearest gates.'
-                    : code === 3
-                        ? 'GPS timed out — try again outdoors with a clear sky view.'
-                        : 'Could not get your position — check GPS and try again.';
-                this.showMessage(msg, 'error');
-                return;
-            } finally {
+            const restoreBtn = () => {
                 if (btn) {
                     btn.disabled = false;
                     btn.textContent = prevLabel || 'Location map';
                 }
+            };
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Locating…';
             }
-            if (!match) {
-                this.showMessage('No gates found near your position.', 'info');
-                return;
-            }
-        } else if (!match) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    restoreBtn();
+                    const gpsMatch = this._flysightNearestLocationForPoint(
+                        pos.coords.latitude,
+                        pos.coords.longitude
+                    );
+                    if (gpsMatch) {
+                        this._openFlysightLocationMapForMatch(gpsMatch);
+                    } else {
+                        this.showMessage('No gates found near your position.', 'info');
+                    }
+                },
+                (err) => {
+                    restoreBtn();
+                    const code = err && err.code;
+                    const msg = code === 1
+                        ? 'Location permission denied — enable GPS to find the nearest gates.'
+                        : code === 3
+                            ? 'GPS timed out — try again outdoors with a clear sky view.'
+                            : 'Could not get your position — check GPS and try again.';
+                    this.showMessage(msg, 'error');
+                },
+                { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+            );
+            return;
+        }
+
+        if (!match) {
             this.showMessage(
                 'No matching drop zone for imported tracks (need gates within range).',
                 'info'
@@ -6165,9 +6204,6 @@ class SkydivingLogbook {
             ticksInput.addEventListener('input', applyTicks);
             ticksInput.addEventListener('change', applyTicks);
         }
-        document.getElementById('flysightLocationMapBtn')?.addEventListener('click', () => {
-            this.openFlysightNearestLocationMap();
-        });
         document.getElementById('flysightSettingsBtn')?.addEventListener('click', () => {
             this.openFlysightSettingsModal();
         });

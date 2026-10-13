@@ -2554,10 +2554,12 @@ footer.legal-footer a {
 .flysight-location-map-btn {
     grid-column: 2;
     justify-self: center;
+    position: relative;
+    z-index: 2;
     min-height: 0;
-    padding: 0.2rem 0.65rem;
+    padding: 0.4rem 0.65rem;
     border: 1px solid #c5cae9;
-    border-radius: 6px;
+    border-radius: 8px;
     background: #fff;
     color: #3949ab;
     font-size: 0.875rem;
@@ -3684,6 +3686,7 @@ body.flysight-graph-open {
     height: auto;
     max-height: none;
     background-color: rgba(0, 0, 0, 0.45);
+    z-index: 10002;
 }
 
 #locationMapModal .location-map-modal-content {
