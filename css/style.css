@@ -3099,6 +3099,19 @@ footer.legal-footer a {
     font-weight: 800;
 }
 
+/* Narrow viewports (e.g. 720-wide); 1080+ keeps label sizes above */
+@media (max-width: 1079px) {
+    .flysight-results .flysight-metric-label {
+        font-size: 0.85rem;
+        letter-spacing: 0.02em;
+    }
+
+    .flysight-results .flysight-result-metrics.is-single .flysight-metric-label {
+        font-size: 0.62rem;
+        letter-spacing: 0.008em;
+    }
+}
+
 .flysight-result-meta {
     margin-top: 0.5rem;
     font-size: 0.8rem;

@@ -10,7 +10,7 @@ const MAIN_NAV_VIEWS = [
     { id: 'jumps', label: 'Jumps' },
     { id: 'equipment', label: 'Equipment' },
     { id: 'stats', label: 'Statistics' },
-    { id: 'flysight', label: 'Flysight' },
+    { id: 'flysight', label: 'GGswoop' },
     { id: 'todos', label: 'TODO' }
 ];
 
@@ -6879,13 +6879,19 @@ class SkydivingLogbook {
 
         let verticalSum = 0;
         let altitudeSum = 0;
+        let entrySpeedSum = 0;
+        let entrySpeedCount = 0;
         let recoverySum = 0;
         let recoveryCount = 0;
         let snapSum = 0;
         let snapCount = 0;
-        for (const { result, gateSnap } of ok) {
+        for (const { result, gateSnap, entrySpeed } of ok) {
             verticalSum += result.maxVerticalSpeedKmh;
             altitudeSum += result.altitudeM;
+            if (Number.isFinite(entrySpeed?.speedKmh)) {
+                entrySpeedSum += entrySpeed.speedKmh;
+                entrySpeedCount += 1;
+            }
             const recoverySec = Flysight.recoveryArcSec(
                 result.points,
                 this.flysightAvgPoints,
@@ -6905,6 +6911,9 @@ class SkydivingLogbook {
         const n = ok.length;
         const avgVertical = (verticalSum / n).toFixed(1);
         const avgAltitude = Math.round(altitudeSum / n);
+        const avgEntrySpeed = entrySpeedCount
+            ? (entrySpeedSum / entrySpeedCount).toFixed(1)
+            : null;
         const avgRecoverySec = recoveryCount ? recoverySum / recoveryCount : NaN;
         const avgRecoveryText = Number.isFinite(avgRecoverySec)
             ? (Flysight.formatDurationSec(avgRecoverySec) || `${avgRecoverySec.toFixed(1)}s`)
@@ -6915,7 +6924,7 @@ class SkydivingLogbook {
             : 'Avg Snap @ —';
 
         const metric = ok[0].result.speedMetric;
-        const speedLabel = metric === 'total' ? 'Avg max' : 'Avg max vert.';
+        const speedLabel = metric === 'total' ? 'Avg max' : 'Avg max vertical';
 
         return `
             <div class="flysight-results-summary" role="status" aria-live="polite">
@@ -6926,11 +6935,11 @@ class SkydivingLogbook {
                 <div class="flysight-result-metrics is-single flysight-results-summary-metrics">
                     <div>
                         <span class="flysight-metric-label">${speedLabel}</span>
-                        <span class="flysight-metric-value">${avgVertical} km/h</span>
+                        <span class="flysight-metric-value">${this._formatFlysightSpeedAtAltitude(Number(avgVertical), avgAltitude)}</span>
                     </div>
                     <div>
-                        <span class="flysight-metric-label">Avg altitude</span>
-                        <span class="flysight-metric-value">${avgAltitude} m</span>
+                        <span class="flysight-metric-label">Avg Entry Speed</span>
+                        <span class="flysight-metric-value">${avgEntrySpeed != null ? this._formatFlysightEntrySpeedKmh(Number(avgEntrySpeed)) : '—'}</span>
                     </div>
                     <div>
                         <span class="flysight-metric-label">Avg recovery arc</span>
@@ -6947,6 +6956,17 @@ class SkydivingLogbook {
         }
         if (!Number.isFinite(meters)) return '—';
         return `${Math.round(meters)} m`;
+    }
+
+    _formatFlysightSpeedAtAltitude(speedKmh, altitudeM) {
+        if (!Number.isFinite(speedKmh)) return '—';
+        const speedStr = `${speedKmh.toFixed(1)}km/h`;
+        if (!Number.isFinite(altitudeM)) return speedStr;
+        return `${speedStr} @${Math.round(altitudeM)}m`;
+    }
+
+    _formatFlysightEntrySpeedKmh(speedKmh) {
+        return Number.isFinite(speedKmh) ? `${speedKmh.toFixed(1)} km/h` : '—';
     }
 
     _flysightSnapAtHtml(snap) {
@@ -6968,7 +6988,7 @@ class SkydivingLogbook {
         return `<span class="flysight-snap-at" aria-label="${this.escapeHtml(text)}">${this.escapeHtml(text)}</span>`;
     }
 
-    _flysightResultCardHtml(file, result, gateSnap) {
+    _flysightResultCardHtml(file, result, gateSnap, entrySpeed) {
         const title = Flysight.formatTrackStartTitle(result.points?.[0]?.time) || file.name;
         const snapHtml = this._flysightSnapAtHtml(gateSnap);
         const headerHtml = `
@@ -6985,7 +7005,6 @@ class SkydivingLogbook {
                 </div>`;
         }
 
-        const altitude = Math.round(result.altitudeM);
         const recoverySec = Flysight.recoveryArcSec(
             result.points,
             this.flysightAvgPoints,
@@ -6999,33 +7018,39 @@ class SkydivingLogbook {
         let speedMetricsHtml;
         let metaHtml = '';
         let metricsClass = 'flysight-result-metrics';
-        let altLabel = 'Altitude';
         let recoveryLabel = 'Recovery arc';
+        const entrySpeedText = this._formatFlysightEntrySpeedKmh(entrySpeed?.speedKmh);
 
         if (result.speedMetric === 'both') {
-            const verticalSpeed = result.maxVerticalSpeedKmh.toFixed(1);
-            const totalSpeed = result.maxTotalSpeedKmh.toFixed(1);
-            const totalAltitude = Number.isFinite(result.totalPeakAltitudeM)
-                ? `${Math.round(result.totalPeakAltitudeM)} m`
-                : '—';
+            const verticalText = this._formatFlysightSpeedAtAltitude(
+                result.maxVerticalSpeedKmh,
+                result.altitudeM
+            );
+            const totalText = this._formatFlysightSpeedAtAltitude(
+                result.maxTotalSpeedKmh,
+                result.totalPeakAltitudeM
+            );
             speedMetricsHtml = `
                     <div>
                         <span class="flysight-metric-label">Max total</span>
-                        <span class="flysight-metric-value">${totalSpeed} km/h</span>
+                        <span class="flysight-metric-value">${totalText}</span>
                     </div>
                     <div class="flysight-metric-emphasis">
                         <span class="flysight-metric-label">Max vertical</span>
-                        <span class="flysight-metric-value">${verticalSpeed} km/h</span>
+                        <span class="flysight-metric-value">${verticalText}</span>
                     </div>`;
-            metaHtml = `${result.pointCount} points · vertical peak at ${altitude} m · total peak at ${totalAltitude}`;
+            metaHtml = `${result.pointCount} points`;
         } else {
-            const speed = result.maxVerticalSpeedKmh.toFixed(1);
+            const speedText = this._formatFlysightSpeedAtAltitude(
+                result.maxVerticalSpeedKmh,
+                result.altitudeM
+            );
             const speedLabel = result.speedMetric === 'total' ? 'Max total' : 'Max vertical';
             metricsClass += ' is-single';
             speedMetricsHtml = `
                     <div>
                         <span class="flysight-metric-label">${speedLabel}</span>
-                        <span class="flysight-metric-value">${speed} km/h</span>
+                        <span class="flysight-metric-value">${speedText}</span>
                     </div>`;
         }
 
@@ -7035,8 +7060,8 @@ class SkydivingLogbook {
                 <div class="${metricsClass}">
                     ${speedMetricsHtml}
                     <div>
-                        <span class="flysight-metric-label">${altLabel}</span>
-                        <span class="flysight-metric-value">${altitude} m</span>
+                        <span class="flysight-metric-label">Entry Gate Speed</span>
+                        <span class="flysight-metric-value">${entrySpeedText}</span>
                     </div>
                     <div>
                         <span class="flysight-metric-label">${recoveryLabel}</span>
@@ -7104,7 +7129,19 @@ class SkydivingLogbook {
                     altTicks: this.flysightCursorBAltTicks
                 }
             );
-            return { file, result, gateSnap };
+            const graphGates = result.error
+                ? []
+                : Flysight.gatesForMatchedTrack(result.points, this.locations, seed);
+            const entrySpeed = result.error
+                ? { speedKmh: NaN, altitudeM: NaN }
+                : Flysight.entrySpeedAtGraphCursorB(
+                    result.points,
+                    this.flysightAvgPoints,
+                    graphGates,
+                    this.flysightCursorBDiveAngleDeg,
+                    this.flysightCursorBAltTicks
+                );
+            return { file, result, gateSnap, entrySpeed };
         });
 
         this._flysightNearestMapMatch = this._flysightNearestLocationMatchFromAnalyzed(analyzed);
@@ -7112,7 +7149,8 @@ class SkydivingLogbook {
 
         const summaryHtml = this._flysightResultsSummaryHtml(analyzed);
         const cardsHtml = analyzed
-            .map(({ file, result, gateSnap }) => this._flysightResultCardHtml(file, result, gateSnap))
+            .map(({ file, result, gateSnap, entrySpeed }) =>
+                this._flysightResultCardHtml(file, result, gateSnap, entrySpeed))
             .join('');
         container.innerHTML = summaryHtml + cardsHtml;
     }

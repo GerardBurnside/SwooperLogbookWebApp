@@ -762,6 +762,43 @@
     }
 
     /**
+     * Total trajectory speed (km/h) and AGL (m) at graph cursor B — same B placement as the graph modal.
+     *
+     * @param {{ time: string, hMSL: number, velD: number, velN?: number, velE?: number, lat?: number, lon?: number }[]} points
+     * @param {number} [avgPoints]
+     * @param {{ label?: string, lat: number, lng: number }[]} [gates]
+     * @param {number} [diveAngleDegThresh]
+     * @param {number} [altTicks]
+     * @returns {{ speedKmh: number, altitudeM: number }}
+     */
+    function entrySpeedAtGraphCursorB(
+        points,
+        avgPoints = 3,
+        gates,
+        diveAngleDegThresh = CURSOR_B_DIVE_ANGLE_DEG,
+        altTicks = CURSOR_B_ALT_TICKS
+    ) {
+        const series = buildSwoopCursorSeries(points, avgPoints);
+        if (series.error || !series.samples.length) {
+            return { speedKmh: NaN, altitudeM: NaN };
+        }
+        const { idxB } = graphSwoopCursorIndices(
+            series.samples,
+            gates,
+            diveAngleDegThresh,
+            altTicks
+        );
+        const sampleB = series.samples[idxB];
+        if (!sampleB) return { speedKmh: NaN, altitudeM: NaN };
+        const ground = minHmsl(series.samples);
+        const ms = trajectorySpeedMs(sampleB);
+        const speedKmh = Number.isFinite(ms) ? ms * 3.6 : NaN;
+        const agl = aglMeters(sampleB, ground);
+        const altitudeM = Number.isFinite(agl) ? Math.max(0, agl) : NaN;
+        return { speedKmh, altitudeM };
+    }
+
+    /**
      * Seconds from cursor B to the start of the
      * 2 s stationary window (tRev = 0).
      *
@@ -1904,6 +1941,7 @@
         defaultSwoopCursorIdxA,
         defaultSwoopCursorIdxB,
         graphSwoopCursorIndices,
+        entrySpeedAtGraphCursorB,
         entryGatesForSwoop,
         cursorBBeforeClosestEntryGate,
         closestEntryGatePassOnSeries,

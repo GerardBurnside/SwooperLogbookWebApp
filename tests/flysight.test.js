@@ -975,6 +975,17 @@ test('graphSwoopCursorIndices: B is sample before closest entry gate pass', () =
     assert.equal(idxB, pass.idx - 1);
 });
 
+test('entrySpeedAtGraphCursorB matches total speed at graph cursor B', () => {
+    const { points } = F.parseFlysightCsv(SAMPLE_CSV);
+    const { samples } = F.buildSwoopCursorSeries(points, 3);
+    const { idxB } = F.graphSwoopCursorIndices(samples, undefined, 5.5, 2);
+    const b = samples[idxB];
+    const expectedKmh = F.trajectorySpeedMs(b) * 3.6;
+    const entry = F.entrySpeedAtGraphCursorB(points, 3, undefined, 5.5, 2);
+    assert.ok(Math.abs(entry.speedKmh - expectedKmh) < 0.01);
+    assert.ok(Number.isFinite(entry.altitudeM));
+});
+
 test('computeGateSnapDistance returns horizontal snap for matched gate', () => {
     const points = buildGateSnapTestTrack();
     const locations = [{
