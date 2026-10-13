@@ -9,13 +9,13 @@ window.LOCATION_GATES_SEED = {
   ],
   "loc_eloy": [
     {
-      "label": "Distance-Accuracy Right",
+      "label": "Distance Right",
       "lat": 32.8080156,
       "lng": -111.5816999,
       "source": "seed:Eloy_020.CSV"
     },
     {
-      "label": "Distance-Accuracy Left",
+      "label": "Distance Left",
       "lat": 32.8079619,
       "lng": -111.5816183,
       "source": "seed:Eloy_200.CSV"
@@ -34,7 +34,7 @@ window.LOCATION_GATES_SEED = {
   ],
   "loc_klatovy": [
     {
-      "label": "Speed / Distance / Accuracy",
+      "label": "Speed / Distance",
       "lat": 49.4204177,
       "lng": 13.324591,
       "source": "seed:Klatovy_Speed.CSV"
@@ -42,22 +42,10 @@ window.LOCATION_GATES_SEED = {
   ],
   "loc_lfoz": [
     {
-      "label": "accuracy Ouest",
-      "lat": 47.9035623,
-      "lng": 2.1694585,
-      "source": "seed:SDH_Est.CSV"
-    },
-    {
       "label": "Speed / Distance",
       "lat": 47.9035774,
       "lng": 2.1696449,
       "source": "seed:SDH_Ouest.CSV"
-    },
-    {
-      "label": "Accuracy Est",
-      "lat": 47.9036556,
-      "lng": 2.1696011,
-      "source": "seed:SDH_Speed.CSV"
     }
   ],
   "loc_palm": [

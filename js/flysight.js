@@ -414,7 +414,7 @@
                 const dt = (Number.isFinite(tNext) && Number.isFinite(t)) ? Math.abs(tNext - t) / 1000 : 0;
                 flatteningDegS = pathAngleFlatteningDegS(p, next, dt);
             }
-            return {
+            const sample = {
                 tRev,
                 velD: velSmooth[i],
                 velDRaw: p.velD,
@@ -426,6 +426,11 @@
                 pitchRateDegS: Math.abs(flatteningDegS),
                 diveAngleDeg: diveAngleDeg(p)
             };
+            if (Number.isFinite(p.lat) && Number.isFinite(p.lon)) {
+                sample.lat = p.lat;
+                sample.lon = p.lon;
+            }
+            return sample;
         });
 
         return { samples };
@@ -534,6 +539,171 @@
     }
 
     /**
+     * Entry gates for swoop analysis: distance-marked gates when present,
+     * otherwise gates whose label contains "entry", otherwise all gates.
+     *
+     * @param {{ label?: string }[]} gates
+     * @returns {{ label?: string, lat: number, lng: number }[]}
+     */
+    function entryGatesForSwoop(gates) {
+        if (!gates?.length) return [];
+        const distance = gates.filter((g) => /\bdistance\b/i.test(String(g.label || '')));
+        if (distance.length) return distance;
+        const entry = gates.filter((g) => /\bentry\b/i.test(String(g.label || '')));
+        if (entry.length) return entry;
+        return gates;
+    }
+
+    /**
+     * @param {{ lat?: number, lon?: number }[]} samples
+     * @param {{ lat: number, lng: number }} gate
+     * @param {number} fromIdx
+     * @param {number} toIdx
+     * @returns {{ idx: number, distM: number }}
+     */
+    function closestSampleIdxToGate(samples, gate, fromIdx, toIdx) {
+        const gateLat = coordNum(gate.lat);
+        const gateLng = coordNum(gate.lng);
+        if (!Number.isFinite(gateLat) || !Number.isFinite(gateLng)) {
+            return { idx: -1, distM: Infinity };
+        }
+        let bestIdx = -1;
+        let bestDist = Infinity;
+        const start = Math.max(0, fromIdx);
+        const end = Math.min(samples.length - 1, toIdx);
+        for (let i = start; i <= end; i++) {
+            const s = samples[i];
+            if (!pointHasGps(s)) continue;
+            const d = haversineMeters(s.lat, s.lon, gateLat, gateLng);
+            if (d < bestDist || (d === bestDist && i > bestIdx)) {
+                bestDist = d;
+                bestIdx = i;
+            }
+        }
+        return { idx: bestIdx, distM: bestDist };
+    }
+
+    /**
+     * Among entry gates, the one whose closest approach to `samples` is shortest.
+     *
+     * @param {{ lat?: number, lon?: number }[]} samples
+     * @param {{ label?: string, lat: number, lng: number }[]} gates
+     * @param {number} fromIdx
+     * @param {number} toIdx
+     * @returns {{ gate?: { label?: string, lat: number, lng: number }, idx: number, distM: number }}
+     */
+    function closestEntryGatePassOnSeries(samples, gates, fromIdx, toIdx) {
+        const entryGates = entryGatesForSwoop(gates);
+        let bestGate = null;
+        let bestIdx = -1;
+        let bestDist = Infinity;
+        for (const gate of entryGates) {
+            const pass = closestSampleIdxToGate(samples, gate, fromIdx, toIdx);
+            if (pass.idx < 0 || !Number.isFinite(pass.distM)) continue;
+            if (pass.distM < bestDist) {
+                bestDist = pass.distM;
+                bestGate = gate;
+                bestIdx = pass.idx;
+            }
+        }
+        if (!bestGate || bestIdx < 0) return { idx: -1, distM: Infinity };
+        return { gate: bestGate, idx: bestIdx, distM: bestDist };
+    }
+
+    /**
+     * Cursor B for graphs: the sample immediately before the closest approach
+     * to the nearest entry gate (from A toward landing).
+     *
+     * @param {{ lat?: number, lon?: number }[]} samples
+     * @param {number} idxA
+     * @param {{ label?: string, lat: number, lng: number }[]} gates
+     * @returns {number} index, or -1 if it cannot be computed
+     */
+    function cursorBBeforeClosestEntryGate(samples, idxA, gates) {
+        if (!samples?.length || !gates?.length) return -1;
+        const last = samples.length - 1;
+        const fromIdx = Math.min(last, Math.max(0, idxA) + 1);
+        const pass = closestEntryGatePassOnSeries(samples, gates, fromIdx, last);
+        if (pass.idx < fromIdx) return -1;
+        const idxB = pass.idx - 1;
+        if (idxB <= idxA) return Math.min(last, idxA + 1);
+        return idxB;
+    }
+
+    /**
+     * Default cursor A on a chronological swoop series (last = landing).
+     *
+     * @param {{ velD: number, flatteningDegS?: number }[]} samples
+     * @returns {{ idxA: number, peakVelD: number }}
+     */
+    function defaultSwoopCursorIdxA(samples) {
+        if (!samples || samples.length === 0) {
+            return { idxA: 0, peakVelD: 0 };
+        }
+        const last = samples.length - 1;
+        const flattenThresh = -CURSOR_A_FLATTENING_DEG_S;
+
+        const peakIdx = lastSignificantVelDPeakIdx(samples);
+        let peakVelD = samples[peakIdx]?.velD;
+        if (!Number.isFinite(peakVelD) || peakVelD < 0) peakVelD = 0;
+
+        const flatteningAt = (i) => {
+            const v = samples[i]?.flatteningDegS;
+            return Number.isFinite(v) ? v : 0;
+        };
+
+        let idxA = peakIdx;
+        for (let i = peakIdx + 1; i <= last - 1; i++) {
+            if (flatteningAt(i) > flattenThresh) continue;
+            const later = i + 1 <= last ? flatteningAt(i + 1) : flatteningAt(i);
+            if (later > flattenThresh) continue;
+            idxA = i;
+            break;
+        }
+        if (idxA >= last) idxA = Math.max(0, last - 1);
+        if (idxA < 0) idxA = 0;
+        return { idxA, peakVelD };
+    }
+
+    /**
+     * @param {{ velD: number, flatteningDegS?: number, diveAngleDeg?: number, hMSL?: number }[]} samples
+     * @param {number} idxA
+     * @param {number} [diveAngleDegThresh]
+     * @param {number} [altTicks]
+     * @returns {number}
+     */
+    function defaultSwoopCursorIdxB(
+        samples,
+        idxA,
+        diveAngleDegThresh = CURSOR_B_DIVE_ANGLE_DEG,
+        altTicks = CURSOR_B_ALT_TICKS
+    ) {
+        if (!samples?.length) return 0;
+        const last = samples.length - 1;
+        const angleThresh = Number.isFinite(diveAngleDegThresh)
+            ? diveAngleDegThresh
+            : CURSOR_B_DIVE_ANGLE_DEG;
+        const ticks = Number.isFinite(altTicks)
+            ? Math.max(0, Math.floor(altTicks))
+            : CURSOR_B_ALT_TICKS;
+        const ground = minHmsl(samples);
+
+        const idxBAngle = angleThresh > 0
+            ? cursorBFromDiveAngle(samples, idxA, angleThresh)
+            : -1;
+        const idxBAlt = ticks > 0
+            ? cursorBFromAltTicks(samples, idxA, ticks, ground)
+            : -1;
+        let idxB;
+        if (idxBAngle >= 0 && idxBAlt >= 0) idxB = Math.max(idxBAngle, idxBAlt);
+        else if (idxBAngle >= 0) idxB = idxBAngle;
+        else if (idxBAlt >= 0) idxB = idxBAlt;
+        else idxB = Math.min(last, idxA + 1);
+        if (idxB <= idxA) idxB = Math.min(last, idxA + 1);
+        return idxB;
+    }
+
+    /**
      * Default flare-window cursors on a chronological series (last = landing).
      * A: after the last near-max velD peak, the first sample where dive angle
      *    is flattening strongly (and the next sample toward landing confirms it).
@@ -559,48 +729,35 @@
         if (!samples || samples.length === 0) {
             return { idxA: 0, idxB: 0, peakVelD: 0 };
         }
-        const last = samples.length - 1;
-        const flattenThresh = -CURSOR_A_FLATTENING_DEG_S;
-        const angleThresh = Number.isFinite(diveAngleDegThresh)
-            ? diveAngleDegThresh
-            : CURSOR_B_DIVE_ANGLE_DEG;
-        const ticks = Number.isFinite(altTicks)
-            ? Math.max(0, Math.floor(altTicks))
-            : CURSOR_B_ALT_TICKS;
-        const ground = minHmsl(samples);
+        const { idxA, peakVelD } = defaultSwoopCursorIdxA(samples);
+        const idxB = defaultSwoopCursorIdxB(samples, idxA, diveAngleDegThresh, altTicks);
+        return { idxA, idxB, peakVelD };
+    }
 
-        const peakIdx = lastSignificantVelDPeakIdx(samples);
-        let peakVelD = samples[peakIdx]?.velD;
-        if (!Number.isFinite(peakVelD) || peakVelD < 0) peakVelD = 0;
-
-        const flatteningAt = (i) => {
-            const v = samples[i]?.flatteningDegS;
-            return Number.isFinite(v) ? v : 0;
-        };
-
-        let idxA = peakIdx;
-        for (let i = peakIdx + 1; i <= last - 1; i++) {
-            if (flatteningAt(i) > flattenThresh) continue;
-            const later = i + 1 <= last ? flatteningAt(i + 1) : flatteningAt(i);
-            if (later > flattenThresh) continue;
-            idxA = i;
-            break;
+    /**
+     * Graph modal cursors: same A as default; B is the sample before the
+     * closest pass of the nearest entry gate when gates are available.
+     *
+     * @param {{ velD: number, flatteningDegS?: number, diveAngleDeg?: number, hMSL?: number, lat?: number, lon?: number }[]} samples
+     * @param {{ label?: string, lat: number, lng: number }[]} [gates]
+     * @param {number} [diveAngleDegThresh]
+     * @param {number} [altTicks]
+     * @returns {{ idxA: number, idxB: number, peakVelD: number }}
+     */
+    function graphSwoopCursorIndices(
+        samples,
+        gates,
+        diveAngleDegThresh = CURSOR_B_DIVE_ANGLE_DEG,
+        altTicks = CURSOR_B_ALT_TICKS
+    ) {
+        if (!samples || samples.length === 0) {
+            return { idxA: 0, idxB: 0, peakVelD: 0 };
         }
-        if (idxA >= last) idxA = Math.max(0, last - 1);
-        if (idxA < 0) idxA = 0;
-
-        const idxBAngle = angleThresh > 0
-            ? cursorBFromDiveAngle(samples, idxA, angleThresh)
-            : -1;
-        const idxBAlt = ticks > 0
-            ? cursorBFromAltTicks(samples, idxA, ticks, ground)
-            : -1;
-        let idxB;
-        if (idxBAngle >= 0 && idxBAlt >= 0) idxB = Math.max(idxBAngle, idxBAlt);
-        else if (idxBAngle >= 0) idxB = idxBAngle;
-        else if (idxBAlt >= 0) idxB = idxBAlt;
-        else idxB = Math.min(last, idxA + 1);
-        if (idxB <= idxA) idxB = Math.min(last, idxA + 1);
+        const { idxA, peakVelD } = defaultSwoopCursorIdxA(samples);
+        let idxB = cursorBBeforeClosestEntryGate(samples, idxA, gates);
+        if (idxB < 0) {
+            idxB = defaultSwoopCursorIdxB(samples, idxA, diveAngleDegThresh, altTicks);
+        }
         return { idxA, idxB, peakVelD };
     }
 
@@ -911,6 +1068,380 @@
         }
         const result = analyzeFlysightTrack(parsed.points, avgPoints, metric);
         return { ...result, points: parsed.points };
+    }
+
+    const LOCATION_MATCH_MAX_KM = 15;
+
+    /**
+     * Local maximum of dive angle when walking backward from cursor A on the graph series.
+     *
+     * @param {{ diveAngleDeg?: number }[]} samples
+     * @param {number} idxA
+     * @returns {number}
+     */
+    function diveAngleLocalPeakIdxBeforeA(samples, idxA) {
+        if (!samples?.length) return 0;
+        const last = samples.length - 1;
+        let a = Math.floor(idxA);
+        if (!Number.isFinite(a)) a = last;
+        a = Math.max(0, Math.min(a, last));
+
+        const angleAt = (i) => {
+            const v = diveAngleDeg(samples[i]);
+            return Number.isFinite(v) ? v : -Infinity;
+        };
+
+        for (let i = a; i >= 1; i--) {
+            const cur = angleAt(i);
+            const prev = angleAt(i - 1);
+            const next = angleAt(i + 1);
+            if (cur >= prev && cur >= next && (cur > prev || cur > next)) return i;
+        }
+        if (a >= 0 && a <= last) return a;
+        return 0;
+    }
+
+    /**
+     * Closest flight point to any gate on the list.
+     *
+     * @param {{ lat?: number, lon?: number }[]} flightPoints
+     * @param {{ label?: string, lat: number, lng: number }[]} gates
+     * @returns {{ point?: { lat: number, lon: number }, gateLabel?: string, minDistM?: number }}
+     */
+    function closestGatePassOnTrack(flightPoints, gates) {
+        if (!flightPoints?.length || !gates?.length) return {};
+
+        let minDist = Infinity;
+        let nearestGate = null;
+        let point = null;
+
+        for (const gate of gates) {
+            const gateLat = coordNum(gate.lat);
+            const gateLng = coordNum(gate.lng);
+            if (!Number.isFinite(gateLat) || !Number.isFinite(gateLng)) continue;
+            for (const p of flightPoints) {
+                if (!pointHasGps(p)) continue;
+                const d = haversineMeters(p.lat, p.lon, gateLat, gateLng);
+                if (d < minDist) {
+                    minDist = d;
+                    nearestGate = gate;
+                    point = p;
+                }
+            }
+        }
+
+        if (!point || !nearestGate || !Number.isFinite(minDist)) return {};
+        return {
+            point: { lat: point.lat, lon: point.lon },
+            gateLabel: nearestGate.label,
+            minDistM: minDist
+        };
+    }
+
+    /**
+     * Horizontal distance from one point to the closest gate.
+     *
+     * @param {number} lat
+     * @param {number} lon
+     * @param {{ label?: string, lat: number, lng: number }[]} gates
+     * @returns {{ gateLabel?: string, distM?: number }}
+     */
+    function nearestGateToPoint(lat, lon, gates) {
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || !gates?.length) return {};
+
+        let minDist = Infinity;
+        let nearestGate = null;
+        for (const gate of gates) {
+            const gateLat = coordNum(gate.lat);
+            const gateLng = coordNum(gate.lng);
+            if (!Number.isFinite(gateLat) || !Number.isFinite(gateLng)) continue;
+            const d = haversineMeters(lat, lon, gateLat, gateLng);
+            if (d < minDist) {
+                minDist = d;
+                nearestGate = gate;
+            }
+        }
+
+        if (!nearestGate || !Number.isFinite(minDist)) return {};
+        return {
+            gateLabel: nearestGate.label,
+            distM: minDist
+        };
+    }
+
+    /**
+     * Gates for the dropzone matched to this track (saved or seed).
+     *
+     * @param {{ lat?: number, lon?: number }[]} points
+     * @param {{ id: string, gates?: object[] }[]} locations
+     * @param {Record<string, object[]>} [seedByLocationId]
+     * @param {number} [maxKm]
+     * @returns {{ label?: string, lat: number, lng: number }[]}
+     */
+    function gatesForMatchedTrack(points, locations, seedByLocationId, maxKm) {
+        const quality = filterPointsBySpeedAccuracy(points || []);
+        const flight = pointsUpToFirstLanding(quality).filter(pointHasGps);
+        if (flight.length < 2) return [];
+
+        const match = matchLocationForTrack(flight, locations, maxKm, seedByLocationId);
+        if (!match) return [];
+
+        let location = (locations || []).find((l) => l.id === match.locationId);
+        if (!location && match.locationId) {
+            location = {
+                id: match.locationId,
+                name: match.name || match.locationId,
+                gates: [],
+                lat: null,
+                lng: null
+            };
+        }
+        return effectiveGatesForLocation(location, seedByLocationId);
+    }
+
+    /**
+     * @param {{ lat?: number, lon?: number }} p
+     * @returns {boolean}
+     */
+    function pointHasGps(p) {
+        return Number.isFinite(p?.lat) && Number.isFinite(p?.lon);
+    }
+
+    /**
+     * @param {*} n
+     * @returns {number}
+     */
+    function coordNum(n) {
+        const v = Number(n);
+        return Number.isFinite(v) ? v : NaN;
+    }
+
+    /**
+     * @param {object[]} seedEntries
+     * @returns {{ label?: string, lat: number, lng: number }[]}
+     */
+    function gatesFromSeedEntriesInline(seedEntries) {
+        const U = global.LocationGatesUtil;
+        if (U && typeof U.gatesFromSeedEntries === 'function') {
+            return U.gatesFromSeedEntries(seedEntries);
+        }
+        return seedEntries.map((entry) => ({
+            label: entry.label,
+            lat: entry.lat,
+            lng: entry.lng
+        }));
+    }
+
+    /**
+     * @param {object} location
+     * @param {Record<string, object[]>} [seedByLocationId]
+     * @returns {{ label?: string, lat: number, lng: number }[]}
+     */
+    function effectiveGatesForLocation(location, seedByLocationId) {
+        if (!location) return [];
+        if (Array.isArray(location.gates) && location.gates.length) {
+            return location.gates;
+        }
+        let seedEntries = location.id && seedByLocationId
+            ? seedByLocationId[location.id]
+            : null;
+        if (!Array.isArray(seedEntries) || !seedEntries.length) return [];
+        return gatesFromSeedEntriesInline(seedEntries);
+    }
+
+    /**
+     * Min horizontal distance from any flight point to any gate on the location (saved or seed).
+     *
+     * @param {{ lat?: number, lon?: number }[]} points
+     * @param {{ id: string, lat?: *, lng?: *, gates?: object[] }} loc
+     * @param {Record<string, object[]>} [seedByLocationId]
+     * @returns {{ minDistM: number, via: 'gate' | null }}
+     */
+    function minTrackDistToLocation(points, loc, seedByLocationId) {
+        let minDist = Infinity;
+        if (!loc?.id) return { minDistM: Infinity, via: null };
+
+        const gates = effectiveGatesForLocation(loc, seedByLocationId);
+        for (const gate of gates) {
+            const gateLat = coordNum(gate.lat);
+            const gateLng = coordNum(gate.lng);
+            if (!Number.isFinite(gateLat) || !Number.isFinite(gateLng)) continue;
+            for (const p of points) {
+                if (!pointHasGps(p)) continue;
+                const d = haversineMeters(p.lat, p.lon, gateLat, gateLng);
+                if (d < minDist) minDist = d;
+            }
+        }
+
+        return {
+            minDistM: minDist,
+            via: Number.isFinite(minDist) && minDist < Infinity ? 'gate' : null
+        };
+    }
+
+    /**
+     * Nearest location by min track distance to any gate (saved or seed).
+     *
+     * @param {{ lat?: number, lon?: number }[]} points
+     * @param {{ id: string, name?: string, lat?: number, lng?: number, gates?: object[] }[]} locations
+     * @param {number} [maxKm]
+     * @param {Record<string, object[]>} [seedByLocationId]
+     * @returns {{ locationId: string, name: string, minDistM: number, matchVia?: 'gate' } | null}
+     */
+    function matchLocationForTrack(points, locations, maxKm = LOCATION_MATCH_MAX_KM, seedByLocationId) {
+        if (!points?.length) return null;
+        const maxM = Number.isFinite(maxKm) && maxKm > 0 ? maxKm * 1000 : LOCATION_MATCH_MAX_KM * 1000;
+
+        const byId = new Map();
+        for (const loc of locations || []) {
+            if (loc?.id) byId.set(loc.id, loc);
+        }
+        if (seedByLocationId) {
+            for (const seedId of Object.keys(seedByLocationId)) {
+                if (!byId.has(seedId)) {
+                    byId.set(seedId, { id: seedId, name: seedId, gates: [], lat: null, lng: null });
+                }
+            }
+        }
+        if (!byId.size) return null;
+
+        let best = null;
+        let bestDist = Infinity;
+        let bestVia = null;
+
+        for (const loc of byId.values()) {
+            const { minDistM, via } = minTrackDistToLocation(points, loc, seedByLocationId);
+            if (!Number.isFinite(minDistM)) continue;
+            if (minDistM < bestDist) {
+                bestDist = minDistM;
+                best = loc;
+                bestVia = via;
+            }
+        }
+
+        if (!best || bestDist > maxM) return null;
+        return {
+            locationId: best.id,
+            name: String(best.name || best.id),
+            minDistM: bestDist,
+            matchVia: bestVia || undefined
+        };
+    }
+
+    /**
+     * Horizontal distance from closest gate pass to local dive-angle peak before cursor A.
+     *
+     * @param {{ lat?: number, lon?: number, time?: string }[]} points
+     * @param {{ id: string, name?: string, lat?: number, lng?: number, gates?: object[] }[]} locations
+     * @param {Record<string, object[]>} [seedByLocationId]
+     * @param {{
+     *   maxKm?: number,
+     *   avgPoints?: number,
+     *   diveAngleDegThresh?: number,
+     *   altTicks?: number
+     * }} [options]
+     * @returns {{
+     *   snapDistanceM?: number,
+     *   gateLabel?: string,
+     *   gateMinDistM?: number,
+     *   divePeakAngleDeg?: number,
+     *   idxA?: number,
+     *   divePeakIdx?: number,
+     *   locationId?: string,
+     *   locationName?: string,
+     *   reason?: 'no-gps' | 'no-location' | 'no-gates' | 'no-swoop-window' | 'no-gate-pass' | 'no-dive-peak-gps'
+     * }}
+     */
+    function computeGateSnapDistance(points, locations, seedByLocationId, options = {}) {
+        const quality = filterPointsBySpeedAccuracy(points || []);
+        const flight = pointsUpToFirstLanding(quality).filter(pointHasGps);
+
+        if (flight.length < 2) {
+            return { reason: 'no-gps' };
+        }
+
+        const match = matchLocationForTrack(
+            flight,
+            locations || [],
+            options.maxKm,
+            seedByLocationId
+        );
+        if (!match) {
+            return { reason: 'no-location' };
+        }
+
+        let location = (locations || []).find((l) => l.id === match.locationId);
+        if (!location && match.locationId) {
+            location = {
+                id: match.locationId,
+                name: match.name || match.locationId,
+                gates: [],
+                lat: null,
+                lng: null
+            };
+        }
+        const gates = effectiveGatesForLocation(location, seedByLocationId);
+        if (!gates.length) {
+            return {
+                reason: 'no-gates',
+                locationId: match.locationId,
+                locationName: match.name
+            };
+        }
+
+        const avgPoints = Number.isFinite(options.avgPoints) ? options.avgPoints : 3;
+        const series = buildSwoopCursorSeries(quality, avgPoints);
+        if (series.error || !series.samples.length) {
+            return {
+                reason: 'no-swoop-window',
+                locationId: match.locationId,
+                locationName: match.name
+            };
+        }
+
+        const { idxA } = defaultSwoopCursorIndices(
+            series.samples,
+            options.diveAngleDegThresh,
+            options.altTicks
+        );
+        const divePeakIdx = diveAngleLocalPeakIdxBeforeA(series.samples, idxA);
+        const peakSample = series.samples[divePeakIdx];
+        if (!peakSample || !pointHasGps(peakSample)) {
+            return {
+                reason: 'no-dive-peak-gps',
+                locationId: match.locationId,
+                locationName: match.name,
+                idxA,
+                divePeakIdx
+            };
+        }
+
+        const gatePass = closestGatePassOnTrack(flight, gates);
+        if (!gatePass.point || !Number.isFinite(gatePass.minDistM)) {
+            return {
+                reason: 'no-gate-pass',
+                locationId: match.locationId,
+                locationName: match.name
+            };
+        }
+
+        const snapDistanceM = haversineMeters(
+            gatePass.point.lat,
+            gatePass.point.lon,
+            peakSample.lat,
+            peakSample.lon
+        );
+
+        return {
+            snapDistanceM,
+            gateLabel: gatePass.gateLabel,
+            gateMinDistM: gatePass.minDistM,
+            divePeakAngleDeg: diveAngleDeg(peakSample),
+            idxA,
+            divePeakIdx,
+            locationId: match.locationId,
+            locationName: match.name
+        };
     }
 
     /**
@@ -1370,6 +1901,12 @@
         maxVelDIdx,
         buildSwoopCursorSeries,
         defaultSwoopCursorIndices,
+        defaultSwoopCursorIdxA,
+        defaultSwoopCursorIdxB,
+        graphSwoopCursorIndices,
+        entryGatesForSwoop,
+        cursorBBeforeClosestEntryGate,
+        closestEntryGatePassOnSeries,
         SWOOP_WINDOW_SEC,
         STATIONARY_SEC,
         STATIONARY_RADIUS_M,
@@ -1381,7 +1918,16 @@
         CURSOR_A_PEAK_FRACTION,
         DEFAULT_SAMPLE_INTERVAL_SEC,
         MAX_SPEED_ACCURACY_MS,
-        DEFAULT_SPEED_METRIC
+        DEFAULT_SPEED_METRIC,
+        LOCATION_MATCH_MAX_KM,
+        diveAngleLocalPeakIdxBeforeA,
+        closestGatePassOnTrack,
+        nearestGateToPoint,
+        gatesForMatchedTrack,
+        effectiveGatesForLocation,
+        minTrackDistToLocation,
+        matchLocationForTrack,
+        computeGateSnapDistance
     };
 
     if (typeof module !== 'undefined' && module.exports) {

@@ -852,3 +852,206 @@ test('readCsvFilesFromFileHandles reads only the chosen csv handles', async () =
     assert.equal(csv.getFileCount, 1);
     assert.equal(txt.getFileCount, 0);
 });
+
+const TEST_GATE = { label: 'Test gate', lat: 32, lng: -111 };
+const TEST_GATES = [TEST_GATE];
+
+function syntheticTrackPoint(iso, lat, lon) {
+    return { time: iso, lat, lon, hMSL: 1000, velD: 0 };
+}
+
+/** Approach from north, sharp turn east after the gate (speed course). */
+function buildSpeedStyleTrack() {
+    const points = [];
+    for (let i = 0; i < 18; i++) {
+        points.push(syntheticTrackPoint(
+            `2026-01-01T00:00:${String(i).padStart(2, '0')}.00Z`,
+            32.00055 - i * 0.00003,
+            TEST_GATE.lng
+        ));
+    }
+    const latAtTurn = points[points.length - 1].lat;
+    for (let j = 1; j <= 30; j++) {
+        points.push(syntheticTrackPoint(
+            `2026-01-01T00:01:${String(j).padStart(2, '0')}.00Z`,
+            latAtTurn,
+            TEST_GATE.lng + j * 0.00003
+        ));
+    }
+    return points;
+}
+
+/** Track with swoop window, still landing, and a gate pass for Snap @ tests. */
+function buildGateSnapTestTrack() {
+    const gateLat = TEST_GATE.lat;
+    const gateLng = TEST_GATE.lng;
+    const t0 = Date.parse('2026-01-01T00:00:00.00Z');
+    const points = [];
+    for (let i = 0; i < 400; i++) {
+        const frac = i / 399;
+        points.push({
+            time: new Date(t0 + i * 100).toISOString(),
+            hMSL: 150 - frac * 40,
+            velD: 8 + (1 - frac) * 12,
+            velN: 18,
+            velE: -6,
+            lat: gateLat - 0.002 + frac * 0.0022,
+            lon: gateLng,
+            sAcc: 0.2
+        });
+    }
+    const lastMove = points[points.length - 1];
+    for (let i = 1; i <= 25; i++) {
+        points.push({
+            time: new Date(t0 + (400 + i) * 100).toISOString(),
+            hMSL: lastMove.hMSL,
+            velD: 0.02,
+            velN: 0.05,
+            velE: 0,
+            lat: lastMove.lat,
+            lon: lastMove.lon,
+            sAcc: 0.2
+        });
+    }
+    return points;
+}
+
+test('diveAngleLocalPeakIdxBeforeA: local max when walking back from A', () => {
+    const samples = [
+        { diveAngleDeg: 10, velD: 1, velN: 1, velE: 0 },
+        { diveAngleDeg: 30, velD: 1, velN: 1, velE: 0 },
+        { diveAngleDeg: 22, velD: 1, velN: 1, velE: 0 },
+        { diveAngleDeg: 18, velD: 1, velN: 1, velE: 0 }
+    ];
+    assert.equal(F.diveAngleLocalPeakIdxBeforeA(samples, 3), 1);
+});
+
+test('buildSwoopCursorSeries includes lat/lon on samples when present', () => {
+    const points = buildGateSnapTestTrack();
+    const { samples, error } = F.buildSwoopCursorSeries(points, 3);
+    assert.equal(error, undefined);
+    assert.ok(samples.length > 10);
+    assert.ok(Number.isFinite(samples[0].lat));
+    assert.ok(Number.isFinite(samples[0].lon));
+});
+
+test('nearestGateToPoint returns closest gate label and distance', () => {
+    const gates = [
+        { label: 'Far gate', lat: 45.0, lng: -75.0 },
+        { label: 'Near gate', lat: 45.001, lng: -75.001 }
+    ];
+    const r = F.nearestGateToPoint(45.00101, -75.00101, gates);
+    assert.equal(r.gateLabel, 'Near gate');
+    assert.ok(r.distM >= 0);
+    assert.ok(r.distM < 200);
+});
+
+test('entryGatesForSwoop prefers distance-labeled gates', () => {
+    const gates = [
+        { label: 'Speed Right', lat: 1, lng: 2 },
+        { label: 'Distance Left', lat: 3, lng: 4 }
+    ];
+    const entry = F.entryGatesForSwoop(gates);
+    assert.equal(entry.length, 1);
+    assert.equal(entry[0].label, 'Distance Left');
+});
+
+test('graphSwoopCursorIndices: B is sample before closest entry gate pass', () => {
+    const gate = { label: 'Distance gate', lat: TEST_GATE.lat, lng: TEST_GATE.lng };
+    const samples = [];
+    for (let i = 0; i < 8; i++) {
+        samples.push({
+            velD: 10,
+            flatteningDegS: i === 1 ? -20 : 0,
+            diveAngleDeg: 30,
+            hMSL: 120,
+            lat: gate.lat - 0.001 + i * 0.0004,
+            lon: gate.lng
+        });
+    }
+    const { idxA, idxB } = F.graphSwoopCursorIndices(samples, [gate], 5, 2);
+    assert.ok(idxB > idxA);
+    const pass = F.closestEntryGatePassOnSeries(samples, [gate], idxA + 1, samples.length - 1);
+    assert.equal(idxB, pass.idx - 1);
+});
+
+test('computeGateSnapDistance returns horizontal snap for matched gate', () => {
+    const points = buildGateSnapTestTrack();
+    const locations = [{
+        id: 'loc_test',
+        name: 'Test',
+        gates: [{ label: 'Entry gate', lat: TEST_GATE.lat, lng: TEST_GATE.lng }]
+    }];
+    const r = F.computeGateSnapDistance(points, locations, {}, { avgPoints: 3 });
+    assert.ok(Number.isFinite(r.snapDistanceM));
+    assert.equal(r.gateLabel, 'Entry gate');
+    assert.ok(r.snapDistanceM >= 0);
+    assert.ok(Number.isFinite(r.divePeakAngleDeg));
+});
+
+test('matchLocationForTrack: rejects location farther than max km', () => {
+    const track = buildSpeedStyleTrack();
+    const near = [{
+        id: 'loc_near',
+        name: 'Near',
+        gates: [{ label: 'G1', lat: TEST_GATE.lat, lng: TEST_GATE.lng }]
+    }];
+    const far = [{
+        id: 'loc_far',
+        name: 'Far',
+        gates: [{ label: 'G1', lat: 32.18, lng: -111 }]
+    }];
+    assert.ok(F.matchLocationForTrack(track, near, 15));
+    assert.equal(F.matchLocationForTrack(track, far, 15), null);
+});
+
+test('matchLocationForTrack: ignores DZ lat/lng without gates', () => {
+    const track = buildSpeedStyleTrack();
+    const loc = [{ id: 'loc_eloy', name: 'Eloy', lat: '32.808323', lng: '-111.581359', gates: [] }];
+    assert.equal(F.matchLocationForTrack(track, loc, 15), null);
+});
+
+test('matchLocationForTrack: accepts string gate coordinates from storage', () => {
+    const track = buildSpeedStyleTrack();
+    const loc = [{
+        id: 'loc_eloy',
+        name: 'Eloy',
+        gates: [{ label: 'G1', lat: '32.8080156', lng: '-111.5816999' }]
+    }];
+    const match = F.matchLocationForTrack(track, loc, 15);
+    assert.ok(match);
+    assert.equal(match.locationId, 'loc_eloy');
+    assert.equal(match.matchVia, 'gate');
+});
+
+test('matchLocationForTrack: matches via seed gates when DZ coords missing', () => {
+    const track = buildSpeedStyleTrack();
+    const loc = [{ id: 'loc_eloy', name: 'Eloy', lat: null, lng: null, gates: [] }];
+    const seed = {
+        loc_eloy: [{ label: 'G1', lat: TEST_GATE.lat, lng: TEST_GATE.lng }]
+    };
+    const match = F.matchLocationForTrack(track, loc, 15, seed);
+    assert.ok(match);
+    assert.equal(match.locationId, 'loc_eloy');
+    assert.equal(match.matchVia, 'gate');
+});
+
+test('matchLocationForTrack: seed-only location not in equipment list', () => {
+    const track = buildSpeedStyleTrack();
+    const seed = {
+        loc_eloy: [{ label: 'G1', lat: TEST_GATE.lat, lng: TEST_GATE.lng }]
+    };
+    const match = F.matchLocationForTrack(track, [], 15, seed);
+    assert.ok(match);
+    assert.equal(match.locationId, 'loc_eloy');
+    assert.equal(match.matchVia, 'gate');
+});
+
+test('computeGateSnapDistance: no GPS yields reason no-gps', () => {
+    const r = F.computeGateSnapDistance(
+        [{ time: '2026-01-01T00:00:00.00Z', hMSL: 100, velD: 5 }],
+        [{ id: 'loc_x', gates: TEST_GATES }],
+        {}
+    );
+    assert.equal(r.reason, 'no-gps');
+});

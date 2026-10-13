@@ -170,7 +170,7 @@ class SkydivingLogbook {
         this.flysightCursorBAltTicks = Number.isFinite(savedCursorBTicks)
             ? Math.min(100, Math.max(0, savedCursorBTicks))
             : defaultCursorBTicks;
-        
+
         this.init();
     }
 
@@ -6017,8 +6017,9 @@ class SkydivingLogbook {
         const modal = document.getElementById('flysightGraphModal');
         if (!g?.samples?.length || typeof Flysight === 'undefined') return;
         if (!modal || modal.style.display !== 'flex') return;
-        const cursors = Flysight.defaultSwoopCursorIndices(
+        const cursors = Flysight.graphSwoopCursorIndices(
             g.samples,
+            g.gates,
             this.flysightCursorBDiveAngleDeg,
             this.flysightCursorBAltTicks
         );
@@ -6168,7 +6169,6 @@ class SkydivingLogbook {
                 this.openFlysightGraphModal(graphBtn.dataset.flysightId, graphBtn.dataset.flysightGraph);
             }
         });
-
         document.getElementById('flysightGraphModalClose')?.addEventListener('click', () => {
             this.closeFlysightGraphModal();
         });
@@ -6678,7 +6678,9 @@ class SkydivingLogbook {
         let altitudeSum = 0;
         let recoverySum = 0;
         let recoveryCount = 0;
-        for (const { result } of ok) {
+        let snapSum = 0;
+        let snapCount = 0;
+        for (const { result, gateSnap } of ok) {
             verticalSum += result.maxVerticalSpeedKmh;
             altitudeSum += result.altitudeM;
             const recoverySec = Flysight.recoveryArcSec(
@@ -6691,6 +6693,10 @@ class SkydivingLogbook {
                 recoverySum += recoverySec;
                 recoveryCount += 1;
             }
+            if (Number.isFinite(gateSnap?.snapDistanceM)) {
+                snapSum += gateSnap.snapDistanceM;
+                snapCount += 1;
+            }
         }
 
         const n = ok.length;
@@ -6700,13 +6706,20 @@ class SkydivingLogbook {
         const avgRecoveryText = Number.isFinite(avgRecoverySec)
             ? (Flysight.formatDurationSec(avgRecoverySec) || `${avgRecoverySec.toFixed(1)}s`)
             : '—';
+        const avgSnapM = snapCount ? snapSum / snapCount : NaN;
+        const avgSnapText = Number.isFinite(avgSnapM)
+            ? `Avg Snap @ ${this._formatFlysightSnapDistance(avgSnapM)}`
+            : 'Avg Snap @ —';
 
         const metric = ok[0].result.speedMetric;
         const speedLabel = metric === 'total' ? 'Avg max' : 'Avg max vert.';
 
         return `
             <div class="flysight-results-summary" role="status" aria-live="polite">
-                <div class="flysight-results-summary-title">Average of ${n} file${n === 1 ? '' : 's'}</div>
+                <div class="flysight-results-summary-head">
+                    <div class="flysight-results-summary-title">Average of ${n} file${n === 1 ? '' : 's'}</div>
+                    <div class="flysight-results-summary-snap">${this.escapeHtml(avgSnapText)}</div>
+                </div>
                 <div class="flysight-result-metrics is-single flysight-results-summary-metrics">
                     <div>
                         <span class="flysight-metric-label">${speedLabel}</span>
@@ -6724,12 +6737,46 @@ class SkydivingLogbook {
             </div>`;
     }
 
-    _flysightResultCardHtml(file, result) {
+    _formatFlysightSnapDistance(meters) {
+        const U = typeof LocationGatesUtil !== 'undefined' ? LocationGatesUtil : null;
+        if (U && typeof U.formatDistance === 'function' && Number.isFinite(meters)) {
+            return U.formatDistance(meters);
+        }
+        if (!Number.isFinite(meters)) return '—';
+        return `${Math.round(meters)} m`;
+    }
+
+    _flysightSnapAtHtml(snap) {
+        const reasonLabels = {
+            'no-gps': 'Snap @ unavailable (no GPS on track)',
+            'no-location': 'Snap @ unavailable (no matching drop zone)',
+            'no-gates': 'Snap @ unavailable (no gates)',
+            'no-swoop-window': 'Snap @ unavailable (swoop window too short)',
+            'no-gate-pass': 'Snap @ unavailable (no gate approach)',
+            'no-dive-peak-gps': 'Snap @ unavailable (dive peak missing GPS)'
+        };
+        if (!Number.isFinite(snap?.snapDistanceM)) {
+            const label = reasonLabels[snap?.reason] || 'Snap @ unavailable';
+            return `<span class="flysight-snap-at is-unknown" aria-label="${this.escapeHtml(label)}">—</span>`;
+        }
+        const dist = this._formatFlysightSnapDistance(snap.snapDistanceM);
+        const gate = snap.gateLabel ? ` · ${snap.gateLabel}` : '';
+        const text = `Snap @ ${dist}${gate}`;
+        return `<span class="flysight-snap-at" aria-label="${this.escapeHtml(text)}">${this.escapeHtml(text)}</span>`;
+    }
+
+    _flysightResultCardHtml(file, result, gateSnap) {
         const title = Flysight.formatTrackStartTitle(result.points?.[0]?.time) || file.name;
+        const snapHtml = this._flysightSnapAtHtml(gateSnap);
+        const headerHtml = `
+                <div class="flysight-result-header">
+                    <div class="flysight-result-name">${this.escapeHtml(title)}</div>
+                    ${snapHtml}
+                </div>`;
         if (result.error) {
             return `
                 <div class="flysight-result-card is-error">
-                    <div class="flysight-result-name">${this.escapeHtml(title)}</div>
+                    ${headerHtml}
                     <p class="flysight-result-error">${this.escapeHtml(result.error)}</p>
                     <button type="button" class="flysight-result-remove" onclick="logbook.removeFlysightFile('${file.id}')">Remove</button>
                 </div>`;
@@ -6781,7 +6828,7 @@ class SkydivingLogbook {
 
         return `
             <div class="flysight-result-card">
-                <div class="flysight-result-name">${this.escapeHtml(title)}</div>
+                ${headerHtml}
                 <div class="${metricsClass}">
                     ${speedMetricsHtml}
                     <div>
@@ -6833,18 +6880,29 @@ class SkydivingLogbook {
             return;
         }
 
-        const analyzed = this.flysightFiles.map(file => ({
-            file,
-            result: Flysight.analyzeFlysightCsv(
+        const seed = this._getLocationGatesSeed();
+        const analyzed = this.flysightFiles.map(file => {
+            const result = Flysight.analyzeFlysightCsv(
                 file.text,
                 this.flysightAvgPoints,
                 this.flysightSpeedMetric
-            )
-        }));
+            );
+            const gateSnap = Flysight.computeGateSnapDistance(
+                result.points,
+                this.locations,
+                seed,
+                {
+                    avgPoints: this.flysightAvgPoints,
+                    diveAngleDegThresh: this.flysightCursorBDiveAngleDeg,
+                    altTicks: this.flysightCursorBAltTicks
+                }
+            );
+            return { file, result, gateSnap };
+        });
 
         const summaryHtml = this._flysightResultsSummaryHtml(analyzed);
         const cardsHtml = analyzed
-            .map(({ file, result }) => this._flysightResultCardHtml(file, result))
+            .map(({ file, result, gateSnap }) => this._flysightResultCardHtml(file, result, gateSnap))
             .join('');
         container.innerHTML = summaryHtml + cardsHtml;
     }
@@ -6871,16 +6929,24 @@ class SkydivingLogbook {
             this.showMessage(series.error || 'Could not build graph.', 'error');
             return;
         }
-        const cursors = Flysight.defaultSwoopCursorIndices(
+        const graphMode = mode === 'verticalSpeed' ? 'verticalSpeed' : 'diveAngle';
+        const seed = this._getLocationGatesSeed();
+        const graphGates = Flysight.gatesForMatchedTrack(
+            parsed.points,
+            this.locations,
+            seed
+        );
+        const cursors = Flysight.graphSwoopCursorIndices(
             series.samples,
+            graphGates,
             this.flysightCursorBDiveAngleDeg,
             this.flysightCursorBAltTicks
         );
-        const graphMode = mode === 'verticalSpeed' ? 'verticalSpeed' : 'diveAngle';
         this._flysightGraph = {
             fileId,
             mode: graphMode,
             samples: series.samples,
+            gates: graphGates,
             idxA: cursors.idxA,
             idxB: cursors.idxB,
             drag: null,
@@ -7029,6 +7095,17 @@ class SkydivingLogbook {
             const h = s.hMSL;
             return Number.isFinite(h) && h < min ? h : min;
         }, Infinity);
+    }
+
+    _flysightGraphGateAltSuffix(sample, gates) {
+        if (!gates?.length || typeof Flysight === 'undefined') return '';
+        const lat = sample?.lat;
+        const lon = sample?.lon;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return '';
+        const near = Flysight.nearestGateToPoint(lat, lon, gates);
+        if (!Number.isFinite(near.distM)) return '';
+        const gateName = String(near.gateLabel || '').trim() || 'gate';
+        return ` (${Math.round(near.distM)}m from gate ${gateName})`;
     }
 
     _flysightGraphAglM(sample, ground) {
@@ -7409,7 +7486,9 @@ class SkydivingLogbook {
             let altText = '';
             if (Number.isFinite(alt)) {
                 const labelX = x + (layout.compact ? 10 : 12);
-                altText = `<text x="${labelX}" y="${y + 5}" text-anchor="start" fill="${color}" font-size="${pointFs}" font-weight="600" stroke="#fff" stroke-width="4" paint-order="stroke" pointer-events="none">${Math.round(alt)} m</text>`;
+                const gateSuffix = this._flysightGraphGateAltSuffix(sample, g.gates);
+                const altLabel = this.escapeHtml(`${Math.round(alt)}m${gateSuffix}`);
+                altText = `<text x="${labelX}" y="${y + 5}" text-anchor="start" fill="${color}" font-size="${pointFs}" font-weight="600" stroke="#fff" stroke-width="4" paint-order="stroke" pointer-events="none">${altLabel}</text>`;
             }
             const yOnPlot = y >= layout.t - 2 && y <= yBase + 2;
             const aYFs = layout.compact ? 14 : 16;
