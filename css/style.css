@@ -3101,6 +3101,11 @@ footer.legal-footer a {
 
 /* Narrow viewports (e.g. 720-wide); 1080+ keeps label/value sizes above */
 @media (max-width: 1079px) {
+    .flysight-results .flysight-result-name {
+        font-size: 0.82rem;
+        line-height: 1.25;
+    }
+
     .flysight-results .flysight-metric-label {
         font-size: 0.85rem;
         letter-spacing: 0.02em;
