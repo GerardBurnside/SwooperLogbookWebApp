@@ -3657,6 +3657,7 @@ body.flysight-graph-open {
     color: #1565C0;
     margin-bottom: 0.5rem;
     min-height: 1.25rem;
+    line-height: 1.35;
 }
 
 .location-map-canvas {

@@ -27,6 +27,15 @@ test('formatDistance: meters vs km', () => {
     assert.equal(U.formatDistance(1500), '1.5 km');
 });
 
+test('formatAccuracy: GPS radius in meters', () => {
+    assert.equal(U.formatAccuracy(5), '±5 m');
+    assert.equal(U.formatAccuracy(2.4), '±2 m');
+    assert.equal(U.formatAccuracy(0.4), '±1 m');
+    assert.equal(U.formatAccuracy(85.6), '±86 m');
+    assert.equal(U.formatAccuracy(NaN), '');
+    assert.equal(U.formatAccuracy(-1), '');
+});
+
 test('ensureLocationGatesSeeded: applies once when empty', () => {
     const loc = { id: 'loc_eloy', name: 'Eloy', gates: [] };
     const seed = {

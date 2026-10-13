@@ -20,6 +20,11 @@
         return `${(meters / 1000).toFixed(1)} km`;
     }
 
+    function formatAccuracy(meters) {
+        if (!Number.isFinite(meters) || meters < 0) return '';
+        return `±${Math.max(1, Math.round(meters))} m`;
+    }
+
     function cloneGate(gate) {
         const g = {
             id: gate.id,
@@ -127,6 +132,7 @@
     const api = {
         haversineM,
         formatDistance,
+        formatAccuracy,
         cloneGate,
         cloneGates,
         newGateId,

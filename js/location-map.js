@@ -9,6 +9,7 @@
     let state = null;
 
     const PERSON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32"><circle cx="12" cy="5" r="3" fill="#1565C0"/><path d="M6 21v-1c0-3.3 2.7-6 6-6s6 2.7 6 6v1H6z" fill="#1565C0"/></svg>';
+    const COARSE_ACCURACY_M = 25;
 
     function getApiKey() {
         const k = global.GOOGLE_MAPS_API_KEY;
@@ -53,13 +54,32 @@
         if (el) el.textContent = text;
     }
 
+    function gpsHudSuffix() {
+        if (!state || !state.userPos) return '';
+        const acc = U ? U.formatAccuracy(state.userAccuracy) : '';
+        if (!acc) return 'GPS';
+        if (state.userAccuracy > COARSE_ACCURACY_M) return `GPS ${acc} — waiting for a better fix`;
+        return `GPS ${acc}`;
+    }
+
+    function geoErrorMessage(err) {
+        const code = err && err.code;
+        if (code === 1) return 'Location permission denied — enable GPS in browser settings';
+        if (code === 2) return 'Location unavailable — check GPS and try again';
+        if (code === 3) return 'GPS timed out — wait outdoors for a better signal';
+        return 'Location unavailable — enable GPS to see live distance';
+    }
+
     function updateDistanceHud() {
         if (!state || !U) return;
+        if (state.addGateMode) return;
+        const gps = gpsHudSuffix();
         const sel = state.gates.find((g) => g.id === state.selectedGateId);
         if (!sel) {
-            setHud(state.selectedGateId === null && state.gates.length
+            const prompt = state.selectedGateId === null && state.gates.length
                 ? 'Tap a gate to see live distance from your position'
-                : state.gates.length ? 'Tap a gate to see live distance' : 'No gates — use Add gate');
+                : state.gates.length ? 'Tap a gate to see live distance' : 'No gates — use Add gate';
+            setHud(gps ? `${prompt}  ·  ${gps}` : prompt);
             return;
         }
         if (!state.userPos) {
@@ -67,7 +87,7 @@
             return;
         }
         const m = U.haversineM(state.userPos.lat, state.userPos.lng, sel.lat, sel.lng);
-        setHud(`${U.formatDistance(m)} to ${sel.label}`);
+        setHud(`${U.formatDistance(m)} to ${sel.label}  ·  ${gps}`);
     }
 
     function syncGateMarkers() {
@@ -191,18 +211,16 @@
             for (const rec of state.gateMarkers) rec.marker.setMap(null);
             if (state.locationMarker) state.locationMarker.setMap(null);
             if (state.userMarker) state.userMarker.setMap(null);
+            if (state.userAccuracyCircle) state.userAccuracyCircle.setMap(null);
         }
         state = null;
     }
 
-    function startGeolocation(maps) {
-        if (!navigator.geolocation) {
-            setHud('Geolocation not supported');
-            return;
-        }
+    function ensureUserOverlay(maps) {
         if (!state.userMarker) {
             state.userMarker = new maps.Marker({
                 map: state.map,
+                position: state.userPos,
                 icon: {
                     url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(PERSON_SVG),
                     scaledSize: new maps.Size(32, 32),
@@ -212,17 +230,56 @@
                 zIndex: 2000,
             });
         }
+        if (!state.userAccuracyCircle) {
+            state.userAccuracyCircle = new maps.Circle({
+                map: state.map,
+                center: state.userPos,
+                radius: state.userAccuracy > 0 ? state.userAccuracy : 1,
+                fillColor: '#1565C0',
+                fillOpacity: 0.15,
+                strokeColor: '#1565C0',
+                strokeOpacity: 0.5,
+                strokeWeight: 1,
+                clickable: false,
+                zIndex: 1999,
+            });
+        }
+    }
+
+    function applyUserPosition(maps, coords) {
+        const acc = coords.accuracy;
+        state.userPos = { lat: coords.latitude, lng: coords.longitude };
+        state.userAccuracy = Number.isFinite(acc) && acc >= 0 ? acc : null;
+        ensureUserOverlay(maps);
+        state.userMarker.setPosition(state.userPos);
+        const accLabel = U ? U.formatAccuracy(state.userAccuracy) : '';
+        state.userMarker.setTitle(accLabel ? `You (${accLabel})` : 'You');
+        state.userAccuracyCircle.setCenter(state.userPos);
+        if (state.userAccuracy != null && state.userAccuracy > 0) {
+            state.userAccuracyCircle.setRadius(state.userAccuracy);
+            state.userAccuracyCircle.setMap(state.map);
+        } else {
+            state.userAccuracyCircle.setMap(null);
+        }
+    }
+
+    function startGeolocation(maps) {
+        if (!navigator.geolocation) {
+            setHud('Geolocation not supported');
+            return;
+        }
         state.watchId = navigator.geolocation.watchPosition(
             (pos) => {
-                state.userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-                state.userMarker.setPosition(state.userPos);
+                if (!state) return;
+                applyUserPosition(maps, pos.coords);
                 if (!state.didFitBounds) fitBoundsOnce();
                 updateDistanceHud();
             },
-            () => {
-                if (!state.userPos) setHud('Location unavailable — enable GPS to see live distance');
+            (err) => {
+                if (!state || state.userPos) return;
+                setHud(geoErrorMessage(err));
             },
-            { enableHighAccuracy: true, maximumAge: 2000, timeout: 15000 }
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
         );
     }
 
@@ -250,9 +307,11 @@
             selectedGateId: gates.length ? gates[0].id : null,
             locationPos: loc,
             userPos: null,
+            userAccuracy: null,
             gateMarkers: [],
             locationMarker: null,
             userMarker: null,
+            userAccuracyCircle: null,
             watchId: null,
             didFitBounds: false,
             addGateMode: false,
