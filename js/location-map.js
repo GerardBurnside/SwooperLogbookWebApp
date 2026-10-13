@@ -7,8 +7,11 @@
     const U = global.LocationGatesUtil;
     let mapsScriptPromise = null;
     let state = null;
+    let onViewportChange = null;
 
-    const PERSON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="32" height="32"><circle cx="12" cy="5" r="3" fill="#1565C0"/><path d="M6 21v-1c0-3.3 2.7-6 6-6s6 2.7 6 6v1H6z" fill="#1565C0"/></svg>';
+    const PERSON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 40"><g fill="#1565C0"><circle cx="16" cy="7.6" r="4.4"/><rect x="12.4" y="12" width="7.2" height="10.2" rx="2"/><path d="M12.6 14.2 L4.2 18.8 L5.6 21.2 L13.4 17 Z"/><path d="M19.4 14.2 L27.8 18.8 L26.4 21.2 L18.6 17 Z"/><path d="M13.2 21.8 L10.2 36.8 L13.6 36.8 L15.4 21.8 Z"/><path d="M18.8 21.8 L21.8 36.8 L18.4 36.8 L16.6 21.8 Z"/></g></svg>';
+    const PERSON_ICON_SIZE = { w: 32, h: 40 };
+    const PERSON_ICON_CENTER = { x: 16, y: 20 };
     const COARSE_ACCURACY_M = 25;
     const OPENING_DIAGONAL_M = 100;
     const MERCATOR_MPP_Z0 = 156543.03392804097;
@@ -225,10 +228,79 @@
         }
     }
 
+    function clearModalViewportStyles(modal) {
+        if (!modal) return;
+        modal.style.top = '';
+        modal.style.left = '';
+        modal.style.right = '';
+        modal.style.bottom = '';
+        modal.style.width = '';
+        modal.style.height = '';
+    }
+
+    function syncModalViewport() {
+        const modal = document.getElementById('locationMapModal');
+        if (!modal || modal.style.display === 'none') return;
+        const vv = global.visualViewport;
+        if (vv) {
+            modal.style.top = `${vv.offsetTop}px`;
+            modal.style.left = `${vv.offsetLeft}px`;
+            modal.style.right = 'auto';
+            modal.style.bottom = 'auto';
+            modal.style.width = `${vv.width}px`;
+            modal.style.height = `${vv.height}px`;
+        } else {
+            modal.style.top = '0';
+            modal.style.left = '0';
+            modal.style.right = '0';
+            modal.style.bottom = '0';
+            modal.style.width = 'auto';
+            modal.style.height = 'auto';
+        }
+    }
+
+    function triggerMapResize() {
+        if (!state?.map || !global.google?.maps) return;
+        global.google.maps.event.trigger(state.map, 'resize');
+    }
+
+    function bindModalViewportListeners() {
+        unbindModalViewportListeners();
+        onViewportChange = () => {
+            syncModalViewport();
+            triggerMapResize();
+        };
+        syncModalViewport();
+        const vv = global.visualViewport;
+        if (vv) {
+            vv.addEventListener('resize', onViewportChange);
+            vv.addEventListener('scroll', onViewportChange);
+        }
+        global.addEventListener('resize', onViewportChange);
+    }
+
+    function unbindModalViewportListeners() {
+        if (!onViewportChange) return;
+        const vv = global.visualViewport;
+        if (vv) {
+            vv.removeEventListener('resize', onViewportChange);
+            vv.removeEventListener('scroll', onViewportChange);
+        }
+        global.removeEventListener('resize', onViewportChange);
+        onViewportChange = null;
+    }
+
     function close() {
         stopWatch();
+        unbindModalViewportListeners();
         const modal = document.getElementById('locationMapModal');
-        if (modal) modal.style.display = 'none';
+        if (modal) {
+            modal.style.display = 'none';
+            clearModalViewportStyles(modal);
+        }
+        if (global.document?.body) {
+            global.document.body.style.overflow = '';
+        }
         if (state && state.mapClickListener) {
             global.google.maps.event.removeListener(state.mapClickListener);
         }
@@ -248,8 +320,8 @@
                 position: state.userPos,
                 icon: {
                     url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(PERSON_SVG),
-                    scaledSize: new maps.Size(32, 32),
-                    anchor: new maps.Point(16, 32),
+                    scaledSize: new maps.Size(PERSON_ICON_SIZE.w, PERSON_ICON_SIZE.h),
+                    anchor: new maps.Point(PERSON_ICON_CENTER.x, PERSON_ICON_CENTER.y),
                 },
                 title: 'You',
                 zIndex: 2000,
@@ -319,7 +391,11 @@
         const gates = U ? U.cloneGates(options.gates || []) : [];
 
         close();
-        modal.style.display = 'block';
+        modal.style.display = 'flex';
+        bindModalViewportListeners();
+        if (global.document?.body) {
+            global.document.body.style.overflow = 'hidden';
+        }
         if (errEl) {
             errEl.style.display = 'none';
             errEl.textContent = '';
@@ -390,7 +466,12 @@
                 syncGateMarkers();
                 selectGate(state.selectedGateId);
                 applyOpeningView();
-                maps.event.addListenerOnce(state.map, 'idle', () => applyOpeningView());
+                const refitMap = () => {
+                    triggerMapResize();
+                    applyOpeningView();
+                };
+                maps.event.addListenerOnce(state.map, 'idle', refitMap);
+                global.requestAnimationFrame(refitMap);
                 startGeolocation(maps);
 
                 state.mapClickListener = state.map.addListener('click', (e) => {

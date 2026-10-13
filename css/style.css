@@ -2534,8 +2534,8 @@ footer.legal-footer a {
 
 /* Flysight track analysis */
 .flysight-header {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
     gap: 0.5rem;
     margin-bottom: 1rem;
@@ -2546,7 +2546,44 @@ footer.legal-footer a {
     margin: 0;
 }
 
+.flysight-header h2 {
+    grid-column: 1;
+    justify-self: start;
+}
+
+.flysight-location-map-btn {
+    grid-column: 2;
+    justify-self: center;
+    min-height: 0;
+    padding: 0.2rem 0.65rem;
+    border: 1px solid #c5cae9;
+    border-radius: 6px;
+    background: #fff;
+    color: #3949ab;
+    font-size: 0.875rem;
+    font-weight: 500;
+    line-height: 1.2;
+    cursor: pointer;
+    white-space: nowrap;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.flysight-location-map-btn:hover,
+.flysight-location-map-btn:active {
+    background: #eef2ff;
+    border-color: #9fa8da;
+    color: #1976D2;
+}
+
+.flysight-location-map-btn:disabled {
+    opacity: 0.75;
+    cursor: wait;
+}
+
 .flysight-settings-btn {
+    grid-column: 3;
+    justify-self: end;
     width: 2.5rem;
     height: 2.5rem;
     min-width: 44px;
@@ -3636,34 +3673,72 @@ body.flysight-graph-open {
     margin-top: 0.25rem;
 }
 
-.location-map-modal .modal-content {
-    max-width: 920px;
-    width: 95%;
+/* Fullscreen location map (same idea as Flysight graph). */
+#locationMapModal.modal {
+    overflow: hidden;
+    overscroll-behavior: none;
+    align-items: stretch;
+    justify-content: stretch;
+    inset: 0;
+    width: auto;
+    height: auto;
+    max-height: none;
+    background-color: rgba(0, 0, 0, 0.45);
+}
+
+#locationMapModal .location-map-modal-content {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    padding: max(0.35rem, env(safe-area-inset-top, 0px))
+             max(0.5rem, env(safe-area-inset-right, 0px))
+             max(0.35rem, env(safe-area-inset-bottom, 0px))
+             max(0.5rem, env(safe-area-inset-left, 0px));
 }
 
 .location-map-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.35rem;
+    flex-shrink: 0;
 }
 
 .location-map-header h2 {
     margin: 0;
+    font-size: 1.05rem;
+}
+
+.location-map-header .close {
+    position: static;
+    flex-shrink: 0;
+    line-height: 1;
+    padding: 0.15rem 0.35rem;
 }
 
 .location-map-hud {
     font-weight: 600;
     color: #1565C0;
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.35rem;
     min-height: 1.25rem;
     line-height: 1.35;
+    flex-shrink: 0;
+    font-size: 0.875rem;
 }
 
 .location-map-canvas {
+    flex: 1 1 auto;
+    min-height: 0;
     width: 100%;
-    height: min(65vh, 520px);
-    border-radius: 8px;
+    height: auto;
+    border-radius: 6px;
     border: 1px solid #dce8fb;
     background: #e8eef5;
 }
@@ -3671,8 +3746,9 @@ body.flysight-graph-open {
 .location-map-toolbar {
     display: flex;
     gap: 0.5rem;
-    margin-top: 0.75rem;
+    margin-top: 0.5rem;
     flex-wrap: wrap;
+    flex-shrink: 0;
 }
 
 .location-map-toolbar .btn-primary {
@@ -3684,9 +3760,10 @@ body.flysight-graph-open {
 }
 
 .location-map-gate-panel {
-    margin-top: 0.75rem;
-    padding-top: 0.75rem;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
     border-top: 1px solid #eee;
+    flex-shrink: 0;
 }
 
 .location-map-gate-panel label {

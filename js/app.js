@@ -5442,6 +5442,170 @@ class SkydivingLogbook {
         el.style.color = '#666';
     }
 
+    _flysightNearestLocationMatchFromAnalyzed(analyzed) {
+        if (typeof Flysight === 'undefined' || !analyzed?.length) return null;
+        const seed = this._getLocationGatesSeed();
+        let best = null;
+        for (const { result } of analyzed) {
+            if (result?.error || !result?.points?.length) continue;
+            const match = Flysight.matchLocationForTrack(result.points, this.locations, undefined, seed);
+            if (!match) continue;
+            if (!best || match.minDistM < best.minDistM) best = match;
+        }
+        return best;
+    }
+
+    _flysightNearestLocationForPoint(lat, lon) {
+        if (typeof Flysight === 'undefined' || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        const seed = this._getLocationGatesSeed();
+        const byId = new Map();
+        for (const loc of this.locations) {
+            if (loc?.id) byId.set(loc.id, loc);
+        }
+        for (const seedId of Object.keys(seed || {})) {
+            if (!byId.has(seedId)) {
+                byId.set(seedId, { id: seedId, name: seedId, gates: [], lat: null, lng: null });
+            }
+        }
+        let best = null;
+        for (const loc of byId.values()) {
+            const gates = Flysight.effectiveGatesForLocation(loc, seed);
+            if (!gates.length) continue;
+            const near = Flysight.nearestGateToPoint(lat, lon, gates);
+            if (!Number.isFinite(near.distM)) continue;
+            if (!best || near.distM < best.minDistM) {
+                best = {
+                    locationId: loc.id,
+                    name: String(loc.name || loc.id),
+                    minDistM: near.distM
+                };
+            }
+        }
+        return best;
+    }
+
+    _updateFlysightLocationMapBtn(nearestMatch) {
+        const btn = document.getElementById('flysightLocationMapBtn');
+        if (!btn) return;
+        if (nearestMatch) {
+            const name = String(nearestMatch.name || nearestMatch.locationId || 'drop zone').trim();
+            btn.title = `Location map — nearest: ${name}`;
+        } else if (this.flysightFiles.length) {
+            btn.title = 'Location map — no matching drop zone for imported tracks';
+        } else {
+            btn.title = 'Location map — uses your GPS to find the nearest gates';
+        }
+    }
+
+    _openFlysightLocationMapForMatch(match) {
+        const seed = this._getLocationGatesSeed();
+        let location = this.locations.find((l) => l.id === match.locationId);
+        if (!location) {
+            location = {
+                id: match.locationId,
+                name: match.name || match.locationId,
+                gates: [],
+                lat: null,
+                lng: null
+            };
+        }
+        const gatesRaw = Flysight.effectiveGatesForLocation(location, seed);
+        const U = window.LocationGatesUtil;
+        const gates = U ? U.cloneGates(gatesRaw) : gatesRaw.slice();
+        if (!gates.length) {
+            this.showMessage('No gates for the nearest drop zone.', 'info');
+            return;
+        }
+
+        const locRef = this.locations.find((l) => l.id === match.locationId);
+        const latVal = locRef?.lat ?? location.lat;
+        const lngVal = locRef?.lng ?? location.lng;
+
+        window.LocationMap.open({
+            lat: latVal != null && Number.isFinite(Number(latVal)) ? latVal : '',
+            lng: lngVal != null && Number.isFinite(Number(lngVal)) ? lngVal : '',
+            gates,
+            onGatesChange: locRef
+                ? (nextGates) => {
+                    locRef.gates = nextGates;
+                    this.saveComponentsToLocalStorage();
+                    if (this.flysightFiles.length) this.renderFlysightView();
+                }
+                : undefined,
+            onLatLngChange: locRef
+                ? (lat, lng) => {
+                    locRef.lat = lat;
+                    locRef.lng = lng;
+                    this.saveComponentsToLocalStorage();
+                }
+                : undefined
+        });
+    }
+
+    async openFlysightNearestLocationMap() {
+        if (!window.LocationMap) {
+            this.showMessage('Map module failed to load', 'error');
+            return;
+        }
+        if (typeof Flysight === 'undefined') {
+            this.showMessage('Flysight module failed to load.', 'error');
+            return;
+        }
+
+        let match = this._flysightNearestMapMatch;
+        if (!match && !this.flysightFiles.length) {
+            if (!navigator.geolocation) {
+                this.showMessage('Geolocation is not available in this browser.', 'error');
+                return;
+            }
+            const btn = document.getElementById('flysightLocationMapBtn');
+            const prevLabel = btn?.textContent;
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Locating…';
+            }
+            try {
+                const pos = await new Promise((resolve, reject) =>
+                    navigator.geolocation.getCurrentPosition(resolve, reject, {
+                        enableHighAccuracy: true,
+                        maximumAge: 0,
+                        timeout: 20000
+                    })
+                );
+                match = this._flysightNearestLocationForPoint(
+                    pos.coords.latitude,
+                    pos.coords.longitude
+                );
+            } catch (err) {
+                const code = err && err.code;
+                const msg = code === 1
+                    ? 'Location permission denied — enable GPS to find the nearest gates.'
+                    : code === 3
+                        ? 'GPS timed out — try again outdoors with a clear sky view.'
+                        : 'Could not get your position — check GPS and try again.';
+                this.showMessage(msg, 'error');
+                return;
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = prevLabel || 'Location map';
+                }
+            }
+            if (!match) {
+                this.showMessage('No gates found near your position.', 'info');
+                return;
+            }
+        } else if (!match) {
+            this.showMessage(
+                'No matching drop zone for imported tracks (need gates within range).',
+                'info'
+            );
+            return;
+        }
+
+        this._openFlysightLocationMapForMatch(match);
+    }
+
     openLocationMapFromComponent() {
         const type = document.getElementById('componentType')?.value;
         if (type !== 'location') return;
@@ -6001,6 +6165,9 @@ class SkydivingLogbook {
             ticksInput.addEventListener('input', applyTicks);
             ticksInput.addEventListener('change', applyTicks);
         }
+        document.getElementById('flysightLocationMapBtn')?.addEventListener('click', () => {
+            this.openFlysightNearestLocationMap();
+        });
         document.getElementById('flysightSettingsBtn')?.addEventListener('click', () => {
             this.openFlysightSettingsModal();
         });
@@ -6871,11 +7038,15 @@ class SkydivingLogbook {
         this._updateFlysightSpeedModeButtons();
 
         if (!this.flysightFiles.length) {
+            this._flysightNearestMapMatch = null;
+            this._updateFlysightLocationMapBtn(null);
             container.innerHTML = this._flysightEmptyResultsHtml();
             return;
         }
 
         if (typeof Flysight === 'undefined') {
+            this._flysightNearestMapMatch = null;
+            this._updateFlysightLocationMapBtn(null);
             container.innerHTML = '<p class="flysight-result-error">Flysight module failed to load.</p>';
             return;
         }
@@ -6899,6 +7070,9 @@ class SkydivingLogbook {
             );
             return { file, result, gateSnap };
         });
+
+        this._flysightNearestMapMatch = this._flysightNearestLocationMatchFromAnalyzed(analyzed);
+        this._updateFlysightLocationMapBtn(this._flysightNearestMapMatch);
 
         const summaryHtml = this._flysightResultsSummaryHtml(analyzed);
         const cardsHtml = analyzed
