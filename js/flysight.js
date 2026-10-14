@@ -205,6 +205,29 @@
     }
 
     /**
+     * Horizontal distance (m) from a gate anchor to the projection of a point onto
+     * the gate's local horizontal plane (ENU at the gate, vertical component dropped).
+     *
+     * @param {{ lat: *, lng: * }} gate
+     * @param {number} lat
+     * @param {number} lon
+     * @returns {number}
+     */
+    function horizontalDistanceOnGatePlane(gate, lat, lon) {
+        const gateLat = coordNum(gate.lat);
+        const gateLng = coordNum(gate.lng);
+        if (!Number.isFinite(gateLat) || !Number.isFinite(gateLng)) return NaN;
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return NaN;
+        const rad = Math.PI / 180;
+        const dLat = (lat - gateLat) * rad;
+        const dLon = (lon - gateLng) * rad;
+        const R = 6371000;
+        const north = dLat * R;
+        const east = dLon * R * Math.cos(gateLat * rad);
+        return Math.hypot(east, north);
+    }
+
+    /**
      * 3D displacement in metres (horizontal haversine + altitude).
      * @param {{ lat?: number, lon?: number, hMSL?: number }} a
      * @param {{ lat?: number, lon?: number, hMSL?: number }} b
@@ -1143,7 +1166,7 @@
      *
      * @param {{ lat?: number, lon?: number }[]} flightPoints
      * @param {{ label?: string, lat: number, lng: number }[]} gates
-     * @returns {{ point?: { lat: number, lon: number }, gateLabel?: string, minDistM?: number }}
+     * @returns {{ point?: { lat: number, lon: number }, gate?: { label?: string, lat: number, lng: number }, gateLabel?: string, minDistM?: number }}
      */
     function closestGatePassOnTrack(flightPoints, gates) {
         if (!flightPoints?.length || !gates?.length) return {};
@@ -1170,6 +1193,7 @@
         if (!point || !nearestGate || !Number.isFinite(minDist)) return {};
         return {
             point: { lat: point.lat, lon: point.lon },
+            gate: nearestGate,
             gateLabel: nearestGate.label,
             minDistM: minDist
         };
@@ -1366,7 +1390,8 @@
     }
 
     /**
-     * Horizontal distance from closest gate pass to local dive-angle peak before cursor A.
+     * Horizontal distance from the matched gate to the dive-angle peak (snap), measured
+     * on the gate's local horizontal plane (snap position projected vertically onto that plane).
      *
      * @param {{ lat?: number, lon?: number, time?: string }[]} points
      * @param {{ id: string, name?: string, lat?: number, lng?: number, gates?: object[] }[]} locations
@@ -1462,12 +1487,18 @@
             };
         }
 
-        const snapDistanceM = haversineMeters(
-            gatePass.point.lat,
-            gatePass.point.lon,
+        const snapDistanceM = horizontalDistanceOnGatePlane(
+            gatePass.gate,
             peakSample.lat,
             peakSample.lon
         );
+        if (!Number.isFinite(snapDistanceM)) {
+            return {
+                reason: 'no-gate-pass',
+                locationId: match.locationId,
+                locationName: match.name
+            };
+        }
 
         return {
             snapDistanceM,
