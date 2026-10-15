@@ -7054,9 +7054,12 @@ class SkydivingLogbook {
             return `<span class="flysight-snap-at is-unknown" aria-label="${this.escapeHtml(label)}">—</span>`;
         }
         const dist = this._formatFlysightSnapDistance(snap.snapDistanceM);
-        const gate = snap.gateLabel ? ` · ${snap.gateLabel}` : '';
-        const text = `Snap @ ${dist}${gate}`;
-        return `<span class="flysight-snap-at" aria-label="${this.escapeHtml(text)}">${this.escapeHtml(text)}</span>`;
+        const gatePlain = snap.gateLabel ? ` · ${snap.gateLabel}` : '';
+        const text = `Snap @ ${dist}${gatePlain}`;
+        const gateHtml = snap.gateLabel
+            ? `<span class="flysight-snap-at-gate"> · ${this.escapeHtml(snap.gateLabel)}</span>`
+            : '';
+        return `<span class="flysight-snap-at" aria-label="${this.escapeHtml(text)}">Snap @ ${this.escapeHtml(dist)}${gateHtml}</span>`;
     }
 
     _flysightResultCardHtml(file, result, gateSnap, entrySpeed) {

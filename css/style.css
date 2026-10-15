@@ -3086,6 +3086,12 @@ footer.legal-footer a {
     max-width: 2rem;
 }
 
+.flysight-snap-at-gate {
+    font-size: 0.58em;
+    font-weight: 500;
+    color: #666;
+}
+
 .flysight-result-metrics {
     display: grid;
     grid-template-columns: 1fr 1fr;
