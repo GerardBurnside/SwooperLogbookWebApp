@@ -641,7 +641,13 @@
                         <div id="yearStatsLocationPie" class="year-stats-pie-root"></div>
                     </div>
                     <div class="year-stats-pie-card">
-                        <h3>Jumps per canopy</h3>
+                        <div class="year-stats-pie-card-head">
+                            <h3>Jumps per canopy</h3>
+                            <label class="year-stats-group-by-size">
+                                <input type="checkbox" id="yearStatsCanopyGroupBySize">
+                                Group by size
+                            </label>
+                        </div>
                         <div id="yearStatsCanopyPie" class="year-stats-pie-root"></div>
                     </div>
                 </div>
@@ -897,8 +903,19 @@
                 </div>
                 <div id="locationMapCanvas" class="location-map-canvas"></div>
                 <div class="location-map-toolbar">
-                    <button type="button" id="locationMapAddGateBtn" class="btn-secondary">Add gate</button>
-                    <button type="button" id="locationMapDone" class="btn-primary">Done</button>
+                    <div class="location-map-toolbar-start">
+                        <button type="button" id="locationMapAddGateBtn" class="btn-secondary">Add gate</button>
+                    </div>
+                    <div class="location-map-toolbar-center">
+                        <button type="button" id="locationMapResetGatesBtn" class="btn-secondary" hidden>Reset to default</button>
+                    </div>
+                    <div class="location-map-toolbar-end">
+                        <label id="locationMapEditWrap" class="location-map-edit-toggle" hidden>
+                            <input type="checkbox" id="locationMapEditCheckbox">
+                            Edit
+                        </label>
+                        <button type="button" id="locationMapDone" class="btn-primary">Done</button>
+                    </div>
                 </div>
                 <div id="locationMapGatePanel" class="location-map-gate-panel" style="display:none;">
                     <label for="locationMapGateLabel">Selected gate</label>

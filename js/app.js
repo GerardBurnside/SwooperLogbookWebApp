@@ -126,6 +126,10 @@ class SkydivingLogbook {
         this.showArchivedStats = false;
         /** Statistics view: show archived canopies in the Canopy Totals block only. */
         this.showArchivedCanopyTotals = false;
+        /** Year statistics modal: merge canopy pie slices by two-digit size token in the name. */
+        this.yearStatsCanopyGroupBySize = false;
+        /** Calendar year currently shown in the year statistics modal (for partial re-renders). */
+        this._yearStatsModalYear = null;
         /** Statistics view: show archived harnesses in the Harness block only. */
         this.showArchivedHarnessStats = false;
         /** Equipment view: canopy id → whether "show older linesets" is checked. */
@@ -761,6 +765,12 @@ class SkydivingLogbook {
             this.closeYearStatisticsModal();
         });
 
+        document.getElementById('yearStatsCanopyGroupBySize')?.addEventListener('change', (e) => {
+            this.yearStatsCanopyGroupBySize = !!e.target.checked;
+            const yr = this._yearStatsModalYear;
+            if (Number.isFinite(yr)) this._renderYearStatisticsCanopyPie(yr);
+        });
+
         document.getElementById('yearStatsModal')?.addEventListener('click', (e) => {
             const btn = e.target.closest('.year-stats-loc-legend-btn');
             if (!btn) return;
@@ -1221,8 +1231,48 @@ class SkydivingLogbook {
         return rows;
     }
 
-    _aggregateJumpsByCanopyForYear(jumps) {
-        return this._aggregateJumpsByCanopy(jumps);
+    /**
+     * Two consecutive digits used for year-stats “group by size” (first match in the name).
+     * e.g. "Petra 65" → "65", "line-Petra68-set" → "68"
+     */
+    _canopySizeGroupDigits(name) {
+        const m = String(name || '').trim().match(/(\d{2})/);
+        return m ? m[1] : '';
+    }
+
+    _aggregateJumpsByCanopyForYear(jumps, { groupBySize = false } = {}) {
+        if (!groupBySize) return this._aggregateJumpsByCanopy(jumps);
+        const map = new Map();
+        const sortOrderForId = (equipmentId) => {
+            const c = this.canopies.find(x => x.id === equipmentId);
+            return c?.sortOrder ?? Infinity;
+        };
+        for (const j of (jumps || [])) {
+            const equipmentId = j.equipment || '';
+            const canopy = this.canopies.find(c => c.id === equipmentId);
+            const canopyName = canopy ? canopy.name : 'Unknown canopy';
+            const sizeDigits = this._canopySizeGroupDigits(canopyName);
+            const bucketKey = sizeDigits ? `size:${sizeDigits}` : `id:${equipmentId}`;
+            let row = map.get(bucketKey);
+            if (!row) {
+                row = {
+                    label: sizeDigits || canopyName,
+                    count: 0,
+                    equipmentIds: []
+                };
+                map.set(bucketKey, row);
+            }
+            row.count += 1;
+            if (!row.equipmentIds.includes(equipmentId)) row.equipmentIds.push(equipmentId);
+        }
+        const rows = [...map.values()].map(row => {
+            const equipmentId = [...row.equipmentIds].sort(
+                (a, b) => sortOrderForId(a) - sortOrderForId(b) || a.localeCompare(b)
+            )[0];
+            return { label: row.label, count: row.count, equipmentId };
+        });
+        rows.sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+        return rows;
     }
 
     /**
@@ -1346,6 +1396,7 @@ class SkydivingLogbook {
     openYearStatisticsModal(year) {
         const modal = document.getElementById('yearStatsModal');
         if (!modal) return;
+        this._yearStatsModalYear = year;
         this._renderYearStatisticsModalContent(year);
         modal.style.display = 'block';
     }
@@ -1353,6 +1404,7 @@ class SkydivingLogbook {
     closeYearStatisticsModal() {
         const modal = document.getElementById('yearStatsModal');
         if (modal) modal.style.display = 'none';
+        this._yearStatsModalYear = null;
     }
 
     /**
@@ -1524,16 +1576,11 @@ class SkydivingLogbook {
         totalLine.textContent = total === 1 ? '1 jump' : `${total} jumps`;
 
         const byLoc = this._aggregateJumpsByLocationForYear(jumps);
-        const byCan = this._aggregateJumpsByCanopyForYear(jumps);
         locRoot.innerHTML = this._renderPieChartBlock(byLoc, { interactiveLocationLegend: { year } });
-        const canopyColorMap = this._yearStatsCanopyColorMap();
-        const palette = this._yearStatsPieColors();
-        canRoot.innerHTML = this._renderPieChartBlock(
-            byCan.map(({ label, count, equipmentId }) => ({ label, count, equipmentId })),
-            {
-                getColor: (e) => canopyColorMap.get(e.equipmentId) ?? palette[0]
-            }
-        );
+
+        const groupBySizeCheck = document.getElementById('yearStatsCanopyGroupBySize');
+        if (groupBySizeCheck) groupBySizeCheck.checked = this.yearStatsCanopyGroupBySize;
+        this._renderYearStatisticsCanopyPie(year);
 
         const prevYears = this._getPreviousYearsWithJumps();
         const cy = new Date().getFullYear();
@@ -1554,6 +1601,23 @@ class SkydivingLogbook {
                 return `<button type="button" class="btn-secondary year-stats-year-btn${active}" onclick="logbook.openYearStatisticsModal(${y})">${y}</button>`;
             }).join('');
         }
+    }
+
+    _renderYearStatisticsCanopyPie(year) {
+        const canRoot = document.getElementById('yearStatsCanopyPie');
+        if (!canRoot) return;
+        const jumps = this._jumpsInCalendarYear(year);
+        const byCan = this._aggregateJumpsByCanopyForYear(jumps, {
+            groupBySize: this.yearStatsCanopyGroupBySize
+        });
+        const canopyColorMap = this._yearStatsCanopyColorMap();
+        const palette = this._yearStatsPieColors();
+        canRoot.innerHTML = this._renderPieChartBlock(
+            byCan.map(({ label, count, equipmentId }) => ({ label, count, equipmentId })),
+            {
+                getColor: (e) => canopyColorMap.get(e.equipmentId) ?? palette[0]
+            }
+        );
     }
 
     renderJumpsList() {
@@ -5552,10 +5616,14 @@ class SkydivingLogbook {
         const latVal = locRef?.lat ?? location.lat;
         const lngVal = locRef?.lng ?? location.lng;
 
+        const seedEntries = this._getLocationGatesSeed()[match.locationId] || [];
+
         window.LocationMap.open({
             lat: latVal != null && Number.isFinite(Number(latVal)) ? latVal : '',
             lng: lngVal != null && Number.isFinite(Number(lngVal)) ? lngVal : '',
             gates,
+            gateEditToggle: true,
+            seedEntries,
             onGatesChange: locRef
                 ? (nextGates) => {
                     locRef.gates = nextGates;
@@ -5655,10 +5723,13 @@ class SkydivingLogbook {
             this.showMessage('Map module failed to load', 'error');
             return;
         }
+        const seedEntries = locationId ? (this._getLocationGatesSeed()[locationId] || []) : [];
+
         window.LocationMap.open({
             lat: latVal,
             lng: lngVal,
             gates: this._componentGatesDraft || [],
+            seedEntries,
             onGatesChange: (gates) => {
                 this._componentGatesDraft = gates;
                 this.updateLocationGatesSummary();

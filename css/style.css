@@ -808,10 +808,42 @@ textarea {
     }
 }
 
+.year-stats-pie-card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.year-stats-pie-card-head h3 {
+    font-size: 1rem;
+    margin: 0;
+    color: #444;
+}
+
 .year-stats-pie-card h3 {
     font-size: 1rem;
     margin: 0 0 0.75rem;
     color: #444;
+}
+
+.year-stats-group-by-size {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+    font-weight: normal;
+    color: #555;
+    cursor: pointer;
+    user-select: none;
+}
+
+.year-stats-group-by-size input {
+    width: auto;
+    margin: 0;
+    cursor: pointer;
 }
 
 .year-stats-pie-root {
@@ -3828,15 +3860,46 @@ body.flysight-graph-open {
 }
 
 .location-map-toolbar {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     gap: 0.5rem;
     margin-top: 0.5rem;
-    flex-wrap: wrap;
     flex-shrink: 0;
+    align-items: center;
 }
 
-.location-map-toolbar .btn-primary {
-    margin-left: auto;
+.location-map-toolbar-start {
+    display: flex;
+    gap: 0.5rem;
+    justify-self: start;
+}
+
+.location-map-toolbar-center {
+    justify-self: center;
+}
+
+.location-map-toolbar-end {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    justify-self: end;
+}
+
+.location-map-edit-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.95rem;
+    color: #333;
+    user-select: none;
+    cursor: pointer;
+}
+
+.location-map-edit-toggle input {
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    cursor: pointer;
 }
 
 #locationMapAddGateBtn.active {

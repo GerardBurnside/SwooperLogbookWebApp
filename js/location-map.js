@@ -99,6 +99,73 @@
         return 'Location unavailable — enable GPS to see live distance';
     }
 
+    function gateEditingEnabled() {
+        return !!(state && state.gateEditingEnabled);
+    }
+
+    /** Gates created in the app (not from location-gates-seed.js). */
+    function userAddedGates(gates) {
+        if (!gates?.length) return [];
+        return gates.filter((g) => {
+            const src = g.source;
+            return !src || !String(src).startsWith('seed:');
+        });
+    }
+
+    function resetGatesToDefault() {
+        if (!state || !state.map || !U || !state.seedEntries?.length) return;
+        if (state.gateEditToggle && !gateEditingEnabled()) return;
+
+        const added = userAddedGates(state.gates);
+        let msg = 'Reset all gates to the defaults from the app seed? Any changes to gate positions and names will be lost.';
+        if (added.length) {
+            const names = added.map((g) => g.label || 'Gate').join(', ');
+            msg += `\n\nThese gates you added will be removed: ${names}.`;
+        }
+        if (!global.confirm(msg)) return;
+
+        state.gates = U.cloneGates(U.gatesFromSeedEntries(state.seedEntries));
+        state.selectedGateId = state.gates.length ? state.gates[0].id : null;
+        state.addGateMode = false;
+        const addBtn = document.getElementById('locationMapAddGateBtn');
+        if (addBtn) addBtn.classList.remove('active');
+        syncGateMarkers();
+        selectGate(state.selectedGateId);
+        notifyChange();
+        updateDistanceHud();
+        syncGateEditUi();
+    }
+
+    function syncGateEditUi() {
+        const editWrap = document.getElementById('locationMapEditWrap');
+        const editChk = document.getElementById('locationMapEditCheckbox');
+        const addBtn = document.getElementById('locationMapAddGateBtn');
+        const resetBtn = document.getElementById('locationMapResetGatesBtn');
+        const delBtn = document.getElementById('locationMapDeleteGateBtn');
+        const labelInp = document.getElementById('locationMapGateLabel');
+        const showToggle = !!(state && state.gateEditToggle);
+        const hasSeed = !!(state && state.seedEntries && state.seedEntries.length);
+        if (editWrap) editWrap.hidden = !showToggle;
+        if (editChk && showToggle) editChk.checked = gateEditingEnabled();
+        const canEdit = gateEditingEnabled();
+        if (addBtn) addBtn.disabled = !canEdit;
+        if (resetBtn) {
+            resetBtn.hidden = !hasSeed;
+            resetBtn.disabled = !hasSeed || (state.gateEditToggle && !canEdit);
+        }
+        if (delBtn) delBtn.disabled = !canEdit;
+        if (labelInp) labelInp.readOnly = !canEdit;
+        if (state && !canEdit && state.addGateMode) {
+            state.addGateMode = false;
+            if (addBtn) addBtn.classList.remove('active');
+        }
+        if (state) {
+            for (const rec of state.gateMarkers) {
+                rec.marker.setDraggable(canEdit);
+            }
+        }
+    }
+
     function updateDistanceHud() {
         if (!state || !U) return;
         if (state.addGateMode) return;
@@ -107,7 +174,7 @@
         if (!sel) {
             const prompt = state.selectedGateId === null && state.gates.length
                 ? 'Tap a gate to see live distance from your position'
-                : state.gates.length ? 'Tap a gate to see live distance' : 'No gates — use Add gate';
+                : state.gates.length ? 'Tap a gate to see live distance' : (gateEditingEnabled() ? 'No gates — use Add gate' : 'No gates');
             setHud(gps ? `${prompt}  ·  ${gps}` : prompt);
             syncCenterUserBtn();
             return;
@@ -138,11 +205,12 @@
                     map: state.map,
                     position: { lat: gate.lat, lng: gate.lng },
                     title: gate.label,
-                    draggable: true,
+                    draggable: gateEditingEnabled(),
                     label: gate.label.slice(0, 1),
                 });
                 marker.addListener('click', () => selectGate(gate.id));
                 marker.addListener('dragend', () => {
+                    if (!gateEditingEnabled()) return;
                     const p = marker.getPosition();
                     gate.lat = p.lat();
                     gate.lng = p.lng();
@@ -152,6 +220,7 @@
                 rec = { gateId: gate.id, marker };
             }
             applyGateSelectionStyle(rec, gate.id === state.selectedGateId);
+            rec.marker.setDraggable(gateEditingEnabled());
             state.gateMarkers.push(rec);
         }
         for (const [id, rec] of existing) {
@@ -338,6 +407,15 @@
             if (state.userAccuracyCircle) state.userAccuracyCircle.setMap(null);
         }
         state = null;
+        const editWrap = document.getElementById('locationMapEditWrap');
+        const addBtn = document.getElementById('locationMapAddGateBtn');
+        const resetBtn = document.getElementById('locationMapResetGatesBtn');
+        if (editWrap) editWrap.hidden = true;
+        if (resetBtn) resetBtn.hidden = true;
+        if (addBtn) {
+            addBtn.disabled = false;
+            addBtn.classList.remove('active');
+        }
     }
 
     function ensureUserOverlay(maps) {
@@ -433,9 +511,12 @@
         }
         mapEl.innerHTML = '';
 
+        const gateEditToggle = !!options.gateEditToggle;
+        const seedEntries = Array.isArray(options.seedEntries) ? options.seedEntries : [];
         state = {
             map: null,
             gates,
+            seedEntries,
             selectedGateId: gates.length ? gates[0].id : null,
             locationPos: loc,
             userPos: null,
@@ -447,10 +528,16 @@
             watchId: null,
             didFitBounds: false,
             addGateMode: false,
+            gateEditToggle,
+            gateEditingEnabled: !gateEditToggle,
             onGatesChange: options.onGatesChange,
             onLatLngChange: options.onLatLngChange,
             mapClickListener: null,
         };
+
+        const editChk = document.getElementById('locationMapEditCheckbox');
+        if (editChk) editChk.checked = state.gateEditingEnabled;
+        syncGateEditUi();
 
         loadGoogleMaps()
             .then((maps) => {
@@ -507,7 +594,7 @@
                 startGeolocation(maps);
 
                 state.mapClickListener = state.map.addListener('click', (e) => {
-                    if (!state.addGateMode) return;
+                    if (!state.addGateMode || !gateEditingEnabled()) return;
                     state.addGateMode = false;
                     const btn = document.getElementById('locationMapAddGateBtn');
                     if (btn) btn.classList.remove('active');
@@ -542,8 +629,17 @@
         document.getElementById('locationMapModal')?.addEventListener('click', (e) => {
             if (e.target.id === 'locationMapModal') close();
         });
+        document.getElementById('locationMapEditCheckbox')?.addEventListener('change', (e) => {
+            if (!state || !state.gateEditToggle) return;
+            state.gateEditingEnabled = !!e.target.checked;
+            syncGateEditUi();
+            updateDistanceHud();
+        });
+        document.getElementById('locationMapResetGatesBtn')?.addEventListener('click', () => {
+            resetGatesToDefault();
+        });
         document.getElementById('locationMapAddGateBtn')?.addEventListener('click', () => {
-            if (!state || !state.map) return;
+            if (!state || !state.map || !gateEditingEnabled()) return;
             state.addGateMode = true;
             const btn = document.getElementById('locationMapAddGateBtn');
             if (btn) btn.classList.add('active');
@@ -554,7 +650,7 @@
             centerMapOnUser();
         });
         document.getElementById('locationMapDeleteGateBtn')?.addEventListener('click', () => {
-            if (!state || !state.selectedGateId) return;
+            if (!state || !state.selectedGateId || !gateEditingEnabled()) return;
             state.gates = state.gates.filter((g) => g.id !== state.selectedGateId);
             state.selectedGateId = state.gates.length ? state.gates[0].id : null;
             syncGateMarkers();
@@ -563,7 +659,7 @@
             updateDistanceHud();
         });
         document.getElementById('locationMapGateLabel')?.addEventListener('change', (e) => {
-            if (!state || !state.selectedGateId) return;
+            if (!state || !state.selectedGateId || !gateEditingEnabled()) return;
             const gate = state.gates.find((g) => g.id === state.selectedGateId);
             if (!gate) return;
             gate.label = (e.target.value || gate.label).trim() || gate.label;
