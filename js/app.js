@@ -7419,12 +7419,19 @@ class SkydivingLogbook {
         }, Infinity);
     }
 
-    _flysightGraphGateAltSuffix(sample, gates) {
+    _flysightGraphGateAltSuffix(sample, gates, gatePickSample) {
         if (!gates?.length || typeof Flysight === 'undefined') return '';
         const lat = sample?.lat;
         const lon = sample?.lon;
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return '';
-        const near = Flysight.nearestGateToPoint(lat, lon, gates);
+        const pick = gatePickSample || sample;
+        const near = Flysight.horizontalDistanceToGatePickedAt(
+            lat,
+            lon,
+            gates,
+            pick?.lat,
+            pick?.lon
+        );
         if (!Number.isFinite(near.distM)) return '';
         const gateName = String(near.gateLabel || '').trim() || 'gate';
         return ` (${Math.round(near.distM)}m from gate ${gateName})`;
@@ -7807,10 +7814,43 @@ class SkydivingLogbook {
             const alt = this._flysightGraphAglM(sample, ground);
             let altText = '';
             if (Number.isFinite(alt)) {
-                const labelX = x + (layout.compact ? 10 : 12);
-                const gateSuffix = this._flysightGraphGateAltSuffix(sample, g.gates);
-                const altLabel = this.escapeHtml(`${Math.round(alt)}m${gateSuffix}`);
-                altText = `<text x="${labelX}" y="${y + 5}" text-anchor="start" fill="${color}" font-size="${pointFs}" font-weight="600" stroke="#fff" stroke-width="4" paint-order="stroke" pointer-events="none">${altLabel}</text>`;
+                const dx = layout.compact ? 10 : 12;
+                const gatePick = which === 'a' ? b : sample;
+                const gateSuffix = this._flysightGraphGateAltSuffix(sample, g.gates, gatePick);
+                const altPlain = `${Math.round(alt)}m${gateSuffix}`;
+                const altLabel = this.escapeHtml(altPlain);
+                let labelX = x + dx;
+                let anchor = 'start';
+                if (which === 'b') {
+                    const estimateW = Math.min(
+                        layout.compact ? 340 : 400,
+                        altPlain.length * pointFs * 0.55
+                    );
+                    const plotLeft = layout.l;
+                    const fitsRight = x + dx + estimateW <= plotRight - 8;
+                    const fitsLeft = x - dx - estimateW >= plotLeft + 8;
+                    if (!fitsRight && fitsLeft) {
+                        labelX = x - dx;
+                        anchor = 'end';
+                    } else if (!fitsRight && !fitsLeft) {
+                        const roomRight = plotRight - 8 - (x + dx);
+                        const roomLeft = (x - dx) - (plotLeft + 8);
+                        if (roomLeft > roomRight) {
+                            labelX = x - dx;
+                            anchor = 'end';
+                        }
+                    }
+                }
+                let labelY = y + 5;
+                if (which === 'b') {
+                    const axisGap = layout.compact ? 5 : 7;
+                    const maxBaselineY = yBase - axisGap;
+                    if (labelY > maxBaselineY) {
+                        const abovePointY = y - (layout.compact ? 9 : 11);
+                        labelY = Math.min(abovePointY, maxBaselineY);
+                    }
+                }
+                altText = `<text x="${labelX}" y="${labelY}" text-anchor="${anchor}" fill="${color}" font-size="${pointFs}" font-weight="600" stroke="#fff" stroke-width="4" paint-order="stroke" pointer-events="none">${altLabel}</text>`;
             }
             const yOnPlot = y >= layout.t - 2 && y <= yBase + 2;
             const aYFs = layout.compact ? 14 : 16;

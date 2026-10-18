@@ -1231,6 +1231,44 @@
     }
 
     /**
+     * Gate chosen by haversine nearest to (pickLat, pickLon); horizontal distance (m)
+     * on that gate's plane to (atLat, atLon) (vertical projection onto the gate plane).
+     *
+     * @param {number} atLat
+     * @param {number} atLon
+     * @param {{ label?: string, lat: number, lng: number }[]} gates
+     * @param {number} pickLat
+     * @param {number} pickLon
+     * @returns {{ gateLabel?: string, distM?: number }}
+     */
+    function horizontalDistanceToGatePickedAt(atLat, atLon, gates, pickLat, pickLon) {
+        if (!gates?.length) return {};
+        if (!Number.isFinite(atLat) || !Number.isFinite(atLon)) return {};
+        if (!Number.isFinite(pickLat) || !Number.isFinite(pickLon)) return {};
+
+        let minPickDist = Infinity;
+        let nearestGate = null;
+        for (const gate of gates) {
+            const gateLat = coordNum(gate.lat);
+            const gateLng = coordNum(gate.lng);
+            if (!Number.isFinite(gateLat) || !Number.isFinite(gateLng)) continue;
+            const d = haversineMeters(pickLat, pickLon, gateLat, gateLng);
+            if (d < minPickDist) {
+                minPickDist = d;
+                nearestGate = gate;
+            }
+        }
+
+        if (!nearestGate) return {};
+        const distM = horizontalDistanceOnGatePlane(nearestGate, atLat, atLon);
+        if (!Number.isFinite(distM)) return {};
+        return {
+            gateLabel: nearestGate.label,
+            distM
+        };
+    }
+
+    /**
      * Gates for the dropzone matched to this track (saved or seed).
      *
      * @param {{ lat?: number, lon?: number }[]} points
@@ -1992,6 +2030,7 @@
         diveAngleLocalPeakIdxBeforeA,
         closestGatePassOnTrack,
         nearestGateToPoint,
+        horizontalDistanceToGatePickedAt,
         gatesForMatchedTrack,
         effectiveGatesForLocation,
         minTrackDistToLocation,

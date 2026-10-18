@@ -946,6 +946,22 @@ test('nearestGateToPoint returns closest gate label and distance', () => {
     assert.ok(r.distM < 200);
 });
 
+test('horizontalDistanceToGatePickedAt picks gate at pick point, distance at at point', () => {
+    const gates = [
+        { label: 'Far gate', lat: 45.0, lng: -75.0 },
+        { label: 'Near gate', lat: 45.001, lng: -75.001 }
+    ];
+    const atLat = 45.002;
+    const atLon = -75.002;
+    const pickLat = 45.00101;
+    const pickLon = -75.00101;
+    const r = F.horizontalDistanceToGatePickedAt(atLat, atLon, gates, pickLat, pickLon);
+    assert.equal(r.gateLabel, 'Near gate');
+    assert.ok(r.distM >= 0);
+    const atFar = F.horizontalDistanceToGatePickedAt(atLat, atLon, gates, atLat, atLon);
+    assert.equal(atFar.gateLabel, 'Far gate');
+});
+
 test('entryGatesForSwoop prefers distance-labeled gates', () => {
     const gates = [
         { label: 'Speed Right', lat: 1, lng: 2 },
