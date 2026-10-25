@@ -30,7 +30,13 @@ window.LOCATION_GATES_SEED = {
       "label": "Speed Right",
       "lat": 32.8080334,
       "lng": -111.5818757
+    },
+    {
+      "label": "Speed Gate 5",
+      "lat": 32.8074932,
+      "lng": -111.5820315
     }
+
   ],
   "loc_klatovy": [
     {
