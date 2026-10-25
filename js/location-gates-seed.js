@@ -33,8 +33,8 @@ window.LOCATION_GATES_SEED = {
     },
     {
       "label": "Speed Gate 5",
-      "lat": 32.8074932,
-      "lng": -111.5820315
+      "lat": 32.807447,
+      "lng": -111.5820664
     }
 
   ],
