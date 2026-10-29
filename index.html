@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Swooper Logbook</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#2196F3">
+    <!-- iOS PWA support -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="SwooperLog">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🪂%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-top">
+                <h1>🪂 Swooper Logbook</h1>
+                <div class="header-sync">
+                    <span class="sync-status" id="syncStatus">Ready</span>
+                    <button id="syncBtn" class="sync-btn" title="Sync with Google Sheets">🔄</button>
+                </div>
+            </div>
+            <div class="stats">
+                <span id="totalJumps">Latest Jump: #0</span>
+            </div>
+            <nav class="main-nav">
+                <button id="jumpsViewBtn" class="nav-btn active">Jumps</button>
+                <button id="equipmentViewBtn" class="nav-btn">Equipment</button>
+                <button id="statsViewBtn" class="nav-btn">Statistics</button>
+                <button id="flysightViewBtn" class="nav-btn">GGswoop</button>
+                <button id="todosViewBtn" class="nav-btn">TODOs</button>
+            </nav>
+            <script>
+            (function () {
+                try {
+                    var s = JSON.parse(localStorage.getItem('skydiving-settings') || '{}');
+                    var visible = s.visibleNavViews;
+                    if (Array.isArray(visible) && visible.length > 0) {
+                        document.querySelectorAll('.nav-btn').forEach(function (btn) {
+                            var id = btn.id.replace(/ViewBtn$/, '');
+                            if (visible.indexOf(id) === -1) {
+                                btn.hidden = true;
+                                btn.style.display = 'none';
+                            }
+                        });
+                        if (visible.length <= 1) {
+                            var nav = document.querySelector('.main-nav');
+                            if (nav) nav.style.display = 'none';
+                        }
+                    }
+                    var landing = new URLSearchParams(window.location.search).get('landing');
+                    var views = ['jumps', 'equipment', 'stats', 'flysight', 'todos'];
+                    if (!landing) return;
+                    landing = String(landing).trim().toLowerCase();
+                    if (views.indexOf(landing) === -1) return;
+                    document.querySelectorAll('.view').forEach(function (view) {
+                        view.style.display = view.id === landing + 'View' ? 'block' : 'none';
+                    });
+                    document.querySelectorAll('.nav-btn').forEach(function (btn) {
+                        btn.classList.toggle('active', btn.id === landing + 'ViewBtn');
+                    });
+                } catch (e) {}
+            })();
+            </script>
+        </header>
+
+        <main>
+            <!-- Jump Entry and History View -->
+            <div id="jumpsView" class="view">
+                <!-- Jump Entry Form -->
+                <section class="jump-entry">
+                    <h2>Log New Jump</h2>
+                    <form id="jumpForm">
+                        <div class="form-group">
+                            <label for="date">Date</label>
+                            <input type="date" id="date" name="date" required>
+                        </div>
+                        
+                        <div class="form-group location-autocomplete">
+                            <div class="location-label-row">
+                                <label for="location">Drop Zone / Location</label>
+                                <label class="location-auto-label">
+                                    <input type="checkbox" id="autoDetectDZForm"> Auto
+                                </label>
+                            </div>
+                            <input type="text" id="location" name="location" placeholder="e.g., Sky High DZ, California" autocomplete="on" required>
+                            <div id="locationDropdown" class="autocomplete-dropdown"></div>
+                            <span id="locationGeoHint" class="location-geo-hint" style="display:none;"></span>
+                        </div>
+                        
+                        <div class="form-group canopy-picker-wrap" id="canopyPickerScrollAnchor">
+                            <label for="canopyPickerToggle">Canopy</label>
+                            <div class="canopy-picker" id="canopyPicker">
+                                <button type="button" id="canopyPickerToggle" class="canopy-picker-toggle" aria-haspopup="listbox" aria-expanded="false" aria-controls="canopyPickerList">
+                                    <span id="canopyPickerDisplay" class="canopy-picker-display">Select Canopy</span>
+                                    <span class="canopy-picker-chevron" aria-hidden="true">▼</span>
+                                </button>
+                                <div id="canopyPickerList" class="canopy-picker-list" role="listbox" aria-label="Canopy list" aria-hidden="true"></div>
+                                <select id="equipment" name="equipment" required class="canopy-picker-native" tabindex="-1">
+                                    <option value="">Select Canopy</option>
+                                </select>
+                            </div>
+                            <small id="linesetHint" class="lineset-hint" style="display:none; color:#888; font-size:12px;"></small>
+                        </div>
+                        
+                        <div class="form-group notes-autocomplete">
+                            <label for="notes">Notes (Optional)</label>
+                            <textarea id="notes" name="notes" rows="1" placeholder="e.g. Cutaway, etc." autocomplete="off"></textarea>
+                            <div id="notesDropdown" class="autocomplete-dropdown" role="listbox" aria-label="Previous notes"></div>
+                        </div>
+                        
+                        <div class="jump-submit-row">
+                            <button type="submit" class="btn-primary">Log Jump</button>
+                            <div class="multiplier-widget">
+                                <label for="jumpMultiplier">×</label>
+                                <button type="button" class="multiplier-btn" id="multiplierDown">−</button>
+                                <input type="number" id="jumpMultiplier" value="1" min="1" max="99">
+                                <button type="button" class="multiplier-btn" id="multiplierUp">+</button>
+                            </div>
+                        </div>
+                    </form>
+                </section>
+
+                <!-- Jump History -->
+                <section class="jump-history">
+                    <div class="jump-history-header">
+                        <h2>Recent Jumps</h2>
+                        <div class="jump-history-header-right">
+                            <span id="recentJumpsTotal" class="recent-jumps-total">Total: 0</span>
+                            <span id="recentJumpsGroupByMonthWrap" class="recent-jumps-group-wrap" hidden>
+                                <label class="recent-jumps-by-month-label" title="Show recent jumps in collapsible month blocks (same as older history)">
+                                    <input type="checkbox" id="recentJumpsGroupByMonthToggle">
+                                    By month
+                                </label>
+                            </span>
+                        </div>
+                    </div>
+                    <div id="jumpsList" class="jumps-list">
+                        <p class="no-jumps">No jumps logged yet. Add your first jump above!</p>
+                    </div>
+                    <div id="jumpsPastMonthsRow" class="jumps-past-months-row" hidden>
+                        <span>Number of jumps in the past</span>
+                        <span class="jumps-past-months-widget">
+                            <button type="button" class="jumps-past-months-step" id="statsPastMonthsDown" aria-label="Fewer months">−</button>
+                            <input type="number" id="statsPastMonthsWindow" class="jumps-past-months-input" min="1" max="240" value="3" inputmode="numeric" aria-label="Months for rolling jump count">
+                            <button type="button" class="jumps-past-months-step" id="statsPastMonthsUp" aria-label="More months">+</button>
+                        </span>
+                        <span>months: </span><strong id="jumpsPastMonthsCount">0</strong>
+                    </div>
+                    <button type="button" id="searchJumpsBtn" class="btn-secondary search-jumps-btn">🔍 Search Notes</button>
+                </section>
+            </div>
+
+            <!-- Equipment Management View -->
+            <div id="equipmentView" class="view" style="display: none;">
+                <section class="equipment-management">
+                    <h2>Equipment Management</h2>
+                    
+                    <!-- Equipment Sub-Navigation -->
+                    <nav class="equipment-nav">
+                        <button class="equipment-nav-btn active" data-view="canopies">Canopies</button>
+                        <button class="equipment-nav-btn" data-view="harnesses">Harnesses</button>
+                        <button class="equipment-nav-btn" data-view="locations">Locations</button>
+                    </nav>
+                    
+                    <div class="section-header">
+                        <h3 id="equipmentSectionTitle">Canopies</h3>
+                        <div class="header-buttons">
+                            <button id="addHarnessBtn" class="btn-secondary" style="display:none;">Add Harness</button>
+                            <button id="addCanopyBtn" class="btn-primary">Add Canopy</button>
+                            <button id="addLocationBtn" class="btn-secondary" style="display:none;">Add Location</button>
+                        </div>
+                    </div>
+                    
+                    <div id="equipmentList" class="equipment-list">
+                        <p class="no-items">Loading...</p>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Statistics View -->
+            <div id="statsView" class="view" style="display: none;">
+                <section class="statistics">
+                    <h2>Jump Statistics</h2>
+                    <p id="jumpsYearSummary" class="jumps-year-summary statistics-year-summary" hidden></p>
+                    <div id="statsContent">
+                        <p class="no-items">Loading...</p>
+                    </div>
+                </section>
+            </div>
+
+            <!-- Flysight Track Analysis View -->
+            <div id="flysightView" class="view" style="display: none;">
+                <section class="flysight-section">
+                    <div class="flysight-header">
+                        <h2>GGswoop</h2>
+                        <button type="button" id="flysightLocationMapBtn" class="flysight-location-map-btn" title="Location map — uses GPS when no track is imported">Location map</button>
+                        <button type="button" id="flysightSettingsBtn" class="flysight-settings-btn" title="Flysight settings" aria-label="Flysight settings">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/>
+                                <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="flysight-controls">
+                        <div class="flysight-speed-mode">
+                            <span class="flysight-avg-label">Speed metric</span>
+                            <div class="flysight-speed-toggle" role="group" aria-label="Speed metric">
+                                <button type="button" id="flysightSpeedVertical" class="flysight-speed-btn is-active" aria-pressed="true">Vertical</button>
+                                <button type="button" id="flysightSpeedTotal" class="flysight-speed-btn" aria-pressed="false">Total</button>
+                                <button type="button" id="flysightSpeedBoth" class="flysight-speed-btn" aria-pressed="false">Both</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flysight-import-pair">
+                        <div id="flysightDropZone" class="flysight-drop-zone" tabindex="0" aria-label="Drop Flysight CSV files or folders, or tap to select files">
+                            <p class="flysight-drop-title">Drop CSV files or folders here, or tap to select files.</p>
+                            <input type="file" id="flysightFileInput" accept=".csv,text/csv" multiple hidden>
+                            <input type="file" id="flysightDirInput" accept=".csv,text/csv" webkitdirectory directory multiple hidden>
+                        </div>
+                        <button type="button" id="flysightImportDirsBtn" class="flysight-import-dirs-btn">Import whole Directories</button>
+                    </div>
+                    <div id="flysightResults" class="flysight-results">
+                        <p class="no-items flysight-empty">No files analyzed yet.</p>
+                    </div>
+                </section>
+            </div>
+
+            <!-- TODOs / grocery-style checklist -->
+            <div id="todosView" class="view" style="display: none;">
+                <section class="todos-section">
+                    <div class="todos-header">
+                        <div id="todoCategoryBar" class="todo-category-bar" role="tablist" aria-label="TODO labels"></div>
+                        <button type="button" id="addTodoBtn" class="todo-add-btn" title="Add item" aria-label="Add item">+</button>
+                    </div>
+                    <form id="todoAddForm" class="todo-add-form" hidden>
+                        <input type="text" id="todoAddInput" maxlength="200" placeholder="Add an item…" autocomplete="off" enterkeyhint="done" autocapitalize="sentences" autocorrect="on">
+                    </form>
+                    <div id="todosList" class="todos-list"></div>
+                </section>
+            </div>
+        </main>
+
+        <!-- Lineset Modal -->
+        <div id="linesetModal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="window.logbook.closeLinesetModal()">&times;</span>
+                <h2 id="linesetModalTitle">Add Lineset</h2>
+                <form id="linesetForm">
+                    <input type="hidden" id="linesetCanopyId">
+                    <input type="hidden" id="linesetEditNumber">
+                    <div class="form-group">
+                        <label>Canopy</label>
+                        <input type="text" id="linesetCanopyName" readonly style="background:#f5f5f5;">
+                    </div>
+                    <div class="form-group">
+                        <label for="linesetNumber">Lineset #</label>
+                        <input type="number" id="linesetNumber" min="1" value="1" readonly style="background:#f5f5f5;">
+                    </div>
+                    <div class="form-group">
+                        <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-weight:normal;">
+                            <input type="checkbox" id="linesetHybridCheck" style="width:auto;"> Hybrid lineset
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label for="linesetPreviousJumps">Previous Jumps (before this app)</label>
+                        <input type="number" id="linesetPreviousJumps" value="0" required placeholder="e.g. 500 before this app, or negative to correct totals" title="Negative values subtract from the total (logged jumps + this field). Use after fixing lineset mix-ups from import.">
+                    </div>
+                    <div id="linesetStatThresholdSection">
+                        <hr style="margin: 12px 0; border: none; border-top: 1px solid #eee;">
+                        <h3 style="margin: 0 0 6px; font-size: 1rem; color: #333;">Statistics bar thresholds <span style="color:#888;font-weight:normal;font-size:12px;">(optional)</span></h3>
+                        <small style="color:#888; font-size:12px; display:block; margin-bottom:10px;">For <strong>non-hybrid</strong> linesets only: leave blank to use Settings. Hybrid lines always use the hybrid thresholds from Settings.</small>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                            <div class="form-group" style="margin:0;">
+                                <label for="linesetStatStandardOrange">Normal — orange</label>
+                                <input type="number" id="linesetStatStandardOrange" min="1">
+                            </div>
+                            <div class="form-group" style="margin:0;">
+                                <label for="linesetStatStandardRed">Normal — red</label>
+                                <input type="number" id="linesetStatStandardRed" min="1">
+                            </div>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary">Save Lineset</button>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Component Modal -->
+        <div id="componentModal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="window.logbook.closeComponentModal()">&times;</span>
+                <h2 id="componentModalTitle">Add Component</h2>
+                <form id="componentForm">
+                    <input type="hidden" id="componentId">
+                    <input type="hidden" id="componentType">
+                    <div class="form-group">
+                        <label for="componentName">Component Name</label>
+                        <input type="text" id="componentName" required placeholder="e.g., Petra 62">
+                    </div>
+                    <div class="form-group">
+                        <label for="componentNotes">Notes <span style="color:#888;font-weight:normal;">(optional)</span></label>
+                        <input type="text" id="componentNotes" placeholder="e.g. serial number, DOM, colour, remarks…">
+                    </div>
+                    <div id="harnessPreAppSection" style="display:none; border-top: 1px solid #eee; padding-top: 1rem; margin-top: 0.5rem;">
+                        <div class="form-group">
+                            <label for="harnessPreviousJumps">Previous jumps (before this app)</label>
+                            <input type="number" id="harnessPreviousJumps" value="0" placeholder="e.g. jumps on this harness before logging here" title="Negative values subtract from the total (logged jumps + this field). Use to correct harness totals after mix-ups or import.">
+                        </div>
+                    </div>
+                    <div id="canopyPreAppSection" style="display:none; border-top: 1px solid #eee; padding-top: 1rem; margin-top: 0.5rem;">
+                        <div class="form-group">
+                            <label for="canopyPreviousJumps">Previous jumps on this Canopy</label>
+                            <input type="number" id="canopyPreviousJumps" value="0" placeholder="e.g. jumps on this canopy before logging here" title="Negative values subtract from the total (logged jumps + this field). Use to correct canopy totals after mix-ups or import.">
+                        </div>
+                    </div>
+                    <div id="canopyHarnessSection" style="display:none; border-top: 1px solid #eee; padding-top: 1rem; margin-top: 0.5rem;">
+                        <div class="form-group">
+                            <label for="canopyHarnessSelect">Harness <span style="color:#888;font-weight:normal;">(optional — jump log stores harness per jump from this assignment)</span></label>
+                            <select id="canopyHarnessSelect">
+                                <option value="">— None —</option>
+                            </select>
+                        </div>
+                        <div id="canopyHarnessBackfillWrap" class="form-group" style="display:none;">
+                            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:normal;">
+                                <input type="checkbox" id="canopyHarnessBackfillCheck" style="width:auto;">
+                                Apply harness to all existing logbook jumps on this canopy (only use when this canopy was always on this harness)
+                            </label>
+                        </div>
+                    </div>
+                    <div id="locationCoordsSection" class="form-group location-coords-section" style="display:none;">
+                        <label>GPS Coordinates <span style="color:#888;font-weight:normal;">(optional — overrides auto-geocoding)</span></label>
+                        <div class="coords-input-row">
+                            <input type="number" id="componentLat" step="any" min="-90" max="90" placeholder="Latitude">
+                            <input type="number" id="componentLng" step="any" min="-180" max="180" placeholder="Longitude">
+                        </div>
+                        <div class="coords-action-row">
+                            <button type="button" id="useCurrentLocationBtn" class="btn-secondary use-current-location-btn">📍 Use current GPS position</button>
+                            <button type="button" id="viewLocationMapBtn" class="btn-secondary view-location-map-btn">🗺 View on map</button>
+                        </div>
+                        <small id="coordsHint" class="coords-hint"></small>
+                        <small id="locationGatesSummary" class="coords-hint location-gates-summary"></small>
+                    </div>
+                    <div id="canopyLinesetSection" style="display:none; border-top: 1px solid #eee; padding-top: 1rem; margin-top: 0.5rem;">
+                        <p style="font-weight: 600; color: #333; margin-bottom: 0.75rem;">Lineset #1</p>
+                        <div class="form-group">
+                            <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-weight:normal;">
+                                <input type="checkbox" id="newCanopyHybridCheck" style="width:auto;"> Hybrid lineset
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="newCanopyPreviousJumps">Previous jumps on this lineset</label>
+                            <input type="number" id="newCanopyPreviousJumps" min="0" value="0" placeholder="e.g. 500 jumps on this lineset before logging">
+                        </div>
+                        <div id="newCanopyStatThresholdSection">
+                            <hr style="margin: 12px 0; border: none; border-top: 1px solid #eee;">
+                            <h3 style="margin: 0 0 6px; font-size: 1rem; color: #333;">Statistics bar thresholds <span style="color:#888;font-weight:normal;font-size:12px;">(optional)</span></h3>
+                            <small style="color:#888; font-size:12px; display:block; margin-bottom:10px;">For <strong>non-hybrid</strong> linesets only. Hybrid uses Settings.</small>
+                            <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                                <div class="form-group" style="margin:0;">
+                                    <label for="newCanopyStatStandardOrange">Normal — orange</label>
+                                    <input type="number" id="newCanopyStatStandardOrange" min="1">
+                                </div>
+                                <div class="form-group" style="margin:0;">
+                                    <label for="newCanopyStatStandardRed">Normal — red</label>
+                                    <input type="number" id="newCanopyStatStandardRed" min="1">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary">Save Component</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div id="settingsModal" class="modal">
+            <div class="modal-content settings-modal-content">
+                <span class="close" id="settingsClose">&times;</span>
+                <h2>Settings</h2>
+                <div class="form-group">
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:normal;">
+                        <input type="checkbox" id="settingsResequenceJumpsCheckbox" style="width:auto;">
+                        Use starting jump number (renumber all jumps chronologically from this number, use with caution!)
+                    </label>
+                    <small style="color:#888; font-size:12px; display:block; margin-top:4px;">When off, jump #s stay exactly as stored (for example after a JSON import). New jumps use the next number after the highest in the log.</small>
+                </div>
+                <div class="form-group" id="startingJumpNumberRow">
+                    <label for="startingJumpNumber" id="startingJumpNumberLabel">Starting Jump Number</label>
+                    <input type="number" id="startingJumpNumber" min="1" placeholder="Enter your starting jump number">
+                </div>
+                <div class="form-group">
+                    <label for="recentJumpsDays">Recent jumps cutoff (days)</label>
+                    <input type="number" id="recentJumpsDays" min="0" placeholder="e.g. 15">
+                    <small style="color:#888; font-size:12px;">Jumps within this many days are shown individually/per day; older jumps are grouped by month. Set to 0 to always group.</small>
+                </div>
+                <div class="form-group">
+                    <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:normal;">
+                        <input type="checkbox" id="recentJumpsGroupByMonthSettings" style="width:auto;">
+                        Group recent jumps by month (collapsible blocks, same as older history)
+                    </label>
+                    <small style="color:#888; font-size:12px;">Only applies when the recent cutoff is greater than 0. You can also toggle this next to the jump list.</small>
+                </div>
+
+                <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
+                <h3 style="margin-bottom: 8px;">Statistics Bar Thresholds</h3>
+                <small style="color:#888; font-size:12px; display:block; margin-bottom:12px;">Jump counts at which the equipment progress bar turns orange or red. Red should be higher than orange.</small>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                    <div class="form-group" style="margin:0;">
+                        <label for="standardOrangeThreshold">Normal—orange</label>
+                        <input type="number" id="standardOrangeThreshold" min="1" placeholder="e.g. 140">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="standardRedThreshold">Normal — red</label>
+                        <input type="number" id="standardRedThreshold" min="1" placeholder="e.g. 175">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="hybridOrangeThreshold">Hybrid — orange</label>
+                        <input type="number" id="hybridOrangeThreshold" min="1" placeholder="e.g. 60">
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label for="hybridRedThreshold">Hybrid — red</label>
+                        <input type="number" id="hybridRedThreshold" min="1" placeholder="e.g. 80">
+                    </div>
+                </div>
+
+                <!-- <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
+                <h3 style="margin-bottom: 8px;">Jump log storage</h3>
+                <p style="color:#666; font-size:13px; margin:0 0 10px 0; line-height:1.45;">
+                    If jumps vanished from the list or edits felt wrong, duplicate <strong>internal</strong> jump IDs may exist (this app’s per-device key, not your jump # or Google Sheet row id).
+                    This assigns new safe internal IDs and does not change jump numbers, dates, notes, or existing <code>jumpId</code> values used for sync.
+                </p>
+                <button type="button" id="repairJumpLocalIdsBtn" class="btn-secondary" style="width:100%;">Repair duplicate / missing jump IDs</button> -->
+
+                <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
+                <h3 style="margin-bottom: 8px;">Main navigation</h3>
+                    <small style="color:#888; font-size:12px; display:block; margin-bottom:10px;">Choose which tabs appear at the top. The app opens on the start tab, or on a tab from the URL such as ?landing=flysight (also jumps, equipment, stats, todos). At least one tab must stay on — for a TODOs-only home screen, leave only TODOs checked.</small>
+                <div id="navVisibilityOptions" class="nav-visibility-options">
+                    <label><input type="checkbox" class="nav-visibility-chk" value="jumps"> Jumps</label>
+                    <label><input type="checkbox" class="nav-visibility-chk" value="equipment"> Equipment</label>
+                    <label><input type="checkbox" class="nav-visibility-chk" value="stats"> Statistics</label>
+                    <label><input type="checkbox" class="nav-visibility-chk" value="flysight"> GGswoop</label>
+                    <label><input type="checkbox" class="nav-visibility-chk" value="todos"> TODOs</label>
+                </div>
+                <div class="form-group">
+                    <label for="settingsStartView">Open the app on</label>
+                    <select id="settingsStartView"></select>
+                </div>
+
+                <button id="saveSettings" class="btn-primary" style="margin-top:16px;">Save Settings</button>
+
+                <!-- <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
+                <button id="resetAppBtn" class="btn-danger" style="width:100%; display:none;">Erase All / Reset App</button> -->
+
+                <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
+                <button id="googleSheetsIntegrationBtn" class="btn-secondary" style="width:100%; padding:16px; font-size:18px; font-weight:600;">Google Sheet Integration</button>
+
+                <div class="settings-cache-reset-row">
+                    <p id="settingsCacheVersion" class="settings-cache-version"></p>
+                    <button type="button" id="resetDbBtn" class="btn-secondary reset-db-settings-btn">Reset DB</button>
+                </div>
+
+                <div id="devGatesSeedSection" class="dev-gates-seed-section" hidden>
+                    <hr style="margin: 16px 0; border: none; border-top: 1px solid #ddd;">
+                    <h3 style="margin-bottom: 8px;">Developer (localhost)</h3>
+                    <p style="color:#666; font-size:13px; margin:0 0 10px 0; line-height:1.45;">
+                        Export saved location gates as <code>js/location-gates-seed.js</code> content. Save each location after editing gates on the map, then export and replace that file in the repo.
+                    </p>
+                    <button type="button" id="exportGatesSeedBtn" class="btn-secondary" style="width:100%;">Export gates seed…</button>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Dev: gates seed export (localhost only) -->
+        <div id="gatesSeedExportModal" class="modal gates-seed-export-modal">
+            <div class="modal-content gates-seed-export-content">
+                <span class="close" id="gatesSeedExportClose">&times;</span>
+                <h2>Gates seed export</h2>
+                <p class="gates-seed-export-hint">Copy into <code>js/location-gates-seed.js</code> and commit. Locations without saved gates are omitted.</p>
+                <textarea id="gatesSeedExportText" class="gates-seed-export-text" readonly spellcheck="false"></textarea>
+                <div class="gates-seed-export-actions">
+                    <button type="button" id="gatesSeedExportCopyBtn" class="btn-primary">Copy to clipboard</button>
+                    <button type="button" id="gatesSeedExportDoneBtn" class="btn-secondary">Close</button>
+                </div>
+            </div>
+        </div>
+
+
+
+        <!-- Google Sheets Integration Modal (OAuth) -->
+        <div id="sheetsModal" class="modal">
+            <div class="modal-content">
+                <span class="close" id="sheetsClose">&times;</span>
+                <h2>Google Sheet Integration</h2>
+                <p id="sheetsConfigStatus" style="font-size: 13px; margin-bottom: 10px; color: #666;"></p>
+
+                <!-- Signed-out state -->
+                <div id="oauthSignedOut">
+                    <!-- Client ID field: only shown for self-hosters (hidden when OAUTH_CLIENT_ID is set) -->
+                    <div class="form-group" id="oauthClientIdGroup" style="display:none;">
+                        <label for="cfgOAuthClientId">OAuth Client ID</label>
+                        <input type="text" id="cfgOAuthClientId" placeholder="123456789.apps.googleusercontent.com" autocomplete="off">
+                        <small style="color:#888; font-size:11px;">Self-hosted: set your own Client ID from Google Cloud Console</small>
+                    </div>
+                    <button id="googleSignInBtn" class="btn-primary" style="width:100%; margin-top:8px;">Sign in with Google</button>
+                </div>
+
+                <!-- Signed-in state -->
+                <div id="oauthSignedIn" style="display:none;">
+                    <div style="background:#f5f5f5; border-radius:8px; padding:12px; margin-bottom:12px;">
+                        <div style="font-weight:600;" id="oauthUserEmail"></div>
+                        <div style="font-size:12px; color:#888; margin-top:4px;">Spreadsheet: <a id="oauthSheetLink" href="#" target="_blank" rel="noopener" style="color:#1976D2;">Open in Google Sheets</a></div>
+                    </div>
+                    <button id="googleSignOutBtn" class="btn-secondary" style="width:100%;">Sign out &amp; disconnect</button>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Reset local DB: confirm before clearing storage -->
+        <div id="resetDbConfirmModal" class="modal">
+            <div class="modal-content reset-db-confirm-modal-content">
+                <h3 style="margin-top:0;">Reset local data?</h3>
+                <p class="reset-db-confirm-warning">This will first turn off Google Sheets sync, then permanently remove <strong>everything</strong> this app keeps in your browser's <strong>localStorage</strong> (settings, sync state, and all other saved keys), along with the local jump/equipment database stored in this browser. This cannot be undone.</p>
+                <div class="reset-db-confirm-actions">
+                    <button type="button" id="resetDbConfirmCancel" class="btn-secondary reset-db-btn-cancel">Cancel</button>
+                    <button type="button" id="resetDbConfirmProceed" class="btn-danger reset-db-btn-proceed">Proceed</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Conflict Resolution Modal -->
+        <div id="conflictModal" class="modal">
+            <div class="modal-content conflict-modal-content">
+                <h2>⚠️ Sync conflict</h2>
+                <p id="syncConflictIntro" class="sync-conflict-intro">
+                    This device and Google Sheets both have changes since the last sync. Choose whether to keep your local logbook (overwriting the sheet) or merge the changes below.
+                </p>
+                <div id="syncConflictSummary" class="sync-conflict-summary"></div>
+                <div id="conflictList"></div>
+                <div class="sync-conflict-actions">
+                    <button type="button" id="syncConflictOverwriteBtn" class="btn-secondary">Use local data (overwrite sheet)</button>
+                    <button type="button" id="resolveConflictsBtn" class="btn-primary">Merge &amp; sync</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Location merge (sync conflict: local vs sheet) -->
+        <div id="locationMergeModal" class="modal">
+            <div class="modal-content location-merge-modal-content">
+                <span class="close" id="locationMergeClose">&times;</span>
+                <h2 id="locationMergeTitle">Merge location</h2>
+                <p id="locationMergeIntro" class="location-merge-intro"></p>
+                <div id="locationMergeDiff" class="location-merge-diff"></div>
+                <div id="locationMergeGatesSection" class="location-merge-gates-section" hidden>
+                    <h3>Gates to keep</h3>
+                    <p class="location-merge-gates-hint">Uncheck a gate to drop it from the merged location.</p>
+                    <div id="locationMergeGatesList" class="location-merge-gates-list"></div>
+                </div>
+                <div class="location-merge-actions">
+                    <button type="button" id="locationMergeCancelBtn" class="btn-secondary">Cancel</button>
+                    <button type="button" id="locationMergeApplyBtn" class="btn-primary">Use this merge</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Jump Note Modal -->
+        <div id="jumpNoteModal" class="modal">
+            <div class="modal-content jump-note-modal-content">
+                <span id="jumpNoteClose" class="close">&times;</span>
+                <h2>Jump Note</h2>
+                <div class="form-group notes-autocomplete">
+                    <textarea id="jumpNoteContent" class="jump-note-content jump-note-editor" rows="8" placeholder="Add your note here..." autocomplete="off"></textarea>
+                    <div id="jumpNoteContentDropdown" class="autocomplete-dropdown" role="listbox" aria-label="Previous notes"></div>
+                </div>
+                <div class="jump-note-actions">
+                    <button type="button" id="jumpNoteSave" class="btn-primary">Save Note</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit jump (date / location / canopy / note) -->
+        <div id="editJumpModal" class="modal">
+            <div class="modal-content edit-jump-modal-content">
+                <span id="editJumpClose" class="close">&times;</span>
+                <h2>Edit jump <span id="editJumpNumberLabel"></span></h2>
+                <div class="form-group">
+                    <label for="editJumpDate">Date</label>
+                    <input type="date" id="editJumpDate" required>
+                </div>
+                <div id="editJumpShiftFollowingWrap" class="form-group edit-jump-shift-following" hidden>
+                    <div class="edit-jump-shift-following-row">
+                        <label class="edit-jump-shift-following-chk-label">
+                            <input type="checkbox" id="editJumpShiftFollowingChk">
+                            <span>Also shift the next</span>
+                        </label>
+                        <input type="number" id="editJumpShiftFollowingCount" class="edit-jump-shift-following-count" min="1" step="1" value="1" title="How many chronologically following jumps to move">
+                        <span class="edit-jump-shift-following-tail">jumps by the same calendar-day change.</span>
+                    </div>
+                    <p id="editJumpShiftFollowingHint" class="edit-jump-shift-following-hint"></p>
+                </div>
+                <div class="form-group location-autocomplete">
+                    <label for="editJumpLocation">Drop zone / location</label>
+                    <input type="text" id="editJumpLocation" placeholder="e.g., Sky High DZ, California" autocomplete="on">
+                    <div id="editJumpLocationDropdown" class="autocomplete-dropdown"></div>
+                </div>
+                <div id="editJumpApplyLocationToDayWrap" class="form-group edit-jump-apply-location-day" hidden>
+                    <label class="edit-jump-apply-location-day-label">
+                        <input type="checkbox" id="editJumpApplyLocationToSameDay">
+                        <span id="editJumpApplyLocationToSameDayCaption">Also apply this location to other jumps on this day</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label for="editJumpEquipment">Canopy &amp; lineset</label>
+                    <select id="editJumpEquipment"></select>
+                </div>
+                <div class="form-group notes-autocomplete">
+                    <label for="editJumpNotes">Note</label>
+                    <textarea id="editJumpNotes" autofocus class="jump-note-editor edit-jump-notes-field" rows="4" placeholder="Optional — e.g. cutaway, coach feedback" autocomplete="off"></textarea>
+                    <div id="editJumpNotesDropdown" class="autocomplete-dropdown" role="listbox" aria-label="Previous notes"></div>
+                </div>
+                <div class="jump-note-actions edit-jump-actions">
+                    <button type="button" id="editJumpSave" class="btn-primary">Save changes</button>
+                    <button type="button" id="editJumpCancel" class="btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Notes Modal -->
+        <div id="searchNotesModal" class="modal">
+            <div class="modal-content search-notes-modal-content">
+                <span id="searchNotesClose" class="close">&times;</span>
+                <h2>Search Notes</h2>
+                <div class="search-notes-input-row">
+                    <input type="text" id="searchNotesInput" placeholder="Search jump notes..." autocomplete="off">
+                    <button type="button" id="searchNotesGoBtn" class="btn-primary">Search</button>
+                </div>
+                <div class="search-notes-shortcuts">
+                    <button type="button" id="searchNotesCutawaysBtn" class="btn-secondary">Search cutaways</button>
+                </div>
+                <div id="searchNotesResults" class="search-notes-results">
+                    <p class="search-notes-placeholder">Enter a search term to find jumps by note text.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Year jump statistics (pie charts by location & canopy) -->
+        <div id="yearStatsModal" class="modal">
+            <div class="modal-content year-stats-modal-content">
+                <span id="yearStatsClose" class="close" title="Close">&times;</span>
+                <h2 id="yearStatsHeading">Jump statistics</h2>
+                <p id="yearStatsTotalLine" class="year-stats-total"></p>
+                <div class="year-stats-pies">
+                    <div class="year-stats-pie-card">
+                        <h3>Jumps per location</h3>
+                        <div id="yearStatsLocationPie" class="year-stats-pie-root"></div>
+                    </div>
+                    <div class="year-stats-pie-card">
+                        <div class="year-stats-pie-card-head">
+                            <h3>Jumps per canopy</h3>
+                            <label class="year-stats-group-by-size">
+                                <input type="checkbox" id="yearStatsCanopyGroupBySize">
+                                Group by size
+                            </label>
+                        </div>
+                        <div id="yearStatsCanopyPie" class="year-stats-pie-root"></div>
+                    </div>
+                </div>
+                <div id="yearStatsPrevYearsWrap" class="year-stats-prev-years" hidden>
+                    <h4 class="year-stats-prev-heading">Browse by year</h4>
+                    <div id="yearStatsPrevYearsBar" class="year-stats-year-buttons"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Harness statistics: jumps per canopy (pie) -->
+        <div id="harnessCanopyPieModal" class="modal">
+            <div class="modal-content year-stats-modal-content harness-canopy-pie-modal">
+                <span id="harnessCanopyPieClose" class="close" title="Close">&times;</span>
+                <h2 id="harnessCanopyPieHeading">Harness</h2>
+                <p id="harnessCanopyPieSub" class="year-stats-total"></p>
+                <div class="year-stats-pie-card harness-canopy-pie-card">
+                    <h3>Jumps per canopy</h3>
+                    <div id="harnessCanopyPieRoot" class="year-stats-pie-root"></div>
+                </div>
+                <p id="harnessCanopyPiePreAppNote" class="harness-canopy-pie-pre-note" hidden></p>
+            </div>
+        </div>
+
+        <!-- Flysight in-app folder / CSV browser (after OS folder grant) -->
+        <div id="flysightBrowserModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="flysightBrowserTitle">
+            <div class="modal-content flysight-browser-modal-content">
+                <span id="flysightBrowserModalClose" class="close" title="Cancel">&times;</span>
+                <h2 id="flysightBrowserTitle">Select Flysight files</h2>
+                <nav id="flysightBrowserCrumbs" class="flysight-browser-crumbs" aria-label="Folder path"></nav>
+                <p id="flysightBrowserHint" class="flysight-browser-hint" hidden>
+                    This snapshot includes the whole folder you granted. You can import all or select folders or files.
+                </p>
+                <div id="flysightBrowserList" class="flysight-browser-list" role="list"></div>
+                <p id="flysightBrowserEmpty" class="flysight-browser-empty" hidden>No folders or CSV files here.</p>
+                <div class="flysight-browser-actions">
+                    <button type="button" id="flysightBrowserChangeFolderBtn" class="btn-secondary flysight-browser-change">Use a different folder</button>
+                    <button type="button" id="flysightBrowserCancelBtn" class="btn-secondary">Cancel</button>
+                    <button type="button" id="flysightBrowserImportBtn" class="btn-primary">Import folder</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Flysight analysis settings -->
+        <div id="flysightSettingsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="flysightSettingsTitle">
+            <div class="modal-content flysight-settings-modal-content">
+                <span id="flysightSettingsModalClose" class="close" title="Close">&times;</span>
+                <h2 id="flysightSettingsTitle">Flysight settings</h2>
+                <div class="form-group">
+                    <label for="flysightAvgPoints">
+                        Averaging: <span id="flysightAvgPointsValue">3</span> points<span id="flysightAvgDuration"></span>
+                    </label>
+                    <small class="flysight-settings-help">Smooths GPS speeds over this many samples (Flysight typically logs at 10 Hz). A larger window reduces noise but can slightly lower the reported peak speed. Default: 3 points.</small>
+                    <input type="range" id="flysightAvgPoints" class="flysight-avg-slider" min="1" max="20" value="3" step="1">
+                </div>
+                <div class="form-group">
+                    <label for="flysightCursorBDiveAngle">Cursor B dive-angle threshold</label>
+                    <small class="flysight-settings-help">Cursor B marks the end of the recovery arc. Starting from cursor A toward landing, one condition is the first sample whose dive angle (from horizontal) falls below this value. Set to 0 to ignore dive angle. When both this and the near-ground sample count are non-zero, B is placed only once both conditions have been met (the later of the two). Default: 5.5°.</small>
+                    <div class="flysight-settings-unit-row">
+                        <input type="number" id="flysightCursorBDiveAngle" value="5.5" min="0" max="90" step="0.5" inputmode="decimal">
+                        <span>°</span>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="flysightCursorBAltTicks">Cursor B near-ground samples</label>
+                    <small class="flysight-settings-help">Starting from cursor A toward landing in normal time order, the other condition is the x-th consecutive GPS sample whose height AGL is below 2.49 m — not the first sample that drops below 2.49 m. Set to 0 to ignore near-ground. When both this and the dive-angle threshold are non-zero, B is the later of the two. Default: 2 samples.</small>
+                    <div class="flysight-settings-unit-row">
+                        <input type="number" id="flysightCursorBAltTicks" value="2" min="0" max="100" step="1" inputmode="numeric">
+                        <span>samples</span>
+                    </div>
+                </div>
+                <button type="button" id="flysightSettingsRestoreBtn" class="flysight-settings-restore">Restore defaults</button>
+            </div>
+        </div>
+
+        <!-- Flysight dive-angle / vertical-speed graph -->
+        <div id="flysightGraphModal" class="modal" role="dialog" aria-modal="true" aria-label="Dive angle graph">
+            <div class="modal-content flysight-graph-modal-content">
+                <span id="flysightGraphModalClose" class="close" title="Close">&times;</span>
+                <h2 id="flysightGraphTitle" class="flysight-graph-title"></h2>
+                <div class="flysight-graph-stats">
+                    <div>
+                        <span class="flysight-metric-label">A-B Time</span>
+                        <span id="flysightGraphDt" class="flysight-metric-value">—</span>
+                    </div>
+                    <div>
+                        <span class="flysight-metric-label">Time aloft</span>
+                        <span id="flysightGraphTimeAloft" class="flysight-metric-value">—</span>
+                    </div>
+                    <div>
+                        <span id="flysightGraphVelLabel" class="flysight-metric-label">Vertical@A</span>
+                        <span id="flysightGraphVelA" class="flysight-metric-value">—</span>
+                    </div>
+                </div>
+                <div class="flysight-graph-stage">
+                    <div id="flysightGraphRoot" class="flysight-graph-root"></div>
+                    <button type="button" id="flysightGraphPrev" class="flysight-graph-nav flysight-graph-nav-prev" hidden aria-label="Previous Flysight file">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M14.25 5.5 8 12l6.25 6.5"/>
+                        </svg>
+                    </button>
+                    <button type="button" id="flysightGraphNext" class="flysight-graph-nav flysight-graph-nav-next" hidden aria-label="Next Flysight file">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M9.75 5.5 16 12l-6.25 6.5"/>
+                        </svg>
+                    </button>
+                    <button type="button" id="flysightGraphResetZoom" class="flysight-graph-reset-zoom" hidden>Reset zoom</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- TODO item edit / remove (opened by long-press) -->
+        <div id="todoItemModal" class="modal">
+            <div class="modal-content todo-item-modal-content">
+                <span id="todoItemModalClose" class="close" title="Close">&times;</span>
+                <h2>Edit item</h2>
+                <form id="todoEditForm">
+                    <div class="form-group">
+                        <input type="text" id="todoEditInput" maxlength="200" required autocomplete="off" enterkeyhint="done">
+                    </div>
+                    <div class="form-group" id="todoEditCategoryGroup" hidden>
+                        <label for="todoEditCategory">Label</label>
+                        <select id="todoEditCategory"></select>
+                    </div>
+                    <div class="todo-edit-actions">
+                        <button type="submit" class="btn-primary">Save</button>
+                        <button type="button" id="todoRemoveBtn" class="btn-danger">Remove</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- TODO category add / rename / delete -->
+        <div id="todoCategoryModal" class="modal">
+            <div class="modal-content todo-item-modal-content">
+                <span id="todoCategoryModalClose" class="close" title="Close">&times;</span>
+                <h2 id="todoCategoryModalTitle">New label</h2>
+                <form id="todoCategoryForm">
+                    <div class="form-group">
+                        <input type="text" id="todoCategoryNameInput" maxlength="40" required placeholder="e.g. Groceries" autocomplete="off" enterkeyhint="done" autocapitalize="sentences">
+                    </div>
+                    <p class="todo-category-modal-hint">Long-press a label to rename or delete it.</p>
+                    <div class="todo-edit-actions">
+                        <button type="submit" class="btn-primary">Save</button>
+                        <button type="button" id="todoCategoryDeleteBtn" class="btn-danger" hidden>Delete label</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- TODO label delete: keep items vs delete items -->
+        <div id="todoCategoryDeleteConfirmModal" class="modal">
+            <div class="modal-content todo-item-modal-content">
+                <span id="todoCategoryDeleteConfirmClose" class="close" title="Close">&times;</span>
+                <h2>Delete label</h2>
+                <p id="todoCategoryDeleteConfirmMessage" class="import-choice-message"></p>
+                <div class="import-choice-buttons">
+                    <button type="button" id="todoCategoryDeleteCancelBtn" class="btn-secondary">Cancel</button>
+                    <button type="button" id="todoCategoryDeleteKeepItemsBtn" class="btn-secondary">Remove label only</button>
+                    <button type="button" id="todoCategoryDeleteItemsBtn" class="btn-danger">Delete items too</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Import choice modal -->
+        <div id="importChoiceModal" class="modal">
+            <div class="modal-content">
+                <span id="importChoiceModalClose" class="close">&times;</span>
+                <h2>Import data</h2>
+                <p id="importChoiceModalMessage" class="import-choice-message"></p>
+                <p class="import-choice-warning">If you <strong>Replace all</strong>, jumps and equipment that exist only on this device (and are not in the import file) will be removed.</p>
+                <div class="import-choice-buttons">
+                    <button type="button" id="importChoiceMergeBtn" class="btn-secondary">Merge with current data</button>
+                    <button type="button" id="importChoiceReplaceBtn" class="btn-primary">Replace all data</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- External app CSV: map each distinct equipment string to a canopy + lineset -->
+        <div id="importExternalCsvModal" class="modal">
+            <div class="modal-content import-external-csv-modal">
+                <span id="importExternalCsvModalClose" class="close" title="Cancel import">&times;</span>
+                <h2>Import external logbook (CSV)</h2>
+                <p id="importExternalCsvIntro" class="import-external-csv-intro"></p>
+                <p id="importExternalCsvEquipProgress" class="import-external-csv-progress"></p>
+                <p class="import-external-csv-raw"><strong>Equipment (from file):</strong> <code id="importExternalCsvEquipRaw"></code></p>
+                <p id="importExternalCsvEquipParsed" class="import-external-csv-parsed"></p>
+                <fieldset class="import-external-csv-fieldset">
+                    <legend>Map to canopy</legend>
+                    <div id="importExternalCsvRadioList" class="import-external-csv-radios"></div>
+                </fieldset>
+                <div id="importExternalCsvNewWrap" class="import-external-csv-new-wrap">
+                    <label for="importExternalCsvNewCanopyName">New canopy name (edit before creating)</label>
+                    <input type="text" id="importExternalCsvNewCanopyName" class="import-external-csv-name-input" autocomplete="off">
+                </div>
+                <div class="import-choice-buttons">
+                    <button type="button" id="importExternalCsvCancelBtn" class="btn-secondary">Cancel import</button>
+                    <button type="button" id="importExternalCsvNextBtn" class="btn-primary">Next</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Export: download vs share -->
+        <div id="exportChoiceModal" class="modal">
+            <div class="modal-content">
+                <span id="exportChoiceModalClose" class="close">&times;</span>
+                <h2>Export data</h2>
+                <p class="import-choice-message">Download a backup file to this device, or share it (for example via Gmail or Drive).</p>
+                <div class="import-choice-buttons">
+                    <button type="button" id="exportChoiceDownloadBtn" class="btn-secondary">Download</button>
+                    <button type="button" id="exportChoiceShareBtn" class="btn-primary">Share</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- After external CSV import: fill missing jump # range below imported block -->
+        <div id="importCsvGapFillModal" class="modal">
+            <div class="modal-content import-gap-fill-modal">
+                <span id="importCsvGapFillClose" class="close" title="Skip">&times;</span>
+                <h2>Fill jump number gap</h2>
+                <p id="importCsvGapFillExplain" class="import-gap-fill-explain"></p>
+                <p class="import-gap-fill-default-date-wrap">
+                    <label for="importCsvGapFillDefaultDate">Default date (used when a segment date is empty)</label>
+                    <input type="date" id="importCsvGapFillDefaultDate" class="import-gap-fill-default-date">
+                </p>
+                <div id="importCsvGapFillSegments" class="import-gap-fill-segments"></div>
+                <p><button type="button" id="importCsvGapFillAddRow" class="btn-secondary">Add segment</button></p>
+                <p id="importCsvGapFillTotalLine" class="import-gap-fill-total"></p>
+                <div class="import-choice-buttons">
+                    <button type="button" id="importCsvGapFillSkip" class="btn-secondary">Skip</button>
+                    <button type="button" id="importCsvGapFillApply" class="btn-primary" disabled>Fill gap</button>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- Location map modal -->
+        <div id="locationMapModal" class="modal location-map-modal">
+            <div class="modal-content location-map-modal-content">
+                <div class="location-map-header">
+                    <h2>Location map</h2>
+                    <span class="close" id="locationMapClose">&times;</span>
+                </div>
+                <p id="locationMapError" class="location-map-error" style="display:none;"></p>
+                <div class="location-map-hud-row">
+                    <div id="locationMapHud" class="location-map-hud">Loading map…</div>
+                    <button type="button" id="locationMapCenterUserBtn" class="location-map-center-user-btn" title="Center map on your location" aria-label="Center map on your location" disabled>
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 21s7-4.35 7-11a7 7 0 10-14 0c0 6.65 7 11 7 11z"/>
+                            <circle cx="12" cy="10" r="2.5" fill="none" stroke="currentColor" stroke-width="2"/>
+                        </svg>
+                    </button>
+                </div>
+                <div id="locationMapCanvas" class="location-map-canvas"></div>
+                <div class="location-map-toolbar">
+                    <div class="location-map-toolbar-start">
+                        <button type="button" id="locationMapAddGateBtn" class="btn-secondary">Add gate</button>
+                    </div>
+                    <div class="location-map-toolbar-center">
+                        <button type="button" id="locationMapResetGatesBtn" class="btn-secondary" hidden>Reset to default</button>
+                    </div>
+                    <div class="location-map-toolbar-end">
+                        <label id="locationMapEditWrap" class="location-map-edit-toggle" hidden>
+                            <input type="checkbox" id="locationMapEditCheckbox">
+                            Edit
+                        </label>
+                        <button type="button" id="locationMapDone" class="btn-primary">Done</button>
+                    </div>
+                </div>
+                <div id="locationMapGatePanel" class="location-map-gate-panel" style="display:none;">
+                    <label for="locationMapGateLabel">Selected gate</label>
+                    <input type="text" id="locationMapGateLabel" placeholder="Gate name">
+                    <button type="button" id="locationMapDeleteGateBtn" class="btn-danger location-map-delete-gate">Delete gate</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer>
+            <button id="settingsBtn" class="btn-secondary">Settings</button>
+            <button id="importBtn" class="btn-secondary">Import Data</button>
+            <button id="exportBtn" class="btn-secondary">Export Data</button>
+            <input type="file" id="importFileInput" accept="application/json,.json,text/csv,.csv" style="display:none;">
+        </footer>
+    </div>
+
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="js/cache-version.js"></script>
+    <script src="js/db.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/external-csv-import.js"></script>
+    <script src="config/google-maps.js"></script>
+    <script src="js/location-gates-seed.js"></script>
+    <script src="js/location-gates-util.js"></script>
+    <script src="js/location-map.js"></script>
+    <script src="js/flysight.js"></script>
+    <script src="js/app.js"></script>
+    <script src="js/sheets.js"></script>
+
+    <!-- Storage Access (Safari/iOS): shown when IndexedDB is blocked -->
+    <div id="storageAccessBanner" style="display:none; position:fixed; top:0; left:0; right:0;
+        background:#e65100; color:#fff; padding:12px 16px; z-index:9999;
+        align-items:center; justify-content:space-between; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,0.2); flex-wrap:wrap; gap:8px;">
+        <span>Data is not being saved. Tap the button below to enable storage for this site.</span>
+        <button type="button" id="storageAccessBtn" style="background:#fff; color:#e65100; border:none;
+            padding:8px 16px; border-radius:4px; font-weight:bold; cursor:pointer; white-space:nowrap;">Enable storage</button>
+    </div>
+
+    <!-- PWA Install Prompt -->
+    <div id="installBanner" style="display:none; position:fixed; bottom:0; left:0; right:0;
+        background:#1976D2; color:#fff; padding:12px 16px; z-index:9999;
+        display:none; align-items:center; justify-content:space-between; font-size:14px;">
+        <span>📲 Install this app for offline use!</span>
+        <span>
+            <button id="installBtn" style="background:#fff; color:#1976D2; border:none;
+                padding:6px 14px; border-radius:4px; font-weight:bold; cursor:pointer; margin-right:8px;">Install</button>
+            <button id="dismissInstall" style="background:transparent; color:#fff; border:1px solid #fff;
+                padding:6px 10px; border-radius:4px; cursor:pointer;">✕</button>
+        </span>
+    </div>
+    <script>
+        // Capture the beforeinstallprompt event (Android / desktop Chrome)
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            // Only show if user hasn't dismissed before
+            if (!localStorage.getItem('installDismissed')) {
+                document.getElementById('installBanner').style.display = 'flex';
+            }
+        });
+        document.getElementById('installBtn').addEventListener('click', () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(() => {
+                    deferredPrompt = null;
+                    document.getElementById('installBanner').style.display = 'none';
+                });
+            }
+        });
+        document.getElementById('dismissInstall').addEventListener('click', () => {
+            document.getElementById('installBanner').style.display = 'none';
+            localStorage.setItem('installDismissed', '1');
+        });
+    </script>
+    <footer class="legal-footer">
+        <a href="privacy-policy.html" title="Privacy Policy and Terms of Service">Privacy</a>
+        <span id="footerCacheVersion" class="footer-cache-version" aria-label="Cache version"></span>
+    </footer>
+    <script>
+        const footerCacheVersionEl = document.getElementById('footerCacheVersion');
+        if (footerCacheVersionEl && typeof CACHE_VERSION !== 'undefined') {
+            footerCacheVersionEl.textContent = `Cache v${CACHE_VERSION}`;
+        }
+    </script>
+</body>
+</html>
