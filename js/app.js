@@ -140,6 +140,12 @@ class SkydivingLogbook {
         this.editJumpLocationAtOpen = null;
         /** Working copy of gates while location component modal is open. */
         this._componentGatesDraft = [];
+        /** Sync conflict: custom merged location by conflict item id (`location:…`). */
+        this._locationSyncMergeOverrides = Object.create(null);
+        /** Location ids for which gate-deletion was already confirmed on the merge page. */
+        this._locationMergeGateConfirmIds = new Set();
+        /** Active location merge conflict item while modal is open. */
+        this._pendingLocationMergeItem = null;
         /** `YYYY-MM-DD` when edit jump modal was opened (for bulk date-shift option). */
         this.editJumpDateAtOpen = null;
         this._olderJumpsCache = []; // cached older jumps for lazy rendering
@@ -597,6 +603,10 @@ class SkydivingLogbook {
             this.applySyncConflictMerge();
         });
 
+        document.getElementById('locationMergeClose')?.addEventListener('click', () => this.closeLocationSyncMergeModal());
+        document.getElementById('locationMergeCancelBtn')?.addEventListener('click', () => this.closeLocationSyncMergeModal());
+        document.getElementById('locationMergeApplyBtn')?.addEventListener('click', () => this.applyLocationSyncMergeFromModal());
+
         document.getElementById('importExternalCsvCancelBtn')?.addEventListener('click', () => {
             this._rejectExternalCsvEquipmentStep?.();
         });
@@ -714,6 +724,10 @@ class SkydivingLogbook {
             const conflictModal = document.getElementById('conflictModal');
             if (e.target === conflictModal && window.SheetsAPI?._syncConflictPending) {
                 // Keep modal open until the user resolves the conflict.
+            }
+            const locationMergeModal = document.getElementById('locationMergeModal');
+            if (e.target === locationMergeModal) {
+                this.closeLocationSyncMergeModal();
             }
             const importExternalCsvModal = document.getElementById('importExternalCsvModal');
             if (e.target === importExternalCsvModal) {
@@ -8862,6 +8876,24 @@ class SkydivingLogbook {
                 });
             });
             wrap.appendChild(options);
+            if (item.equipmentKind === 'location') {
+                if (this._locationSyncMergeOverrides[item.id]) {
+                    wrap.classList.add('conflict-item-location-merged');
+                    const badge = document.createElement('div');
+                    badge.className = 'conflict-detail-merged-badge';
+                    badge.textContent = 'Custom location merge selected (overrides Sheet / This device above)';
+                    wrap.appendChild(badge);
+                }
+                const mergeBtn = document.createElement('button');
+                mergeBtn.type = 'button';
+                mergeBtn.className = 'btn-secondary location-sync-merge-btn';
+                mergeBtn.dataset.conflictId = item.id;
+                mergeBtn.textContent = this._locationSyncMergeOverrides[item.id]
+                    ? 'Edit location merge…'
+                    : 'Review location merge…';
+                mergeBtn.addEventListener('click', () => this.openLocationSyncMergeModal(item.id));
+                wrap.appendChild(mergeBtn);
+            }
         } else if (item.type === 'deleted_on_local') {
             const options = document.createElement('div');
             options.className = 'conflict-options';
@@ -8988,11 +9020,17 @@ class SkydivingLogbook {
                     <div class="conflict-detail">${linesets} lineset(s)</div>
                 `;
             }
-            case 'location':
+            case 'location': {
+                const gateCount = Array.isArray(entity.gates) ? entity.gates.length : 0;
+                const gateLine = gateCount
+                    ? `${gateCount} gate${gateCount === 1 ? '' : 's'}: ${entity.gates.map((g) => esc(g.label || 'Gate')).join(', ')}`
+                    : 'No gates';
                 return `
                     <div class="conflict-detail">${esc(entity.name)}</div>
                     <div class="conflict-detail">${entity.lat != null && entity.lng != null ? `${entity.lat}, ${entity.lng}` : 'No coordinates'}</div>
+                    <div class="conflict-detail">${gateLine}</div>
                 `;
+            }
             case 'settings':
                 return `
                     <div class="conflict-detail">Starting jump #${entity.startingJumpNumber ?? 1}</div>
@@ -9047,7 +9085,172 @@ class SkydivingLogbook {
                 }
             }
         });
+        for (const [conflictId, loc] of Object.entries(this._locationSyncMergeOverrides || {})) {
+            if (loc) selections[`${conflictId}:merged`] = loc;
+        }
         return selections;
+    }
+
+    _locationCoordSummary(loc) {
+        if (!loc || loc.lat == null || loc.lng == null) return 'No coordinates';
+        return `${loc.lat}, ${loc.lng}`;
+    }
+
+    _confirmSyncMergeLocationGateDeletions(warnings) {
+        if (!warnings?.length) return true;
+        const total = warnings.reduce((n, w) => n + (w.removedGates?.length || 0), 0);
+        const lines = warnings.map((w) => {
+            const names = (w.removedGates || []).map((g) => g.label || 'Gate').join(', ');
+            return `• ${w.locationName}: ${names}`;
+        });
+        const msg = `This merge will remove ${total} gate${total === 1 ? '' : 's'} that exist on this device or the sheet:\n\n${lines.join('\n')}\n\nContinue anyway?`;
+        return confirm(msg);
+    }
+
+    openLocationSyncMergeModal(conflictId) {
+        const conflict = this._pendingSyncConflict || window.SheetsAPI?._pendingConflict;
+        const item = conflict?.equipmentItems?.find((i) => i.id === conflictId);
+        if (!item || item.equipmentKind !== 'location' || item.type !== 'modified') return;
+
+        const U = window.LocationGatesUtil;
+        if (!U) return;
+
+        this._pendingLocationMergeItem = item;
+        const local = item.local || {};
+        const sheet = item.sheet || {};
+        const existing = this._locationSyncMergeOverrides[item.id];
+        const union = U.gatesUnion(local.gates, sheet.gates);
+
+        const titleEl = document.getElementById('locationMergeTitle');
+        const introEl = document.getElementById('locationMergeIntro');
+        const diffEl = document.getElementById('locationMergeDiff');
+        const gatesSection = document.getElementById('locationMergeGatesSection');
+        const gatesList = document.getElementById('locationMergeGatesList');
+        if (!diffEl || !gatesList) return;
+
+        const name = local.name || sheet.name || item.entityId;
+        if (titleEl) titleEl.textContent = `Merge location — ${name}`;
+        if (introEl) {
+            introEl.textContent = 'Choose which name, coordinates, and gates to keep. Unchecking a gate removes it from the merged location.';
+        }
+
+        const esc = (s) => String(s ?? '').replace(/</g, '&lt;');
+        const namePick = existing
+            ? (existing.name === local.name ? 'local' : 'sheet')
+            : 'sheet';
+        const coordPick = existing
+            ? (existing.lat === local.lat && existing.lng === local.lng ? 'local' : 'sheet')
+            : 'sheet';
+
+        diffEl.innerHTML = `
+            <div class="location-merge-diff-row">
+                <span>Name</span>
+                <label class="location-merge-choice"><input type="radio" name="locationMergeName" value="local" ${namePick === 'local' ? 'checked' : ''}> ${esc(local.name)}</label>
+                <label class="location-merge-choice"><input type="radio" name="locationMergeName" value="sheet" ${namePick === 'sheet' ? 'checked' : ''}> ${esc(sheet.name)}</label>
+            </div>
+            <div class="location-merge-diff-row">
+                <span>Coords</span>
+                <label class="location-merge-choice"><input type="radio" name="locationMergeCoords" value="local" ${coordPick === 'local' ? 'checked' : ''}> ${esc(this._locationCoordSummary(local))}</label>
+                <label class="location-merge-choice"><input type="radio" name="locationMergeCoords" value="sheet" ${coordPick === 'sheet' ? 'checked' : ''}> ${esc(this._locationCoordSummary(sheet))}</label>
+            </div>
+        `;
+
+        gatesList.innerHTML = '';
+        if (union.length) {
+            gatesSection.hidden = false;
+            const kept = existing?.gates || union;
+            union.forEach((gate, idx) => {
+                const row = document.createElement('label');
+                row.className = 'location-merge-gate-row';
+                const checked = kept.some((g) => U.gateMatches(g, gate));
+                const onLocal = (local.gates || []).some((g) => U.gateMatches(g, gate));
+                const onSheet = (sheet.gates || []).some((g) => U.gateMatches(g, gate));
+                const side = onLocal && onSheet ? 'both' : (onLocal ? 'device' : 'sheet');
+                row.innerHTML = `
+                    <input type="checkbox" data-gate-idx="${idx}" ${checked ? 'checked' : ''}>
+                    <span>${esc(gate.label || 'Gate')}</span>
+                    <span class="gate-side-tag">${side}</span>
+                `;
+                gatesList.appendChild(row);
+            });
+        } else {
+            gatesSection.hidden = true;
+        }
+
+        this._locationMergeUnionGates = union;
+        const modal = document.getElementById('locationMergeModal');
+        if (modal) modal.style.display = 'block';
+    }
+
+    closeLocationSyncMergeModal() {
+        const modal = document.getElementById('locationMergeModal');
+        if (modal) modal.style.display = 'none';
+        this._pendingLocationMergeItem = null;
+        this._locationMergeUnionGates = null;
+    }
+
+    _buildLocationSyncMergeFromModal() {
+        const item = this._pendingLocationMergeItem;
+        const U = window.LocationGatesUtil;
+        if (!item || !U) return null;
+
+        const local = item.local || {};
+        const sheet = item.sheet || {};
+        const nameSide = document.querySelector('input[name="locationMergeName"]:checked')?.value || 'sheet';
+        const coordSide = document.querySelector('input[name="locationMergeCoords"]:checked')?.value || 'sheet';
+        const nameSource = nameSide === 'local' ? local : sheet;
+        const coordSource = coordSide === 'local' ? local : sheet;
+
+        const union = this._locationMergeUnionGates || U.gatesUnion(local.gates, sheet.gates);
+        const gates = [];
+        union.forEach((gate, idx) => {
+            const chk = document.querySelector(`#locationMergeGatesList input[data-gate-idx="${idx}"]`);
+            if (chk?.checked) gates.push(U.cloneGate(gate));
+        });
+
+        const merged = {
+            ...local,
+            ...sheet,
+            id: local.id || sheet.id || item.entityId,
+            name: nameSource.name || local.name || sheet.name,
+            notes: local.notes ?? sheet.notes,
+            sortOrder: local.sortOrder ?? sheet.sortOrder,
+            archived: local.archived ?? sheet.archived,
+            lat: coordSource.lat ?? null,
+            lng: coordSource.lng ?? null,
+            gates
+        };
+        return merged;
+    }
+
+    applyLocationSyncMergeFromModal() {
+        const item = this._pendingLocationMergeItem;
+        const U = window.LocationGatesUtil;
+        if (!item || !U) return;
+
+        const merged = this._buildLocationSyncMergeFromModal();
+        if (!merged) return;
+
+        const removed = U.gatesRemovedAfterLocationMerge(
+            item.local?.gates,
+            item.sheet?.gates,
+            merged.gates
+        );
+        if (removed.length) {
+            const locationId = merged.id || item.entityId;
+            const ok = this._confirmSyncMergeLocationGateDeletions([{
+                locationId,
+                locationName: merged.name || item.local?.name || item.sheet?.name || locationId,
+                removedGates: removed
+            }]);
+            if (!ok) return;
+            this._locationMergeGateConfirmIds.add(locationId);
+        }
+
+        this._locationSyncMergeOverrides[item.id] = merged;
+        this.closeLocationSyncMergeModal();
+        const conflict = this._pendingSyncConflict || window.SheetsAPI?._pendingConflict;
+        if (conflict) this.showSyncConflictModal(conflict);
     }
 
     async applySyncConflictMerge() {
@@ -9059,6 +9262,13 @@ class SkydivingLogbook {
 
         try {
             const selections = this._collectSyncConflictSelections();
+            const gateWarnings = window.SheetsAPI.findLocationGateDeletionsAfterSyncMerge(conflict, selections);
+            const needsGateConfirm = gateWarnings.filter(
+                (w) => !this._locationMergeGateConfirmIds.has(w.locationId)
+            );
+            if (needsGateConfirm.length && !this._confirmSyncMergeLocationGateDeletions(needsGateConfirm)) {
+                return;
+            }
             const mergedJumps = window.SheetsAPI.buildMergedJumpsFromSelections(conflict, selections);
             const mergedEquipment = window.SheetsAPI.buildMergedEquipmentFromSelections(conflict, selections);
             await window.SheetsAPI.completeConflictResolution(mergedJumps, mergedEquipment, selections);
