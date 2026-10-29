@@ -1479,9 +1479,15 @@ class SheetsAPI {
         for (const item of items) {
             switch (item.type) {
                 case 'modified': {
-                    const choice = selections[item.id] || 'sheet';
-                    const chosen = choice === 'local' ? item.local : item.sheet;
                     if (item.equipmentKind === 'settings') break;
+                    const mergedOverride = selections[`${item.id}:merged`];
+                    let chosen;
+                    if (mergedOverride && typeof mergedOverride === 'object') {
+                        chosen = mergedOverride;
+                    } else {
+                        const choice = selections[item.id] || 'sheet';
+                        chosen = choice === 'local' ? item.local : item.sheet;
+                    }
                     if (chosen?.id) byId.set(chosen.id, { ...chosen });
                     break;
                 }
@@ -1511,6 +1517,45 @@ class SheetsAPI {
         return choice === 'local'
             ? { ...(sheetSettings || {}), ...(localSettings || {}) }
             : { ...(localSettings || {}), ...(sheetSettings || {}) };
+    }
+
+    /**
+     * Locations whose merged gates are fewer than the union of local + sheet gates.
+     * @returns {Array<{ locationId: string, locationName: string, removedGates: object[] }>}
+     */
+    findLocationGateDeletionsAfterSyncMerge(conflictData, selections) {
+        const U = typeof LocationGatesUtil !== 'undefined' ? LocationGatesUtil : null;
+        if (!U?.gatesRemovedAfterLocationMerge) return [];
+
+        const mergedEq = this.buildMergedEquipmentFromSelections(conflictData, selections);
+        const localLocs = conflictData.localEquipment?.locations || [];
+        const sheetLocs = conflictData.sheetEquipment?.locations || [];
+        const mergedLocs = mergedEq.locations || [];
+        const localById = new Map(localLocs.filter(l => l?.id).map(l => [l.id, l]));
+        const sheetById = new Map(sheetLocs.filter(l => l?.id).map(l => [l.id, l]));
+        const mergedById = new Map(mergedLocs.filter(l => l?.id).map(l => [l.id, l]));
+        const allIds = new Set([...localById.keys(), ...sheetById.keys()]);
+        const warnings = [];
+
+        for (const locationId of allIds) {
+            const local = localById.get(locationId);
+            const sheet = sheetById.get(locationId);
+            const merged = mergedById.get(locationId);
+            if (!merged) continue;
+            const removed = U.gatesRemovedAfterLocationMerge(
+                local?.gates,
+                sheet?.gates,
+                merged.gates
+            );
+            if (removed.length) {
+                warnings.push({
+                    locationId,
+                    locationName: merged.name || local?.name || sheet?.name || locationId,
+                    removedGates: removed
+                });
+            }
+        }
+        return warnings;
     }
 
     buildMergedEquipmentFromSelections(conflictData, selections) {
