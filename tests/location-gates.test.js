@@ -68,6 +68,23 @@ test('buildGatesSeedFromLocations: strips ids and omits empty', () => {
     assert.equal(seed.loc_b[0].id, undefined);
 });
 
+test('gatesUnion and gatesRemovedAfterLocationMerge', () => {
+    const local = [
+        { id: 'g1', label: 'A', lat: 1, lng: 2 },
+        { id: 'g2', label: 'B', lat: 3, lng: 4 }
+    ];
+    const sheet = [
+        { id: 'g1', label: 'A', lat: 1, lng: 2 },
+        { id: 'g3', label: 'C', lat: 5, lng: 6 }
+    ];
+    const union = U.gatesUnion(local, sheet);
+    assert.equal(union.length, 3);
+    const merged = [local[0], local[1]];
+    const removed = U.gatesRemovedAfterLocationMerge(local, sheet, merged);
+    assert.equal(removed.length, 1);
+    assert.equal(removed[0].label, 'C');
+});
+
 test('formatLocationGatesSeedJs: valid assignable snippet', () => {
     const seed = { loc_test: [{ label: 'T', lat: 10, lng: 20 }] };
     const js = U.formatLocationGatesSeedJs(seed);
